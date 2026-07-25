@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and deployment help
+    url: https://github.com/haya-inc/hayasend/discussions
+    about: Use Discussions for questions and design conversations.
+  - name: Report a security vulnerability privately
+    url: https://github.com/haya-inc/hayasend/security/advisories/new
+    about: Never disclose a suspected vulnerability in a public issue.
