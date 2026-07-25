@@ -29,8 +29,12 @@ Globals:
           - !Ref BootstrapSecretArn
         HAYASEND_TABLE_NAME: !Ref DataTable
         HAYASEND_QUEUE_URL: !Ref JobQueue
+        HAYASEND_QUEUE_ARN: !GetAtt JobQueue.Arn
         HAYASEND_PAYLOAD_BUCKET: !Ref PayloadBucket
         HAYASEND_CONFIGURATION_SET: !Ref ConfigurationSet
+        HAYASEND_SCHEDULER_GROUP_NAME: !Ref EmailScheduleGroup
+        HAYASEND_SCHEDULER_ROLE_ARN: !GetAtt SchedulerTargetRole.Arn
+        HAYASEND_SCHEDULER_DLQ_ARN: !GetAtt SchedulerDeadLetterQueue.Arn
         NODE_OPTIONS: --enable-source-maps
 
 Resources:
@@ -81,6 +85,19 @@ Resources:
                 - ses:GetEmailIdentity
                 - ses:SendEmail
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+                - scheduler:UpdateSchedule
+              Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${EmailScheduleGroup}/*
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerTargetRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: scheduler.amazonaws.com
       Events:
         Root:
           Type: HttpApi
@@ -124,6 +141,19 @@ Resources:
               Action:
                 - ses:SendEmail
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+                - scheduler:UpdateSchedule
+              Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${EmailScheduleGroup}/*
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerTargetRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: scheduler.amazonaws.com
       Events:
         Jobs:
           Type: SQS
@@ -228,6 +258,12 @@ Resources:
       KmsMasterKeyId: alias/aws/sqs
       MessageRetentionPeriod: 1209600
 
+  SchedulerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
   JobQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -237,6 +273,34 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 5
+
+  EmailScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+
+  SchedulerTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceArn: !GetAtt EmailScheduleGroup.Arn
+      Policies:
+        - PolicyName: DeliverScheduledEmailJob
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - !GetAtt JobQueue.Arn
+                  - !GetAtt SchedulerDeadLetterQueue.Arn
 
   SesEventTopic:
     Type: AWS::SNS::Topic
@@ -264,6 +328,42 @@ Resources:
           Value: !GetAtt DeadLetterQueue.QueueName
       Statistic: Maximum
       Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SchedulerDeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: EventBridge Scheduler could not deliver an email job.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SchedulerDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SchedulerDroppedInvocationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: EventBridge Scheduler exhausted delivery retries.
+      Namespace: AWS/Scheduler
+      MetricName: InvocationDroppedCount
+      Dimensions:
+        - Name: ScheduleGroup
+          Value: !Ref EmailScheduleGroup
+      Statistic: Sum
+      Period: 300
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
@@ -378,7 +478,10 @@ Resources:
                 "period": 60,
                 "metrics": [
                   ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${JobQueue.QueueName}"],
-                  [".", "ApproximateNumberOfMessagesVisible", ".", "${DeadLetterQueue.QueueName}"]
+                  [".", "ApproximateNumberOfMessagesVisible", ".", "${DeadLetterQueue.QueueName}"],
+                  [".", "ApproximateNumberOfMessagesVisible", ".", "${SchedulerDeadLetterQueue.QueueName}"],
+                  ["AWS/Scheduler", "TargetErrorCount", "ScheduleGroup", "${EmailScheduleGroup}"],
+                  ["AWS/Scheduler", "InvocationDroppedCount", "ScheduleGroup", "${EmailScheduleGroup}"]
                 ]
               }
             }
@@ -433,8 +536,12 @@ Outputs:
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
   QueueArn:
     Value: !GetAtt JobQueue.Arn
+  EmailScheduleGroupName:
+    Value: !Ref EmailScheduleGroup
   DeadLetterQueueUrl:
     Value: !Ref DeadLetterQueue
+  SchedulerDeadLetterQueueUrl:
+    Value: !Ref SchedulerDeadLetterQueue
   TableName:
     Value: !Ref DataTable
   PayloadBucketName:

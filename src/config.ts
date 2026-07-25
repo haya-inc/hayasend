@@ -8,8 +8,12 @@ export interface Config {
   region: string;
   tableName?: string;
   queueUrl?: string;
+  queueArn?: string;
   payloadBucket?: string;
   configurationSet?: string;
+  schedulerGroupName?: string;
+  schedulerRoleArn?: string;
+  schedulerDeadLetterQueueArn?: string;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -47,11 +51,26 @@ export function loadConfig(env = process.env): Config {
     ...(env.HAYASEND_QUEUE_URL
       ? { queueUrl: env.HAYASEND_QUEUE_URL }
       : {}),
+    ...(env.HAYASEND_QUEUE_ARN
+      ? { queueArn: env.HAYASEND_QUEUE_ARN }
+      : {}),
     ...(env.HAYASEND_PAYLOAD_BUCKET
       ? { payloadBucket: env.HAYASEND_PAYLOAD_BUCKET }
       : {}),
     ...(env.HAYASEND_CONFIGURATION_SET
       ? { configurationSet: env.HAYASEND_CONFIGURATION_SET }
+      : {}),
+    ...(env.HAYASEND_SCHEDULER_GROUP_NAME
+      ? { schedulerGroupName: env.HAYASEND_SCHEDULER_GROUP_NAME }
+      : {}),
+    ...(env.HAYASEND_SCHEDULER_ROLE_ARN
+      ? { schedulerRoleArn: env.HAYASEND_SCHEDULER_ROLE_ARN }
+      : {}),
+    ...(env.HAYASEND_SCHEDULER_DLQ_ARN
+      ? {
+          schedulerDeadLetterQueueArn:
+            env.HAYASEND_SCHEDULER_DLQ_ARN,
+        }
       : {}),
   };
 }

@@ -3,6 +3,7 @@ import { createApp } from "../src/app.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import type { EmailRecord } from "../src/core/types.js";
 import type {
   MailTransport,
@@ -30,9 +31,10 @@ function fixture() {
   const suppressions = new SuppressionService(store);
   const apiKeys = new ApiKeyService(store, "re_test_secret");
   const transport = new RecordingTransport();
+  const scheduler = new QueueEmailScheduler(queue);
   const emails = new EmailService(
     store,
-    queue,
+    scheduler,
     transport,
     webhooks,
     suppressions,

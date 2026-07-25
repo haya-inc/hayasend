@@ -18,14 +18,15 @@ account, and HayaSend never logs message bodies.
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
 - automatic hard-bounce and complaint suppressions plus manual suppression API
-- ISO 8601 and relative scheduling such as `in 10 minutes`
+- ISO 8601 and relative scheduling such as `in 10 minutes`, with
+  EventBridge Scheduler for delays beyond 15 minutes
 - email retrieval, listing, cancellation, and rescheduling
 - SES domain creation, DKIM record discovery, refresh, and deletion
 - signed webhooks with SQS retry and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
 - local in-memory development mode
-- serverless AWS deployment with API Gateway, Lambda, SQS, SNS, DynamoDB,
-  and SES
+- serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
+  Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official `resend` Node SDK
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
@@ -152,16 +153,17 @@ Application / Resend SDK
           |
       HTTP API
           |
-  DynamoDB + SQS ----> send worker ----> Amazon SES
+  DynamoDB + Scheduler/SQS ----> send worker ----> Amazon SES
                               |
 SES events ----> SNS ----> event normalizer
                               |
                          signed webhooks
 ```
 
-Long schedules are implemented by safe 15-minute SQS hops until the scheduled
-time. A future release will use EventBridge Scheduler for lower cost at long
-durations.
+SQS handles immediate and short-delay jobs. Longer reservations use
+self-deleting, one-time EventBridge Scheduler entries that target the same
+queue. Canceling or rescheduling an email deletes or replaces its deterministic
+schedule.
 
 Read [the architecture notes](docs/architecture.md) for security boundaries
 and delivery semantics.

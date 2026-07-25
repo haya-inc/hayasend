@@ -4,7 +4,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "../core/errors.js";
-import { delaySecondsUntil, parseScheduledAt } from "../core/schedule.js";
+import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
 import { emitCountMetric } from "../core/metrics.js";
 import type {
   CreateEmailResult,
@@ -14,7 +14,7 @@ import type {
   SendEmailInput,
   WebhookEventType,
 } from "../core/types.js";
-import type { JobQueue } from "../ports/job-queue.js";
+import type { EmailScheduler } from "../ports/email-scheduler.js";
 import type { MailTransport } from "../ports/mail-transport.js";
 import type { Store } from "../ports/store.js";
 import type { SuppressionService } from "./suppression-service.js";
@@ -82,7 +82,7 @@ function validateInput(input: SendEmailInput) {
 export class EmailService {
   constructor(
     private readonly store: Store,
-    private readonly queue: JobQueue,
+    private readonly scheduler: EmailScheduler,
     private readonly transport: MailTransport,
     private readonly webhooks: WebhookService,
     private readonly suppressions: SuppressionService,
@@ -149,14 +149,21 @@ export class EmailService {
           ),
         });
       } else {
-        await this.queue.enqueue(
-          { type: "send_email", email_id: record.id },
-          delaySecondsUntil(scheduledAt, now),
-        );
+        await this.scheduler.schedule(record.id, scheduledAt, now);
       }
       if (scheduledAt && suppressedRecipients.length === 0) {
         await this.webhooks.publish("email.scheduled", record);
       }
+    } else if (
+      created.record.status === "scheduled" &&
+      created.record.scheduled_at &&
+      secondsUntil(created.record.scheduled_at, now) > 900
+    ) {
+      await this.scheduler.schedule(
+        created.record.id,
+        created.record.scheduled_at,
+        now,
+      );
     }
     return created;
   }
@@ -210,6 +217,7 @@ export class EmailService {
     if (!updated) {
       throw new NotFoundError("Email");
     }
+    await this.scheduler.cancel(id);
     return updated;
   }
 
@@ -221,6 +229,9 @@ export class EmailService {
       );
     }
     const parsed = parseScheduledAt(scheduledAt);
+    if (!parsed) {
+      throw new ValidationError("scheduled_at is required.");
+    }
     const updated = await this.store.updateEmail(id, {
       scheduled_at: parsed,
       status: "scheduled",
@@ -230,10 +241,15 @@ export class EmailService {
     if (!updated) {
       throw new NotFoundError("Email");
     }
-    await this.queue.enqueue(
-      { type: "send_email", email_id: id },
-      delaySecondsUntil(parsed),
-    );
+    await this.scheduler.reschedule(id, parsed);
+    const current = await this.store.getEmail(id);
+    if (
+      current?.status === "scheduled" &&
+      current.scheduled_at &&
+      current.scheduled_at !== parsed
+    ) {
+      await this.scheduler.reschedule(id, current.scheduled_at);
+    }
     return updated;
   }
 
@@ -242,12 +258,9 @@ export class EmailService {
     if (!record || FINAL_STATUSES.has(record.status)) {
       return;
     }
-    const delay = delaySecondsUntil(record.scheduled_at);
-    if (delay > 0) {
-      await this.queue.enqueue(
-        { type: "send_email", email_id: id },
-        delay,
-      );
+    const delay = secondsUntil(record.scheduled_at);
+    if (record.scheduled_at && delay > 0) {
+      await this.scheduler.reschedule(id, record.scheduled_at);
       return;
     }
 

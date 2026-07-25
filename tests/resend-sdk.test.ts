@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import type {
   MailTransport,
@@ -30,6 +31,7 @@ describe("official Resend Node SDK compatibility", () => {
     const queue = new CapturingJobQueue();
     const webhooks = new WebhookService(store, queue);
     const suppressions = new SuppressionService(store);
+    const scheduler = new QueueEmailScheduler(queue);
     const app = createApp({
       apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
       domainService: new DomainService(
@@ -39,7 +41,7 @@ describe("official Resend Node SDK compatibility", () => {
       ),
       emailService: new EmailService(
         store,
-        queue,
+        scheduler,
         passthroughTransport,
         webhooks,
         suppressions,

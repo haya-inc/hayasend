@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { processSesEvent } from "../src/aws/ses-events.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import type {
   MailTransport,
@@ -21,9 +22,10 @@ function fixture() {
   const queue = new CapturingJobQueue();
   const webhooks = new WebhookService(store, queue);
   const suppressionService = new SuppressionService(store);
+  const scheduler = new QueueEmailScheduler(queue);
   const emailService = new EmailService(
     store,
-    queue,
+    scheduler,
     transport,
     webhooks,
     suppressionService,

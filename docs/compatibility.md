@@ -11,7 +11,7 @@ migration path. It does not claim full Resend API coverage.
 | Batch | send | Implemented | 1–100 messages |
 | Attachments | base64 content | Implemented | 6 MiB decoded aggregate guardrail |
 | Attachments | remote path | Rejected | avoids server-side URL fetching |
-| Scheduling | ISO 8601 | Implemented | |
+| Scheduling | ISO 8601 | Implemented | SQS up to 15 minutes; EventBridge Scheduler beyond |
 | Scheduling | relative English | Partial | `in N minutes/hours/days` |
 | Domains | create/get/list/delete/verify | Implemented | Amazon SES identities |
 | Webhooks | create/get/list/delete | Implemented | signed `svix-*` headers |

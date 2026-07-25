@@ -21,6 +21,8 @@ Do not use the bootstrap key in normal application traffic.
 | Alarm | Immediate response |
 |---|---|
 | Dead-letter queue contains a job | Inspect the job type and error logs before redrive |
+| Scheduler dead-letter queue contains an invocation | Inspect Scheduler target permissions and the original email ID; do not redrive the envelope directly into the job queue |
+| Scheduler invocation dropped | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions |
 | Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
 | API internal error | Use `x-request-id` to correlate API logs |
 | Send retries exhausted | Inspect SES response, account state, identity, and configuration set |
@@ -40,6 +42,11 @@ into tickets.
 Webhook jobs may be retried safely. Send jobs are protected by a state lease,
 but a rare duplicate remains possible if SES accepted a message before a
 worker stopped without recording the provider ID.
+
+The Scheduler DLQ is separate from the worker DLQ because its messages are
+Scheduler delivery envelopes rather than HayaSend jobs. After fixing the
+cause, recover the referenced email by rescheduling it through the API instead
+of redriving the raw Scheduler envelope.
 
 ## Key rotation
 

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import type { EmailRecord } from "../src/core/types.js";
 import type {
   MailTransport,
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
+import type { EmailScheduler } from "../src/ports/email-scheduler.js";
 import { EmailService } from "../src/services/email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
@@ -24,20 +26,67 @@ class StubTransport implements MailTransport {
   }
 }
 
+class RecordingEmailScheduler implements EmailScheduler {
+  readonly canceled: string[] = [];
+  readonly rescheduled: Array<{
+    emailId: string;
+    scheduledAt: string;
+  }> = [];
+  onFirstReschedule?: () => Promise<void>;
+
+  constructor(
+    private readonly queueScheduler: QueueEmailScheduler,
+  ) {}
+
+  async schedule(
+    emailId: string,
+    scheduledAt?: string,
+    now?: Date,
+  ): Promise<void> {
+    await this.queueScheduler.schedule(emailId, scheduledAt, now);
+  }
+
+  async reschedule(
+    emailId: string,
+    scheduledAt: string,
+    now?: Date,
+  ): Promise<void> {
+    this.rescheduled.push({ emailId, scheduledAt });
+    if (this.rescheduled.length === 1 && this.onFirstReschedule) {
+      await this.onFirstReschedule();
+    }
+    await this.queueScheduler.reschedule(emailId, scheduledAt, now);
+  }
+
+  async cancel(emailId: string): Promise<void> {
+    this.canceled.push(emailId);
+  }
+}
+
 function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const transport = new StubTransport();
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const scheduler = new RecordingEmailScheduler(
+    new QueueEmailScheduler(queue),
+  );
   const service = new EmailService(
     store,
-    queue,
+    scheduler,
     transport,
     webhooks,
     suppressions,
   );
-  return { queue, service, store, suppressions, transport };
+  return {
+    queue,
+    scheduler,
+    service,
+    store,
+    suppressions,
+    transport,
+  };
 }
 
 const input = {
@@ -105,6 +154,53 @@ describe("EmailService", () => {
       scheduled_at: "2026-07-26T00:10:00.000Z",
     });
     expect(queue.jobs[0]?.delaySeconds).toBe(600);
+  });
+
+  it("cancels the external schedule when an email is canceled", async () => {
+    const { scheduler, service } = fixture();
+    const created = await service.create(input);
+
+    await service.cancel(created.record.id);
+
+    expect(scheduler.canceled).toEqual([created.record.id]);
+  });
+
+  it("replaces a schedule and repairs stale early delivery jobs", async () => {
+    const { scheduler, service, transport } = fixture();
+    const created = await service.create(input);
+    const scheduledAt = new Date(Date.now() + 86_400_000).toISOString();
+
+    await service.reschedule(created.record.id, scheduledAt);
+    await service.processSend(created.record.id);
+
+    expect(scheduler.rescheduled).toEqual([
+      { emailId: created.record.id, scheduledAt },
+      { emailId: created.record.id, scheduledAt },
+    ]);
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it("reconciles a concurrent reschedule to the stored source of truth", async () => {
+    const { scheduler, service, store } = fixture();
+    const created = await service.create(input);
+    const firstTime = new Date(Date.now() + 86_400_000).toISOString();
+    const winningTime = new Date(
+      Date.now() + 2 * 86_400_000,
+    ).toISOString();
+    scheduler.onFirstReschedule = async () => {
+      await store.updateEmail(created.record.id, {
+        scheduled_at: winningTime,
+        status: "scheduled",
+        updated_at: new Date().toISOString(),
+      });
+    };
+
+    await service.reschedule(created.record.id, firstTime);
+
+    expect(scheduler.rescheduled).toEqual([
+      { emailId: created.record.id, scheduledAt: firstTime },
+      { emailId: created.record.id, scheduledAt: winningTime },
+    ]);
   });
 
   it("does not enqueue or deliver to a suppressed recipient", async () => {

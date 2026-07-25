@@ -17,7 +17,9 @@ revocation.
 
 1. The HTTP API authenticates and validates a Resend-shaped request.
 2. DynamoDB claims the idempotency key and stores the email in one transaction.
-3. The suppression list is checked before SQS accepts a `send_email` job.
+3. The suppression list is checked before SQS accepts an immediate or
+   short-delay job. Delays beyond 15 minutes use a self-deleting EventBridge
+   Scheduler entry that targets the same queue.
 4. The worker reloads current state and rechecks suppressions immediately
    before calling SES v2, so a newly suppressed recipient cannot receive an
    already scheduled message.
@@ -29,6 +31,10 @@ SQS and Lambda are at-least-once systems. HayaSend therefore treats the email
 record as the source of truth and refuses to process a job after the record
 reaches a final state. An atomic send lease prevents concurrent workers from
 sending the same queued record.
+
+Scheduler names are derived from email IDs. Rescheduling replaces the same
+one-time schedule, cancellation deletes it, and stale SQS deliveries reload
+the current DynamoDB record before doing any work.
 
 There is still an unavoidable narrow failure window if SES accepts a message
 and the worker stops before recording the provider ID. A later retry can
@@ -70,7 +76,6 @@ reject stale timestamps.
 ## Known pre-v1 limits
 
 - one bootstrap administrator key per deployment;
-- long schedules use repeated SQS delays;
 - payload retention is fixed at 45 days;
 - no inbound path yet;
 - no deployment test has run in a dedicated AWS account.

@@ -1,5 +1,9 @@
 import type { AppServices } from "./app.js";
 import { DynamoStore } from "./adapters/dynamo-store.js";
+import {
+  AwsEmailScheduler,
+  QueueEmailScheduler,
+} from "./adapters/email-scheduler.js";
 import { MemoryStore } from "./adapters/memory-store.js";
 import {
   LocalDomainProvider,
@@ -33,13 +37,14 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const queue = new LocalJobQueue();
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const scheduler = new QueueEmailScheduler(queue);
   const apiKeys = new ApiKeyService(
     store,
     config.apiKey ?? "re_hayasend_dev",
   );
   const emailService = new EmailService(
     store,
-    queue,
+    scheduler,
     new ConsoleMailTransport(),
     webhooks,
     suppressions,
@@ -77,19 +82,34 @@ export function createAwsRuntime(
     );
   },
 ): Runtime {
-  if (!config.tableName || !config.queueUrl || !config.payloadBucket) {
+  if (
+    !config.tableName ||
+    !config.queueUrl ||
+    !config.queueArn ||
+    !config.payloadBucket ||
+    !config.schedulerGroupName ||
+    !config.schedulerRoleArn ||
+    !config.schedulerDeadLetterQueueArn
+  ) {
     throw new Error(
-      "HAYASEND_TABLE_NAME, HAYASEND_QUEUE_URL, and HAYASEND_PAYLOAD_BUCKET are required in AWS mode.",
+      "DynamoDB, SQS, S3, and EventBridge Scheduler settings are required in AWS mode.",
     );
   }
   const store = new DynamoStore(config.tableName, config.payloadBucket);
   const queue = new SqsJobQueue(config.queueUrl);
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const scheduler = new AwsEmailScheduler(queue, {
+    groupName: config.schedulerGroupName,
+    queueArn: config.queueArn,
+    roleArn: config.schedulerRoleArn,
+    schedulerDeadLetterQueueArn:
+      config.schedulerDeadLetterQueueArn,
+  });
   const apiKeys = new ApiKeyService(store, bootstrapKey);
   const emailService = new EmailService(
     store,
-    queue,
+    scheduler,
     new SesMailTransport(config.configurationSet),
     webhooks,
     suppressions,

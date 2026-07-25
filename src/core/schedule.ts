@@ -44,11 +44,18 @@ export function delaySecondsUntil(
   scheduledAt: string | undefined,
   now = new Date(),
 ): number {
+  return Math.min(900, secondsUntil(scheduledAt, now));
+}
+
+export function secondsUntil(
+  scheduledAt: string | undefined,
+  now = new Date(),
+): number {
   if (!scheduledAt) {
     return 0;
   }
   const seconds = Math.ceil(
     (new Date(scheduledAt).getTime() - now.getTime()) / 1_000,
   );
-  return Math.max(0, Math.min(900, seconds));
+  return Math.max(0, seconds);
 }
