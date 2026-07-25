@@ -3,6 +3,11 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import {
+  PREVIEW_CSS,
+  PREVIEW_HTML,
+  PREVIEW_JS,
+} from "./preview.js";
+import {
   AppError,
   ForbiddenError,
   UnauthorizedError,
@@ -52,6 +57,10 @@ export interface AppServices {
   receivedEmailService: ReceivedEmailService;
   suppressionService: SuppressionService;
   webhookService: WebhookService;
+}
+
+export interface AppOptions {
+  localPreview?: boolean;
 }
 
 function hasScope(principal: AuthenticatedPrincipal, scope: ApiScope) {
@@ -136,8 +145,43 @@ async function readBodyWithLimit(request: Request, limit: number) {
   return content;
 }
 
-export function createApp(services: AppServices) {
+function previewSummary(record: EmailRecord) {
+  return {
+    id: record.id,
+    status: record.status,
+    last_event: record.last_event,
+    from: record.from,
+    to: record.to,
+    subject: record.subject,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+    has_html: Boolean(record.html),
+    has_text: Boolean(record.text),
+    attachment_count: record.attachments?.length ?? 0,
+  };
+}
+
+function setPreviewSecurityHeaders(
+  context: {
+    header(name: string, value: string): void;
+  },
+  contentSecurityPolicy?: string,
+) {
+  context.header("cross-origin-opener-policy", "same-origin");
+  context.header("cross-origin-resource-policy", "same-origin");
+  context.header("referrer-policy", "no-referrer");
+  context.header("x-frame-options", "DENY");
+  if (contentSecurityPolicy) {
+    context.header("content-security-policy", contentSecurityPolicy);
+  }
+}
+
+export function createApp(
+  services: AppServices,
+  options: AppOptions = {},
+) {
   const app = new Hono<AppEnv>();
+  const localPreview = options.localPreview === true;
 
   app.use("*", async (context, next) => {
     const requestId =
@@ -148,8 +192,15 @@ export function createApp(services: AppServices) {
 
     const attachmentUploadPath =
       /^\/attachments\/[^/]+\/content$/.test(context.req.path);
+    const localPreviewPath =
+      localPreview &&
+      (context.req.path === "/" ||
+        context.req.path === "/favicon.ico" ||
+        context.req.path === "/preview" ||
+        context.req.path.startsWith("/preview/"));
     if (
       context.req.path === "/healthz" ||
+      localPreviewPath ||
       (attachmentUploadPath &&
         ["PUT", "OPTIONS"].includes(context.req.method))
     ) {
@@ -175,6 +226,57 @@ export function createApp(services: AppServices) {
       version: "0.1.0",
     }),
   );
+
+  if (localPreview) {
+    app.get("/", (context) => context.redirect("/preview", 302));
+    app.get("/favicon.ico", (context) => {
+      setPreviewSecurityHeaders(context);
+      return context.body(null, 204);
+    });
+    app.get("/preview", (context) => {
+      setPreviewSecurityHeaders(
+        context,
+        "default-src 'none'; script-src 'self'; style-src 'self'; " +
+          "connect-src 'self'; img-src 'self' data:; frame-src 'self'; " +
+          "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      );
+      return context.html(PREVIEW_HTML);
+    });
+    app.get("/preview/app.css", (context) => {
+      setPreviewSecurityHeaders(context);
+      return context.body(PREVIEW_CSS, 200, {
+        "content-type": "text/css; charset=utf-8",
+      });
+    });
+    app.get("/preview/app.js", (context) => {
+      setPreviewSecurityHeaders(context);
+      return context.body(PREVIEW_JS, 200, {
+        "content-type": "text/javascript; charset=utf-8",
+      });
+    });
+    app.get(
+      "/preview/api/emails",
+      zValidator("query", paginationSchema, validationCallback),
+      async (context) => {
+        setPreviewSecurityHeaders(context);
+        const { limit, after } = context.req.valid("query");
+        const page = await services.emailService.list(limit, after);
+        return context.json({
+          object: "list",
+          ...page,
+          data: page.data.map(previewSummary),
+        });
+      },
+    );
+    app.get("/preview/api/emails/:id", async (context) => {
+      setPreviewSecurityHeaders(context);
+      return context.json(
+        publicEmail(
+          await services.emailService.get(context.req.param("id")),
+        ),
+      );
+    });
+  }
 
   app.post(
     "/attachments",

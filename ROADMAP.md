@@ -34,7 +34,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] hardened local container quickstart
 - [x] signed, multi-platform container and SBOM release automation
 - [ ] first signed public release
-- local preview inbox
+- [x] local preview inbox
 - template versions using React Email
 - `hayasend init`, `deploy`, `doctor`, `test`, and migration commands
 - OpenTelemetry exports and operational dashboard

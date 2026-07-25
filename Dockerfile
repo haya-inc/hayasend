@@ -25,6 +25,7 @@ LABEL org.opencontainers.image.title="HayaSend" \
 
 ENV NODE_ENV=production \
     HAYASEND_MODE=local \
+    HAYASEND_HOST=0.0.0.0 \
     HAYASEND_PORT=8787
 
 WORKDIR /app

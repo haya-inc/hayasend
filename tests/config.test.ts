@@ -6,12 +6,22 @@ describe("loadConfig", () => {
     expect(loadConfig({})).toMatchObject({
       mode: "local",
       apiKey: "re_hayasend_dev",
+      host: "127.0.0.1",
       port: 8787,
       inboundRawPrefix: "inbound/raw/",
       inboundRetentionDays: 7,
       inboundMaxMessageBytes: 25 * 1024 * 1024,
       webhookDeliveryRetentionDays: 7,
     });
+  });
+
+  it("supports an explicit container bind address", () => {
+    expect(loadConfig({ HAYASEND_HOST: "0.0.0.0" }).host).toBe(
+      "0.0.0.0",
+    );
+    expect(() => loadConfig({ HAYASEND_HOST: "bad host" })).toThrow(
+      "HAYASEND_HOST",
+    );
   });
 
   it("requires a Secrets Manager ARN in AWS mode", () => {

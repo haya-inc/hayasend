@@ -69,6 +69,10 @@ With Docker, the API starts in hardened, read-only local mode:
 docker compose up --build
 ```
 
+Open [http://localhost:8787/preview](http://localhost:8787/preview) to inspect
+every local send as rendered HTML, plain text, or JSON. The preview blocks
+remote content and email interactions; it is never registered in AWS mode.
+
 The image runs as the unprivileged `node` user with all Linux capabilities
 dropped and binds only to `127.0.0.1:8787`. To run it directly:
 
@@ -95,7 +99,9 @@ npm run dev
 ```
 
 The local server listens on `http://localhost:8787` and uses the development
-key `re_hayasend_dev`.
+key `re_hayasend_dev`. Source development binds to `127.0.0.1` by default.
+If you deliberately change `HAYASEND_HOST`, remember that the preview contains
+message bodies and must not be exposed to an untrusted network.
 
 ```bash
 curl http://localhost:8787/emails \

@@ -4,6 +4,7 @@ export interface Config {
   mode: "local" | "aws";
   apiKey?: string;
   apiKeySecretArn?: string;
+  host: string;
   port: number;
   region: string;
   tableName?: string;
@@ -35,6 +36,17 @@ export function loadConfig(env = process.env): Config {
   if (mode === "aws" && apiKey) {
     throw new ValidationError(
       "HAYASEND_API_KEY is not supported in AWS mode; use Secrets Manager.",
+    );
+  }
+  const host =
+    env.HAYASEND_HOST ?? (mode === "local" ? "127.0.0.1" : "0.0.0.0");
+  if (
+    host.length < 1 ||
+    host.length > 253 ||
+    /[\s/\\]/.test(host)
+  ) {
+    throw new ValidationError(
+      "HAYASEND_HOST must be a valid host name or IP address.",
     );
   }
   const port = Number(env.HAYASEND_PORT ?? 8787);
@@ -94,6 +106,7 @@ export function loadConfig(env = process.env): Config {
 
   return {
     mode,
+    host,
     port,
     region: env.AWS_REGION ?? "ap-northeast-1",
     inboundRawPrefix,

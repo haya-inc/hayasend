@@ -107,6 +107,25 @@ function fixture() {
   };
 }
 
+function previewFixture() {
+  const result = fixture();
+  return {
+    ...result,
+    app: createApp(
+      {
+        apiKeyService: result.apiKeys,
+        attachmentService: result.attachments,
+        domainService: result.domains,
+        emailService: result.emails,
+        receivedEmailService: result.receivedEmailService,
+        suppressionService: result.suppressions,
+        webhookService: result.webhooks,
+      },
+      { localPreview: true },
+    ),
+  };
+}
+
 const email = {
   from: "HayaSend <hello@example.com>",
   to: "person@example.net",
@@ -123,6 +142,86 @@ describe("HTTP API", () => {
 
     const unauthorized = await request("/emails", {}, "wrong");
     expect(unauthorized.status).toBe(401);
+  });
+
+  it("exposes the preview only when local preview mode is enabled", async () => {
+    const regular = fixture();
+    const protectedPreview = await regular.app.request("/preview");
+    expect(protectedPreview.status).toBe(401);
+
+    const { app } = previewFixture();
+    const root = await app.request("/");
+    expect(root.status).toBe(302);
+    expect(root.headers.get("location")).toBe("/preview");
+
+    const preview = await app.request("/preview");
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("content-type")).toContain("text/html");
+    expect(preview.headers.get("content-security-policy")).toContain(
+      "default-src 'none'",
+    );
+    expect(preview.headers.get("x-frame-options")).toBe("DENY");
+    const previewHtml = await preview.text();
+    expect(previewHtml).toContain("HayaSend");
+    expect(previewHtml).toContain(
+      'id="html-view" title="Sandboxed email HTML preview" sandbox',
+    );
+    expect(previewHtml).not.toContain("allow-scripts");
+
+    const css = await app.request("/preview/app.css");
+    expect(css.headers.get("content-type")).toContain("text/css");
+    const script = await app.request("/preview/app.js");
+    expect(script.headers.get("content-type")).toContain(
+      "text/javascript",
+    );
+    expect(await script.text()).toContain("default-src 'none'");
+    const favicon = await app.request("/favicon.ico");
+    expect(favicon.status).toBe(204);
+  });
+
+  it("returns body-free preview lists and isolated message details", async () => {
+    const { app } = previewFixture();
+    const maliciousHtml =
+      '<img src="https://tracker.example/pixel"><script>parent.pwned=true</script><h1>Preview me</h1>';
+    const send = await app.request("/emails", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer re_test_secret",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        ...email,
+        html: maliciousHtml,
+      }),
+    });
+    const { id } = (await send.json()) as { id: string };
+
+    const list = await app.request("/preview/api/emails?limit=100");
+    expect(list.status).toBe(200);
+    const listBody = (await list.json()) as {
+      data: Array<Record<string, unknown>>;
+    };
+    expect(listBody.data[0]).toMatchObject({
+      id,
+      subject: email.subject,
+      has_html: true,
+    });
+    expect(listBody.data[0]).not.toHaveProperty("html");
+    expect(listBody.data[0]).not.toHaveProperty("text");
+    expect(listBody.data[0]).not.toHaveProperty("request_hash");
+
+    const detail = await app.request(`/preview/api/emails/${id}`);
+    expect(detail.status).toBe(200);
+    const detailBody = (await detail.json()) as Record<string, unknown>;
+    expect(detailBody).toMatchObject({
+      id,
+      html: maliciousHtml,
+      subject: email.subject,
+    });
+    expect(detailBody).not.toHaveProperty("request_hash");
+    expect(detail.headers.get("cross-origin-resource-policy")).toBe(
+      "same-origin",
+    );
   });
 
   it("accepts a Resend-shaped email request", async () => {
