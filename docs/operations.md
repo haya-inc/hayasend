@@ -1,6 +1,8 @@
 # Operations runbook
 
 This runbook is the minimum operating procedure for an AWS deployment.
+For disposable end-to-end validation, use the
+[dedicated-account integration workflow](aws-integration-testing.md).
 
 ## After deployment
 

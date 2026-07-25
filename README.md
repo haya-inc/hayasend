@@ -31,6 +31,8 @@ account, and HayaSend never logs message bodies.
 - compatibility tests against the official `resend` Node SDK
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
+The dedicated-account deployment gate is documented in
+[AWS integration testing](docs/aws-integration-testing.md).
 
 ## Use the official Resend SDK
 

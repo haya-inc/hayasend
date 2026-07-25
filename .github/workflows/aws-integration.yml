@@ -1,0 +1,254 @@
+name: AWS integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      retain_stack:
+        description: Retain the ephemeral stack for manual debugging
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hayasend-aws-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-test-delete:
+    name: Deploy, test, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: aws-integration
+    env:
+      AWS_REGION: ${{ vars.AWS_TEST_REGION || 'ap-northeast-1' }}
+      AWS_TEST_ACCOUNT_ID: ${{ vars.AWS_TEST_ACCOUNT_ID }}
+      AWS_TEST_ROLE_ARN: ${{ vars.AWS_TEST_ROLE_ARN }}
+      STACK_NAME: hayasend-it-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Validate dedicated-account configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$AWS_TEST_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::AWS_TEST_ACCOUNT_ID must be a 12-digit environment variable."
+            exit 1
+          fi
+          expected_prefix="arn:aws:iam::${AWS_TEST_ACCOUNT_ID}:role/"
+          if [[ "$AWS_TEST_ROLE_ARN" != "$expected_prefix"* ]]; then
+            echo "::error::AWS_TEST_ROLE_ARN must name a role in AWS_TEST_ACCOUNT_ID."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+        with:
+          version: 1.161.0
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Configure short-lived AWS credentials
+        id: aws-credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+        with:
+          role-to-assume: ${{ env.AWS_TEST_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_TEST_ACCOUNT_ID }}
+          role-session-name: HayaSend-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual_account" = "$AWS_TEST_ACCOUNT_ID"
+
+      - name: Build SAM application
+        run: sam build --parallel
+
+      - name: Deploy ephemeral stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --tags Project=HayaSend Purpose=IntegrationTest GitHubRun="$GITHUB_RUN_ID"
+
+      - name: Capture stack outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          stack_output() {
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" \
+              --output text
+          }
+          api_base_url="$(stack_output ApiBaseUrl)"
+          bootstrap_secret_arn="$(stack_output BootstrapSecretArn)"
+          payload_bucket="$(stack_output PayloadBucketName)"
+          data_table="$(stack_output TableName)"
+          schedule_group="$(stack_output EmailScheduleGroupName)"
+          for value in \
+            "$api_base_url" \
+            "$bootstrap_secret_arn" \
+            "$payload_bucket" \
+            "$data_table" \
+            "$schedule_group"; do
+            if [[ -z "$value" || "$value" = "None" ]]; then
+              echo "::error::A required CloudFormation output is missing."
+              exit 1
+            fi
+          done
+          {
+            echo "API_BASE_URL=$api_base_url"
+            echo "BOOTSTRAP_SECRET_ARN=$bootstrap_secret_arn"
+            echo "PAYLOAD_BUCKET=$payload_bucket"
+            echo "DATA_TABLE=$data_table"
+            echo "SCHEDULE_GROUP=$schedule_group"
+          } >> "$GITHUB_ENV"
+
+      - name: Exercise deployed API
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_key="$(
+            aws secretsmanager get-secret-value \
+              --secret-id "$BOOTSTRAP_SECRET_ARN" \
+              --query SecretString \
+              --output text
+          )"
+          echo "::add-mask::$bootstrap_key"
+          HAYASEND_BASE_URL="$API_BASE_URL" \
+          HAYASEND_BOOTSTRAP_KEY="$bootstrap_key" \
+          node scripts/aws-integration.mjs
+
+      - name: Show CloudFormation failure events
+        if: ${{ failure() && steps.aws-credentials.outcome == 'success' }}
+        shell: bash
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackEvents[?ResourceStatusReason!=null].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason] | [:20]" \
+            --output table || true
+
+      - name: Delete ephemeral resources
+        if: ${{ always() && !inputs.retain_stack && steps.aws-credentials.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stack_exists=false
+          if aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            stack_exists=true
+          fi
+
+          resource_id() {
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?LogicalResourceId=='$1'].PhysicalResourceId | [0]" \
+              --output text
+          }
+
+          if [[ "$stack_exists" = true ]]; then
+            if [[ -z "${PAYLOAD_BUCKET:-}" || "$PAYLOAD_BUCKET" = "None" ]]; then
+              PAYLOAD_BUCKET="$(resource_id PayloadBucket)"
+            fi
+            if [[ -z "${DATA_TABLE:-}" || "$DATA_TABLE" = "None" ]]; then
+              DATA_TABLE="$(resource_id DataTable)"
+            fi
+            if [[ -z "${SCHEDULE_GROUP:-}" || "$SCHEDULE_GROUP" = "None" ]]; then
+              SCHEDULE_GROUP="$(resource_id EmailScheduleGroup)"
+            fi
+          fi
+
+          aws sesv2 delete-email-identity \
+            --email-identity "it-${GITHUB_RUN_ID}.example.com" \
+            --region "$AWS_REGION" >/dev/null 2>&1 || true
+
+          if [[ -n "${SCHEDULE_GROUP:-}" && "$SCHEDULE_GROUP" != "None" ]]; then
+            schedule_names="$(
+              aws scheduler list-schedules \
+                --group-name "$SCHEDULE_GROUP" \
+                --region "$AWS_REGION" \
+                --query "Schedules[].Name" \
+                --output text 2>/dev/null || true
+            )"
+            for schedule_name in $schedule_names; do
+              aws scheduler delete-schedule \
+                --group-name "$SCHEDULE_GROUP" \
+                --name "$schedule_name" \
+                --region "$AWS_REGION"
+            done
+          fi
+
+          if [[ "$stack_exists" = true ]]; then
+            sam delete \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --no-prompts || {
+                aws cloudformation delete-stack \
+                  --stack-name "$STACK_NAME" \
+                  --region "$AWS_REGION"
+                aws cloudformation wait stack-delete-complete \
+                  --stack-name "$STACK_NAME" \
+                  --region "$AWS_REGION"
+              }
+          fi
+
+          if [[ -n "${PAYLOAD_BUCKET:-}" && "$PAYLOAD_BUCKET" != "None" ]] &&
+            aws s3api head-bucket --bucket "$PAYLOAD_BUCKET" >/dev/null 2>&1; then
+            aws s3 rm "s3://$PAYLOAD_BUCKET" --recursive
+            aws s3api delete-bucket \
+              --bucket "$PAYLOAD_BUCKET" \
+              --region "$AWS_REGION"
+          fi
+
+          if [[ -n "${DATA_TABLE:-}" && "$DATA_TABLE" != "None" ]] &&
+            aws dynamodb describe-table \
+              --table-name "$DATA_TABLE" \
+              --region "$AWS_REGION" >/dev/null 2>&1; then
+            aws dynamodb delete-table \
+              --table-name "$DATA_TABLE" \
+              --region "$AWS_REGION" >/dev/null
+            aws dynamodb wait table-not-exists \
+              --table-name "$DATA_TABLE" \
+              --region "$AWS_REGION"
+          fi
+
+      - name: Record retained stack
+        if: ${{ always() && inputs.retain_stack && steps.aws-credentials.outcome == 'success' }}
+        shell: bash
+        run: |
+          {
+            echo "### AWS integration resources retained"
+            echo
+            echo "Stack: \`$STACK_NAME\`"
+            echo "Region: \`$AWS_REGION\`"
+            echo
+            echo "Delete it manually as soon as debugging is complete."
+          } >> "$GITHUB_STEP_SUMMARY"

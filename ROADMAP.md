@@ -14,7 +14,8 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] suppression-list enforcement before enqueue
 - [x] EventBridge Scheduler for long schedules
 - [x] presigned S3 attachment uploads beyond the API Gateway payload limit
-- [ ] deployment integration test in a dedicated AWS test account
+- [ ] first successful deployment integration run in a dedicated AWS test
+  account (OIDC deploy/test/delete workflow is ready)
 - [x] bootstrap-key storage in Secrets Manager
 
 ## v0.2 — Receive and forward
