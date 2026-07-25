@@ -3,11 +3,14 @@ Transform: AWS::Serverless-2016-10-31
 Description: HayaSend - Resend-compatible email API on Amazon SES
 
 Parameters:
-  ApiKey:
+  BootstrapSecretArn:
     Type: String
-    NoEcho: true
-    MinLength: 16
-    Description: Bootstrap bearer key. Use a secret beginning with re_ for SDK compatibility.
+    Default: ""
+    AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+    Description: Optional ARN of an existing Secrets Manager secret containing a 32+ character bootstrap key.
+
+Conditions:
+  CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
 
 Globals:
   Function:
@@ -20,7 +23,10 @@ Globals:
     Environment:
       Variables:
         HAYASEND_MODE: aws
-        HAYASEND_API_KEY: !Ref ApiKey
+        HAYASEND_API_KEY_SECRET_ARN: !If
+          - CreateBootstrapSecret
+          - !Ref BootstrapSecret
+          - !Ref BootstrapSecretArn
         HAYASEND_TABLE_NAME: !Ref DataTable
         HAYASEND_QUEUE_URL: !Ref JobQueue
         HAYASEND_PAYLOAD_BUCKET: !Ref PayloadBucket
@@ -61,6 +67,13 @@ Resources:
         - S3CrudPolicy:
             BucketName: !Ref PayloadBucket
         - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !If
+                - CreateBootstrapSecret
+                - !Ref BootstrapSecret
+                - !Ref BootstrapSecretArn
             - Effect: Allow
               Action:
                 - ses:CreateEmailIdentity
@@ -227,6 +240,15 @@ Resources:
 
   SesEventTopic:
     Type: AWS::SNS::Topic
+
+  BootstrapSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateBootstrapSecret
+    Properties:
+      Description: !Sub Bootstrap administrator key for ${AWS::StackName}. Use only to issue scoped application keys.
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
 
   AlarmTopic:
     Type: AWS::SNS::Topic
@@ -419,6 +441,12 @@ Outputs:
     Value: !Ref PayloadBucket
   ConfigurationSetName:
     Value: !Ref ConfigurationSet
+  BootstrapSecretArn:
+    Description: Retrieve this secret to issue least-privilege application keys.
+    Value: !If
+      - CreateBootstrapSecret
+      - !Ref BootstrapSecret
+      - !Ref BootstrapSecretArn
   AlarmTopicArn:
     Description: Subscribe an operational notification endpoint to this topic.
     Value: !Ref AlarmTopic

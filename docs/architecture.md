@@ -6,11 +6,12 @@ HayaSend is single-tenant by default. The API, queues, metadata, SES identity,
 and delivery events live in the customer's AWS account. There is no Haya
 control plane in the data path.
 
-The bootstrap bearer key is passed to Lambda as an encrypted environment
-variable by CloudFormation and is intended only for initial administration.
-Application keys are stored as SHA-256 hashes with explicit scopes, optional
-expiry, and revocation. Moving the bootstrap key into Secrets Manager remains
-a pre-v1 hardening item.
+The bootstrap bearer key is generated or supplied in Secrets Manager. Only the
+API function receives permission to read its value. The function retrieves and
+briefly caches it only when bootstrap authentication is attempted; ordinary
+application-key requests do not depend on Secrets Manager. Application keys
+are stored as SHA-256 hashes with explicit scopes, optional expiry, and
+revocation.
 
 ## Send path
 
@@ -68,7 +69,7 @@ reject stale timestamps.
 
 ## Known pre-v1 limits
 
-- one bootstrap API key per deployment;
+- one bootstrap administrator key per deployment;
 - long schedules use repeated SQS delays;
 - payload retention is fixed at 45 days;
 - no inbound path yet;

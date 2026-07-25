@@ -47,10 +47,17 @@ worker stopped without recording the provider ID.
 2. Update the consuming workload's secret.
 3. Verify traffic using the new key.
 4. Revoke the old key with `DELETE /api-keys/{id}`.
-5. Rotate the bootstrap key through a stack update if it may have been
-   disclosed.
 
 The API never returns an application token after creation.
+
+To rotate the bootstrap key, write a new random value of at least 32
+characters to the secret identified by the `BootstrapSecretArn` stack output.
+Wait up to five minutes for the API function's bounded cache to expire, or
+publish a no-code Lambda configuration update to force fresh execution
+environments. Verify the new key, then confirm the old key returns `401`.
+
+Application-key authentication does not require Secrets Manager and continues
+to work during a temporary Secrets Manager outage.
 
 ## Suppressions
 

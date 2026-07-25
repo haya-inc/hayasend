@@ -15,14 +15,44 @@ export function publicApiKey(record: ApiKeyRecord): PublicApiKey {
   return publicRecord;
 }
 
+export type BootstrapKeyProvider = () => Promise<string>;
+
 export class ApiKeyService {
+  private readonly bootstrapKeyProvider: BootstrapKeyProvider;
+
   constructor(
     private readonly store: Store,
-    private readonly bootstrapKey: string,
-  ) {}
+    bootstrapKey: string | BootstrapKeyProvider,
+  ) {
+    this.bootstrapKeyProvider =
+      typeof bootstrapKey === "string"
+        ? async () => bootstrapKey
+        : bootstrapKey;
+  }
 
   async authenticate(token: string): Promise<AuthenticatedPrincipal> {
-    if (secretsEqual(token, this.bootstrapKey)) {
+    const separator = token.indexOf(".");
+    if (token.startsWith("re_hs_") && separator >= 0) {
+      const id = token.slice("re_hs_".length, separator);
+      const record = await this.store.getApiKey(id);
+      if (
+        !record ||
+        record.revoked_at ||
+        (record.expires_at &&
+          new Date(record.expires_at).getTime() <= Date.now()) ||
+        !secretsEqual(record.key_hash, sha256(token))
+      ) {
+        throw new UnauthorizedError();
+      }
+      return {
+        id: record.id,
+        name: record.name,
+        scopes: record.scopes,
+        bootstrap: false,
+      };
+    }
+
+    if (secretsEqual(token, await this.bootstrapKeyProvider())) {
       return {
         id: "bootstrap",
         name: "Bootstrap administrator",
@@ -30,27 +60,7 @@ export class ApiKeyService {
         bootstrap: true,
       };
     }
-
-    const separator = token.indexOf(".");
-    if (!token.startsWith("re_hs_") || separator < 0) {
-      throw new UnauthorizedError();
-    }
-    const id = token.slice("re_hs_".length, separator);
-    const record = await this.store.getApiKey(id);
-    if (
-      !record ||
-      record.revoked_at ||
-      (record.expires_at && new Date(record.expires_at).getTime() <= Date.now()) ||
-      !secretsEqual(record.key_hash, sha256(token))
-    ) {
-      throw new UnauthorizedError();
-    }
-    return {
-      id: record.id,
-      name: record.name,
-      scopes: record.scopes,
-      bootstrap: false,
-    };
+    throw new UnauthorizedError();
   }
 
   async create(input: {

@@ -1,12 +1,17 @@
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createRuntime } from "./runtime.js";
 
 export function startServer() {
   const config = loadConfig();
-  const app = createApp(createRuntime(config));
+  const bootstrapKey =
+    config.mode === "aws" && config.apiKeySecretArn
+      ? createSecretValueProvider(config.apiKeySecretArn)
+      : config.apiKey;
+  const app = createApp(createRuntime(config, bootstrapKey));
   const server = serve({
     fetch: app.fetch,
     port: config.port,

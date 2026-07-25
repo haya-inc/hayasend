@@ -15,7 +15,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [ ] EventBridge Scheduler for long schedules
 - [ ] presigned S3 attachment uploads beyond the API Gateway payload limit
 - [ ] deployment integration test in a dedicated AWS test account
-- [ ] bootstrap-key storage in Secrets Manager
+- [x] bootstrap-key storage in Secrets Manager
 
 ## v0.2 — Receive and forward
 

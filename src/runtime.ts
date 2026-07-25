@@ -15,7 +15,10 @@ import {
 } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import type { Job } from "./core/types.js";
-import { ApiKeyService } from "./services/api-key-service.js";
+import {
+  ApiKeyService,
+  type BootstrapKeyProvider,
+} from "./services/api-key-service.js";
 import { DomainService } from "./services/domain-service.js";
 import { EmailService } from "./services/email-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
@@ -30,7 +33,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const queue = new LocalJobQueue();
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
-  const apiKeys = new ApiKeyService(store, config.apiKey);
+  const apiKeys = new ApiKeyService(
+    store,
+    config.apiKey ?? "re_hayasend_dev",
+  );
   const emailService = new EmailService(
     store,
     queue,
@@ -63,7 +69,14 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   };
 }
 
-export function createAwsRuntime(config: Config = loadConfig()): Runtime {
+export function createAwsRuntime(
+  config: Config = loadConfig(),
+  bootstrapKey: string | BootstrapKeyProvider = async () => {
+    throw new Error(
+      "Bootstrap authentication is unavailable in this runtime.",
+    );
+  },
+): Runtime {
   if (!config.tableName || !config.queueUrl || !config.payloadBucket) {
     throw new Error(
       "HAYASEND_TABLE_NAME, HAYASEND_QUEUE_URL, and HAYASEND_PAYLOAD_BUCKET are required in AWS mode.",
@@ -73,7 +86,7 @@ export function createAwsRuntime(config: Config = loadConfig()): Runtime {
   const queue = new SqsJobQueue(config.queueUrl);
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
-  const apiKeys = new ApiKeyService(store, config.apiKey);
+  const apiKeys = new ApiKeyService(store, bootstrapKey);
   const emailService = new EmailService(
     store,
     queue,
@@ -103,8 +116,15 @@ export function createAwsRuntime(config: Config = loadConfig()): Runtime {
   };
 }
 
-export function createRuntime(config = loadConfig()): Runtime {
-  return config.mode === "aws"
-    ? createAwsRuntime(config)
-    : createLocalRuntime(config);
+export function createRuntime(
+  config = loadConfig(),
+  bootstrapKey?: string | BootstrapKeyProvider,
+): Runtime {
+  if (config.mode === "local") {
+    return createLocalRuntime(config);
+  }
+  if (!bootstrapKey) {
+    throw new Error("AWS API runtime requires a bootstrap key provider.");
+  }
+  return createAwsRuntime(config, bootstrapKey);
 }

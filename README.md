@@ -99,14 +99,30 @@ sam build
 sam deploy --guided
 ```
 
-Set `ApiKey` to a long, randomly generated `re_`-prefixed secret. The
-CloudFormation output `ApiBaseUrl` is the value to use for
-`HAYASEND_BASE_URL` or the SDK's `baseUrl` option.
+The stack generates a 48-character bootstrap administrator key in AWS Secrets
+Manager. To supply an existing 32-character-or-longer secret instead, set the
+optional `BootstrapSecretArn` parameter. The CloudFormation output
+`ApiBaseUrl` is the value to use for `HAYASEND_BASE_URL` or the SDK's
+`baseUrl` option.
 
-Treat this deployment value as a bootstrap administrator key. Use it once to
-create a least-privilege application key:
+Treat the secret value as a bootstrap administrator key. Use it only to create
+least-privilege application keys. Retrieve it without copying the secret into
+Lambda configuration:
 
 ```bash
+export HAYASEND_BOOTSTRAP_SECRET_ARN="$(
+  aws cloudformation describe-stacks \
+    --stack-name hayasend \
+    --query 'Stacks[0].Outputs[?OutputKey==`BootstrapSecretArn`].OutputValue' \
+    --output text
+)"
+export HAYASEND_BOOTSTRAP_KEY="$(
+  aws secretsmanager get-secret-value \
+    --secret-id "$HAYASEND_BOOTSTRAP_SECRET_ARN" \
+    --query SecretString \
+    --output text
+)"
+
 curl "$HAYASEND_BASE_URL/api-keys" \
   -H "Authorization: Bearer $HAYASEND_BOOTSTRAP_KEY" \
   -H "Content-Type: application/json" \
@@ -116,7 +132,12 @@ curl "$HAYASEND_BASE_URL/api-keys" \
   }'
 ```
 
-The returned token is shown once. HayaSend stores only its SHA-256 hash.
+The returned application token is shown once. HayaSend stores only its
+SHA-256 hash. Unset the administrator key from your shell after use:
+
+```bash
+unset HAYASEND_BOOTSTRAP_KEY
+```
 
 The stack intentionally retains its DynamoDB table when deleted. The queue
 uses a dead-letter queue, DynamoDB has point-in-time recovery, and Lambda uses
@@ -157,6 +178,8 @@ and delivery semantics.
   `svix-*` headers.
 - Application keys are scope-limited and stored as hashes; the deployment
   bootstrap key should not be embedded in applications.
+- The bootstrap key lives in Secrets Manager and is fetched only by the API
+  function when administrator authentication is attempted.
 - Permanent bounces and complaints automatically prevent subsequent sends.
 
 Please report vulnerabilities according to [SECURITY.md](SECURITY.md).

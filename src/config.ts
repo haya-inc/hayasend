@@ -2,7 +2,8 @@ import { ValidationError } from "./core/errors.js";
 
 export interface Config {
   mode: "local" | "aws";
-  apiKey: string;
+  apiKey?: string;
+  apiKeySecretArn?: string;
   port: number;
   region: string;
   tableName?: string;
@@ -11,22 +12,22 @@ export interface Config {
   configurationSet?: string;
 }
 
-function required(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  mode: Config["mode"],
-) {
-  const value = env[name];
-  if (!value && mode === "aws") {
-    throw new ValidationError(`${name} is required in AWS mode.`);
-  }
-  return value;
-}
-
 export function loadConfig(env = process.env): Config {
   const mode = env.HAYASEND_MODE === "aws" ? "aws" : "local";
   const apiKey =
-    required(env, "HAYASEND_API_KEY", mode) ?? "re_hayasend_dev";
+    env.HAYASEND_API_KEY ??
+    (mode === "local" ? "re_hayasend_dev" : undefined);
+  const apiKeySecretArn = env.HAYASEND_API_KEY_SECRET_ARN;
+  if (mode === "aws" && !apiKeySecretArn) {
+    throw new ValidationError(
+      "HAYASEND_API_KEY_SECRET_ARN is required in AWS mode.",
+    );
+  }
+  if (mode === "aws" && apiKey) {
+    throw new ValidationError(
+      "HAYASEND_API_KEY is not supported in AWS mode; use Secrets Manager.",
+    );
+  }
   const port = Number(env.HAYASEND_PORT ?? 8787);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new ValidationError(
@@ -36,9 +37,10 @@ export function loadConfig(env = process.env): Config {
 
   return {
     mode,
-    apiKey,
     port,
     region: env.AWS_REGION ?? "ap-northeast-1",
+    ...(mode === "local" && apiKey ? { apiKey } : {}),
+    ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME
       ? { tableName: env.HAYASEND_TABLE_NAME }
       : {}),

@@ -23,6 +23,10 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - name: Validate CloudFormation
+        run: |
+          python -m pip install --disable-pip-version-check cfn-lint==1.53.2
+          cfn-lint template.yaml
       - name: Validate OpenAPI
         run: npx --yes @redocly/cli@2.12.5 lint openapi.yaml
       - name: Bundle Lambda entry points

@@ -19,7 +19,8 @@ Do not test against infrastructure you do not own or administer.
 
 ## Operational notes
 
-- Use the bootstrap key only to create scoped application keys.
+- Keep the bootstrap key in Secrets Manager and retrieve it only when creating
+  scoped application keys.
 - Revoke and rotate an application key immediately if disclosed.
 - Restrict AWS deployment permissions and CloudTrail access.
 - Process SES bounce and complaint events in every sending path.
