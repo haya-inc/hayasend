@@ -115,6 +115,67 @@ export class WebhookService {
     return { ...page, data: page.data.map(publicWebhook) };
   }
 
+  async update(
+    id: string,
+    input: {
+      endpoint?: string | undefined;
+      events?: WebhookEventType[] | undefined;
+      status?: WebhookEndpoint["status"] | undefined;
+    },
+  ): Promise<PublicWebhookEndpoint> {
+    const current = await this.store.getWebhook(id);
+    if (!current) {
+      throw new NotFoundError("Webhook");
+    }
+    if (
+      input.endpoint === undefined &&
+      input.events === undefined &&
+      input.status === undefined
+    ) {
+      throw new ValidationError("At least one webhook field is required.");
+    }
+
+    const updates: Partial<
+      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
+    > = {};
+    if (input.events !== undefined) {
+      if (input.events.length === 0) {
+        throw new ValidationError(
+          "At least one webhook event is required.",
+        );
+      }
+      const invalidEvent = input.events.find(
+        (event) => !SUPPORTED_EVENTS.has(event),
+      );
+      if (invalidEvent) {
+        throw new ValidationError(
+          `Unsupported webhook event: ${invalidEvent}`,
+        );
+      }
+      updates.events = [...new Set(input.events)];
+    }
+    if (input.endpoint !== undefined) {
+      let parsed: URL;
+      try {
+        parsed = new URL(input.endpoint);
+      } catch {
+        throw new ValidationError("endpoint must be a valid URL.");
+      }
+      assertWebhookEndpointShape(parsed);
+      await this.validateEndpoint(parsed);
+      updates.endpoint = parsed.toString();
+    }
+    if (input.status !== undefined) {
+      updates.status = input.status;
+    }
+
+    const updated = await this.store.updateWebhook(id, updates);
+    if (!updated) {
+      throw new NotFoundError("Webhook");
+    }
+    return publicWebhook(updated);
+  }
+
   async delete(id: string): Promise<void> {
     if (!(await this.store.deleteWebhook(id))) {
       throw new NotFoundError("Webhook");

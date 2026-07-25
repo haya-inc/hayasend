@@ -47,6 +47,74 @@ describe("WebhookService", () => {
     ).rejects.toMatchObject({ name: "validation_error" });
   });
 
+  it("updates destinations, events, and status without rotating the secret", async () => {
+    const store = new MemoryStore();
+    const validated: string[] = [];
+    const service = new WebhookService(
+      store,
+      new CapturingJobQueue(),
+      {
+        validateEndpoint: async (endpoint) => {
+          validated.push(endpoint.toString());
+        },
+      },
+    );
+    const created = await service.create({
+      endpoint: "https://example.com/hooks",
+      events: ["email.sent"],
+    });
+
+    const updated = await service.update(created.webhook.id, {
+      endpoint: "https://hooks.example.net/email",
+      events: ["email.bounced", "email.bounced"],
+      status: "disabled",
+    });
+
+    expect(updated).toMatchObject({
+      id: created.webhook.id,
+      endpoint: "https://hooks.example.net/email",
+      events: ["email.bounced"],
+      status: "disabled",
+    });
+    expect(validated).toEqual([
+      "https://example.com/hooks",
+      "https://hooks.example.net/email",
+    ]);
+    expect(
+      (await store.getWebhook(created.webhook.id))?.signing_secret,
+    ).toBe(created.signing_secret);
+    await expect(
+      service.update(created.webhook.id, {}),
+    ).rejects.toMatchObject({ name: "validation_error" });
+  });
+
+  it("does not deliver a queued event after its endpoint is disabled", async () => {
+    const store = new MemoryStore();
+    const queue = new CapturingJobQueue();
+    const calls: string[] = [];
+    const service = new WebhookService(store, queue, {
+      httpFetch: async (input) => {
+        calls.push(String(input));
+        return { ok: true, status: 200 };
+      },
+      validateEndpoint: async () => undefined,
+    });
+    const created = await service.create({
+      endpoint: "https://example.com/hooks",
+      events: ["email.sent"],
+    });
+    await service.publish("email.sent", email);
+    const job = queue.jobs[0]?.job;
+    if (!job || job.type !== "deliver_webhook") {
+      throw new Error("Expected a webhook delivery job.");
+    }
+
+    await service.update(created.webhook.id, { status: "disabled" });
+    await service.deliver(job.webhook_id, job.event);
+
+    expect(calls).toEqual([]);
+  });
+
   it("publishes only to matching subscriptions and signs delivery", async () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();

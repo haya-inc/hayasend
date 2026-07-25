@@ -255,10 +255,46 @@ describe("HTTP API", () => {
         events: ["email.sent", "email.bounced"],
       }),
     });
-    await expect(webhook.json()).resolves.toMatchObject({
+    const webhookBody = (await webhook.json()) as {
+      id: string;
+      signing_secret: string;
+    };
+    expect(webhookBody).toMatchObject({
       id: expect.stringMatching(/^wh_/),
       signing_secret: expect.stringMatching(/^whsec_/),
     });
+    const updatedWebhook = await request(
+      `/webhooks/${webhookBody.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          events: ["email.delivered"],
+          status: "disabled",
+        }),
+      },
+    );
+    await expect(updatedWebhook.json()).resolves.toEqual({
+      object: "webhook",
+      id: webhookBody.id,
+    });
+    const retrievedWebhook = await request(
+      `/webhooks/${webhookBody.id}`,
+    );
+    const retrievedWebhookBody = (await retrievedWebhook.json()) as Record<
+      string,
+      unknown
+    >;
+    expect(retrievedWebhookBody).toMatchObject({
+      id: webhookBody.id,
+      events: ["email.delivered"],
+      status: "disabled",
+    });
+    expect(retrievedWebhookBody).not.toHaveProperty("signing_secret");
+    const emptyUpdate = await request(`/webhooks/${webhookBody.id}`, {
+      method: "PATCH",
+      body: "{}",
+    });
+    expect(emptyUpdate.status).toBe(422);
   });
 
   it("rejects unsupported attachment URLs rather than fetching them", async () => {

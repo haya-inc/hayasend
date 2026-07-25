@@ -201,12 +201,20 @@ try {
   });
   created.webhookId = webhook.id;
   assert.match(webhook.signing_secret, /^whsec_/);
+  const updatedWebhook = await api(
+    "PATCH",
+    `/webhooks/${created.webhookId}`,
+    applicationKey,
+    { status: "disabled" },
+  );
+  assert.equal(updatedWebhook.id, created.webhookId);
   const publicWebhook = await api(
     "GET",
     `/webhooks/${created.webhookId}`,
     applicationKey,
   );
   assert.equal("signing_secret" in publicWebhook, false);
+  assert.equal(publicWebhook.status, "disabled");
 
   console.info(
     JSON.stringify({
@@ -221,6 +229,7 @@ try {
         "suppression",
         "ses_domain_identity",
         "webhook_public_endpoint_validation",
+        "webhook_update",
         "webhook_secret_privacy",
       ],
     }),

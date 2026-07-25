@@ -11,6 +11,7 @@ import type {
   AttachmentUploadRecord,
   EmailRecord,
   ReceivedEmailRecord,
+  WebhookEndpoint,
 } from "../src/core/types.js";
 
 const email: EmailRecord = {
@@ -95,6 +96,62 @@ describe("DynamoStore", () => {
     expect(command.input.ExpressionAttributeValues).toMatchObject({
       ":fromStatus0": "sending",
     });
+  });
+
+  it("updates webhook fields atomically without replacing its secret", async () => {
+    const webhook: WebhookEndpoint = {
+      id: "wh_123",
+      endpoint: "https://example.com/hooks",
+      events: ["email.sent"],
+      signing_secret: "whsec_existing",
+      status: "enabled",
+      created_at: "2030-01-01T00:00:00.000Z",
+    };
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return {
+          Attributes: {
+            entity: {
+              ...webhook,
+              events: ["email.bounced"],
+              status: "disabled",
+            },
+          },
+        };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    const updated = await store.updateWebhook(webhook.id, {
+      events: ["email.bounced"],
+      status: "disabled",
+    });
+
+    expect(updated).toMatchObject({
+      signing_secret: "whsec_existing",
+      events: ["email.bounced"],
+      status: "disabled",
+    });
+    expect(commands).toHaveLength(1);
+    const command = commands[0];
+    expect(command).toBeInstanceOf(UpdateCommand);
+    if (!(command instanceof UpdateCommand)) {
+      throw new Error("Expected UpdateCommand.");
+    }
+    expect(command.input).toMatchObject({
+      Key: {
+        PK: "WEBHOOK#wh_123",
+        SK: "WEBHOOK#wh_123",
+      },
+      ConditionExpression: "attribute_exists(PK)",
+      ReturnValues: "ALL_NEW",
+    });
+    expect(command.input.UpdateExpression).toContain("SET entity.");
+    expect(command.input.UpdateExpression).not.toContain(
+      "signing_secret",
+    );
   });
 
   it("claims inbound processing with a lease and persists retention TTL", async () => {

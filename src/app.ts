@@ -25,6 +25,7 @@ import {
   suppressionSchema,
   updateEmailSchema,
   webhookSchema,
+  webhookUpdateSchema,
 } from "./schemas.js";
 import type { ApiKeyService } from "./services/api-key-service.js";
 import {
@@ -437,6 +438,20 @@ export function createApp(services: AppServices) {
       context.json(
         await services.webhookService.get(context.req.param("id")),
       ),
+  );
+
+  app.patch(
+    "/webhooks/:id",
+    requireScope("webhooks:write"),
+    zValidator("json", webhookUpdateSchema, validationCallback),
+    async (context) => {
+      const id = context.req.param("id");
+      await services.webhookService.update(
+        id,
+        context.req.valid("json"),
+      );
+      return context.json({ object: "webhook", id });
+    },
   );
 
   app.delete(

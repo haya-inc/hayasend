@@ -259,6 +259,21 @@ export class MemoryStore implements Store {
     return record ? structuredClone(record) : undefined;
   }
 
+  async updateWebhook(
+    id: string,
+    updates: Partial<
+      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
+    >,
+  ): Promise<WebhookEndpoint | undefined> {
+    const record = this.webhooks.get(id);
+    if (!record) {
+      return undefined;
+    }
+    const updated = { ...record, ...structuredClone(updates) };
+    this.webhooks.set(id, updated);
+    return structuredClone(updated);
+  }
+
   async deleteWebhook(id: string): Promise<boolean> {
     return this.webhooks.delete(id);
   }

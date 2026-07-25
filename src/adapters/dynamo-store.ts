@@ -489,6 +489,51 @@ export class DynamoStore implements Store {
     return this.getEntity<WebhookEndpoint>("WEBHOOK", id);
   }
 
+  async updateWebhook(
+    id: string,
+    updates: Partial<
+      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
+    >,
+  ): Promise<WebhookEndpoint | undefined> {
+    const entries = Object.entries(updates);
+    if (entries.length === 0) {
+      return this.getWebhook(id);
+    }
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
+    const setExpressions = entries.map(([field, value], index) => {
+      const name = `#field${index}`;
+      const placeholder = `:value${index}`;
+      names[name] = field;
+      values[placeholder] = value;
+      return `entity.${name} = ${placeholder}`;
+    });
+    try {
+      const result = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: entityKey("WEBHOOK", id),
+          UpdateExpression: `SET ${setExpressions.join(", ")}`,
+          ConditionExpression: "attribute_exists(PK)",
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return (result.Attributes as StoredEntity | undefined)?.entity as
+        | WebhookEndpoint
+        | undefined;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "ConditionalCheckFailedException"
+      ) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   async deleteWebhook(id: string): Promise<boolean> {
     return this.deleteEntity("WEBHOOK", id);
   }

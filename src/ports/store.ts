@@ -64,6 +64,12 @@ export interface Store {
 
   createWebhook(record: WebhookEndpoint): Promise<void>;
   getWebhook(id: string): Promise<WebhookEndpoint | undefined>;
+  updateWebhook(
+    id: string,
+    updates: Partial<
+      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
+    >,
+  ): Promise<WebhookEndpoint | undefined>;
   deleteWebhook(id: string): Promise<boolean>;
   listWebhooks(
     limit: number,

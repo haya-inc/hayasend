@@ -15,7 +15,7 @@ migration path. It does not claim full Resend API coverage.
 | Scheduling | ISO 8601 | Implemented | SQS up to 15 minutes; EventBridge Scheduler beyond |
 | Scheduling | relative English | Partial | `in N minutes/hours/days` |
 | Domains | create/get/list/delete/verify | Implemented | Amazon SES identities |
-| Webhooks | create/get/list/delete | Implemented | signed `svix-*` headers; public HTTPS in AWS mode |
+| Webhooks | create/get/list/update/delete | Implemented | signed `svix-*` headers; public HTTPS in AWS mode |
 | Webhooks | delivery retry | Implemented | SQS and dead-letter queue |
 | API keys | scoped create/list/revoke | HayaSend extension | secrets stored as hashes |
 | Suppressions | hard bounce/complaint/manual | HayaSend extension | checked before enqueue |
@@ -27,8 +27,8 @@ migration path. It does not claim full Resend API coverage.
 | Contacts/broadcasts | marketing APIs | Not planned for v1 | compliance work required |
 
 The CI suite constructs the official `resend` Node SDK with a custom `baseUrl`
-and exercises sending, received-email listing/retrieval, and received
-attachment listing/retrieval through the HayaSend application.
+and exercises sending, webhook management, received-email listing/retrieval,
+and received attachment listing/retrieval through the HayaSend application.
 
 Compatibility bugs should include the SDK name and version, the smallest safe
 payload that reproduces the issue, and the expected response shape.

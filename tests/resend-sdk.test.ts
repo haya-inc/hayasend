@@ -33,7 +33,9 @@ describe("official Resend Node SDK compatibility", () => {
   it("sends through a custom baseUrl without an SDK fork", async () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();
-    const webhooks = new WebhookService(store, queue);
+    const webhooks = new WebhookService(store, queue, {
+      validateEndpoint: async () => undefined,
+    });
     const inboundStorage = new MemoryInboundStorage();
     const receivedEmailService = new ReceivedEmailService(
       store,
@@ -89,6 +91,36 @@ describe("official Resend Node SDK compatibility", () => {
     const resend = new Resend("re_hayasend_compatible", {
       baseUrl: "https://api.hayasend.test",
     });
+    const createdWebhook = await resend.webhooks.create({
+      endpoint: "https://api.hayasend.test/webhook",
+      events: ["email.sent"],
+    });
+    expect(createdWebhook.error).toBeNull();
+    expect(createdWebhook.data).toMatchObject({
+      id: expect.stringMatching(/^wh_/),
+      signing_secret: expect.stringMatching(/^whsec_/),
+    });
+    const webhookId = createdWebhook.data?.id;
+    if (!webhookId) {
+      throw new Error("Expected an SDK-created webhook.");
+    }
+    const updatedWebhook = await resend.webhooks.update(webhookId, {
+      events: ["email.bounced"],
+      status: "disabled",
+    });
+    expect(updatedWebhook).toMatchObject({
+      data: { object: "webhook", id: webhookId },
+      error: null,
+    });
+    const retrievedWebhook = await resend.webhooks.get(webhookId);
+    expect(retrievedWebhook.error).toBeNull();
+    expect(retrievedWebhook.data).toMatchObject({
+      id: webhookId,
+      endpoint: "https://api.hayasend.test/webhook",
+      events: ["email.bounced"],
+      status: "disabled",
+    });
+
     const { data, error } = await resend.emails.send({
       from: "HayaSend <sender@example.com>",
       to: "recipient@example.net",

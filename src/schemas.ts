@@ -107,10 +107,21 @@ export const webhookEventSchema = z.enum([
 
 export const webhookSchema = z
   .object({
-    endpoint: z.url(),
+    endpoint: z.url().max(2_048),
     events: z.array(webhookEventSchema).min(1),
   })
   .strict();
+
+export const webhookUpdateSchema = z
+  .object({
+    endpoint: z.url().max(2_048).optional(),
+    events: z.array(webhookEventSchema).min(1).optional(),
+    status: z.enum(["enabled", "disabled"]).optional(),
+  })
+  .strict()
+  .refine((input) => Object.values(input).some((value) => value !== undefined), {
+    message: "At least one webhook field is required.",
+  });
 
 export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
