@@ -113,6 +113,33 @@ curl http://localhost:8787/emails \
 Local mode records metadata in memory and writes only envelope metadata to
 stdout. It does not contact SES or deliver real messages.
 
+## Releases and verification
+
+Tagged releases publish a multi-platform image to
+`ghcr.io/haya-inc/hayasend`, along with a source archive, the OpenAPI contract,
+the AWS SAM template, a CycloneDX SBOM, checksums, and signed build provenance.
+After the first release, run an exact version rather than a floating tag:
+
+```bash
+docker run --rm \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  -p 127.0.0.1:8787:8787 \
+  ghcr.io/haya-inc/hayasend:0.1.0
+```
+
+Verify that the image was built by this repository before deploying it:
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/haya-inc/hayasend:0.1.0 \
+  --repo haya-inc/hayasend
+```
+
+See [the release process](docs/releases.md) for published artifacts,
+verification, and maintainer instructions.
+
 ## Upload larger attachments
 
 Inline base64 remains compatible with the Resend SDK. For larger files, use

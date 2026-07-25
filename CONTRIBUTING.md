@@ -29,6 +29,9 @@ docker run --rm --read-only --cap-drop ALL hayasend:test
 Pull requests should explain the user impact, include tests, update relevant
 documentation, and remain focused on one change.
 
+Only maintainers publish releases. The signed-tag and verification procedure is
+documented in [the release process](docs/releases.md).
+
 ## Sign-off
 
 Contributions use the Developer Certificate of Origin. Add a sign-off to each

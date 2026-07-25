@@ -32,6 +32,8 @@ The roadmap is ordered by user risk, not by feature count.
 ## v0.3 — Developer workflow
 
 - [x] hardened local container quickstart
+- [x] signed, multi-platform container and SBOM release automation
+- [ ] first signed public release
 - local preview inbox
 - template versions using React Email
 - `hayasend init`, `deploy`, `doctor`, `test`, and migration commands
