@@ -16,6 +16,8 @@ account, and HayaSend never logs message bodies.
   base64 attachments
 - `POST /emails/batch` for up to 100 messages
 - 24-hour idempotency using the `Idempotency-Key` header
+- hashed, scoped API keys with expiry and revocation
+- automatic hard-bounce and complaint suppressions plus manual suppression API
 - ISO 8601 and relative scheduling such as `in 10 minutes`
 - email retrieval, listing, cancellation, and rescheduling
 - SES domain creation, DKIM record discovery, refresh, and deletion
@@ -101,9 +103,26 @@ Set `ApiKey` to a long, randomly generated `re_`-prefixed secret. The
 CloudFormation output `ApiBaseUrl` is the value to use for
 `HAYASEND_BASE_URL` or the SDK's `baseUrl` option.
 
+Treat this deployment value as a bootstrap administrator key. Use it once to
+create a least-privilege application key:
+
+```bash
+curl "$HAYASEND_BASE_URL/api-keys" \
+  -H "Authorization: Bearer $HAYASEND_BOOTSTRAP_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "production transactional sender",
+    "scopes": ["emails:send", "emails:read"]
+  }'
+```
+
+The returned token is shown once. HayaSend stores only its SHA-256 hash.
+
 The stack intentionally retains its DynamoDB table when deleted. The queue
 uses a dead-letter queue, DynamoDB has point-in-time recovery, and Lambda uses
-AWS X-Ray tracing.
+AWS X-Ray tracing. Subscribe an operational endpoint to the `AlarmTopicArn`
+output and use the generated CloudWatch dashboard. See
+[the operations runbook](docs/operations.md).
 
 ## Architecture
 
@@ -136,6 +155,9 @@ and delivery semantics.
   remote attachment URLs to avoid server-side request forgery.
 - Webhook requests use timestamped HMAC-SHA256 signatures and Resend-compatible
   `svix-*` headers.
+- Application keys are scope-limited and stored as hashes; the deployment
+  bootstrap key should not be embedded in applications.
+- Permanent bounces and complaints automatically prevent subsequent sends.
 
 Please report vulnerabilities according to [SECURITY.md](SECURITY.md).
 

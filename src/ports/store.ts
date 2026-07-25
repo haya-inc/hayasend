@@ -1,9 +1,12 @@
 import type {
+  ApiKeyRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
+  EmailStatus,
   IdempotencyClaim,
   Page,
+  SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 
@@ -21,6 +24,7 @@ export interface Store {
   updateEmail(
     id: string,
     updates: Partial<EmailRecord>,
+    fromStatuses?: EmailStatus[],
   ): Promise<EmailRecord | undefined>;
   listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>>;
 
@@ -40,4 +44,20 @@ export interface Store {
     limit: number,
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>>;
+
+  createApiKey(record: ApiKeyRecord): Promise<void>;
+  getApiKey(id: string): Promise<ApiKeyRecord | undefined>;
+  updateApiKey(
+    id: string,
+    updates: Partial<ApiKeyRecord>,
+  ): Promise<ApiKeyRecord | undefined>;
+  listApiKeys(limit: number, cursor?: string): Promise<Page<ApiKeyRecord>>;
+
+  putSuppression(record: SuppressionRecord): Promise<void>;
+  getSuppression(emailHash: string): Promise<SuppressionRecord | undefined>;
+  deleteSuppression(emailHash: string): Promise<boolean>;
+  listSuppressions(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<SuppressionRecord>>;
 }

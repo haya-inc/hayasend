@@ -16,6 +16,8 @@ migration path. It does not claim full Resend API coverage.
 | Domains | create/get/list/delete/verify | Implemented | Amazon SES identities |
 | Webhooks | create/get/list/delete | Implemented | signed `svix-*` headers |
 | Webhooks | delivery retry | Implemented | SQS and dead-letter queue |
+| API keys | scoped create/list/revoke | HayaSend extension | secrets stored as hashes |
+| Suppressions | hard bounce/complaint/manual | HayaSend extension | checked before enqueue |
 | Receiving | inbound API | Planned | v0.2 |
 | Templates | hosted templates | Planned | React Email remains usable client-side |
 | Contacts/broadcasts | marketing APIs | Not planned for v1 | compliance work required |

@@ -228,6 +228,141 @@ Resources:
   SesEventTopic:
     Type: AWS::SNS::Topic
 
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend jobs have reached the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend's oldest queued job is more than five minutes old.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt JobQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend returned an internal API error.
+      Namespace: HayaSend
+      MetricName: ApiErrors
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SendFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend exhausted retries for an outbound message.
+      Namespace: HayaSend
+      MetricName: SendFailures
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  ComplaintAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Amazon SES reported a recipient complaint.
+      Namespace: HayaSend
+      MetricName: Complaints
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  OperationsDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${AWS::StackName}-operations
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Email safety events",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 300,
+                "metrics": [
+                  ["HayaSend", "SuppressedEmails", "Service", "HayaSend"],
+                  [".", "PermanentBounces", ".", "."],
+                  [".", "Complaints", ".", "."],
+                  [".", "SendFailures", ".", "."]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Queue health",
+                "region": "${AWS::Region}",
+                "stat": "Maximum",
+                "period": 60,
+                "metrics": [
+                  ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${JobQueue.QueueName}"],
+                  [".", "ApproximateNumberOfMessagesVisible", ".", "${DeadLetterQueue.QueueName}"]
+                ]
+              }
+            }
+          ]
+        }
+
   SesEventTopicPolicy:
     Type: AWS::SNS::TopicPolicy
     Properties:
@@ -284,3 +419,8 @@ Outputs:
     Value: !Ref PayloadBucket
   ConfigurationSetName:
     Value: !Ref ConfigurationSet
+  AlarmTopicArn:
+    Description: Subscribe an operational notification endpoint to this topic.
+    Value: !Ref AlarmTopic
+  OperationsDashboardName:
+    Value: !Ref OperationsDashboard

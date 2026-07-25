@@ -4,6 +4,7 @@ import type {
   SQSRecord,
 } from "aws-lambda";
 import type { Job } from "../core/types.js";
+import { emitCountMetric } from "../core/metrics.js";
 import { createAwsRuntime } from "../runtime.js";
 
 const runtime = createAwsRuntime();
@@ -23,6 +24,7 @@ export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
       const attempt = Number(record.attributes.ApproximateReceiveCount ?? 1);
       await runtime.processJob(parseJob(record), attempt);
     } catch (error) {
+      emitCountMetric("JobFailures");
       console.error(
         JSON.stringify({
           level: "error",

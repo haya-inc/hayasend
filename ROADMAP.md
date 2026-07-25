@@ -10,11 +10,12 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] SES transport and domain verification
 - [x] delivery events and signed webhook retries
 - [x] serverless AWS SAM deployment
-- [ ] API-key records with scopes and rotation
-- [ ] suppression-list enforcement before enqueue
+- [x] API-key records with scopes, expiry, and revocation
+- [x] suppression-list enforcement before enqueue
 - [ ] EventBridge Scheduler for long schedules
 - [ ] presigned S3 attachment uploads beyond the API Gateway payload limit
 - [ ] deployment integration test in a dedicated AWS test account
+- [ ] bootstrap-key storage in Secrets Manager
 
 ## v0.2 — Receive and forward
 

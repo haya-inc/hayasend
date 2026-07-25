@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "../core/errors.js";
 import { delaySecondsUntil, parseScheduledAt } from "../core/schedule.js";
+import { emitCountMetric } from "../core/metrics.js";
 import type {
   CreateEmailResult,
   EmailRecord,
@@ -16,6 +17,7 @@ import type {
 import type { JobQueue } from "../ports/job-queue.js";
 import type { MailTransport } from "../ports/mail-transport.js";
 import type { Store } from "../ports/store.js";
+import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
 
 const FINAL_STATUSES = new Set<EmailStatus>([
@@ -83,6 +85,7 @@ export class EmailService {
     private readonly queue: JobQueue,
     private readonly transport: MailTransport,
     private readonly webhooks: WebhookService,
+    private readonly suppressions: SuppressionService,
   ) {}
 
   async create(
@@ -92,6 +95,11 @@ export class EmailService {
   ): Promise<CreateEmailResult> {
     validateInput(input);
     const scheduledAt = parseScheduledAt(input.scheduled_at, now);
+    const suppressedRecipients = await this.suppressions.findSuppressed([
+      ...input.to,
+      ...(input.cc ?? []),
+      ...(input.bcc ?? []),
+    ]);
     const normalized: SendEmailInput = {
       ...input,
       to: [...new Set(input.to)],
@@ -107,8 +115,18 @@ export class EmailService {
     const record: EmailRecord = {
       ...normalized,
       id: createId("email"),
-      status: scheduledAt ? "scheduled" : "queued",
-      last_event: scheduledAt ? "scheduled" : "queued",
+      status:
+        suppressedRecipients.length > 0
+          ? "suppressed"
+          : scheduledAt
+            ? "scheduled"
+            : "queued",
+      last_event:
+        suppressedRecipients.length > 0
+          ? "suppressed"
+          : scheduledAt
+            ? "scheduled"
+            : "queued",
       created_at: timestamp,
       updated_at: timestamp,
       request_hash: hash,
@@ -123,11 +141,20 @@ export class EmailService {
       : undefined;
     const created = await this.store.createEmail(record, idempotency);
     if (!created.replayed) {
-      await this.queue.enqueue(
-        { type: "send_email", email_id: record.id },
-        delaySecondsUntil(scheduledAt, now),
-      );
-      if (scheduledAt) {
+      if (suppressedRecipients.length > 0) {
+        emitCountMetric("SuppressedEmails");
+        await this.webhooks.publish("email.suppressed", record, {
+          suppressed_recipients: suppressedRecipients.map(
+            (suppression) => suppression.email,
+          ),
+        });
+      } else {
+        await this.queue.enqueue(
+          { type: "send_email", email_id: record.id },
+          delaySecondsUntil(scheduledAt, now),
+        );
+      }
+      if (scheduledAt && suppressedRecipients.length === 0) {
         await this.webhooks.publish("email.scheduled", record);
       }
     }
@@ -179,7 +206,7 @@ export class EmailService {
       status: "canceled",
       last_event: "canceled",
       updated_at: new Date().toISOString(),
-    });
+    }, ["queued", "scheduled"]);
     if (!updated) {
       throw new NotFoundError("Email");
     }
@@ -199,7 +226,7 @@ export class EmailService {
       status: "scheduled",
       last_event: "scheduled",
       updated_at: new Date().toISOString(),
-    });
+    }, ["queued", "scheduled"]);
     if (!updated) {
       throw new NotFoundError("Email");
     }
@@ -224,6 +251,32 @@ export class EmailService {
       return;
     }
 
+    const suppressedRecipients = await this.suppressions.findSuppressed([
+      ...record.to,
+      ...(record.cc ?? []),
+      ...(record.bcc ?? []),
+    ]);
+    if (suppressedRecipients.length > 0) {
+      const suppressed = await this.store.updateEmail(
+        id,
+        {
+          status: "suppressed",
+          last_event: "suppressed",
+          updated_at: new Date().toISOString(),
+        },
+        ["queued", "scheduled"],
+      );
+      if (suppressed) {
+        emitCountMetric("SuppressedEmails");
+        await this.webhooks.publish("email.suppressed", suppressed, {
+          suppressed_recipients: suppressedRecipients.map(
+            (recipient) => recipient.email,
+          ),
+        });
+      }
+      return;
+    }
+
     const sending = await this.store.claimEmailForSend(
       id,
       attempt,
@@ -242,7 +295,7 @@ export class EmailService {
         updated_at: new Date().toISOString(),
         error: undefined,
         send_lease_until: undefined,
-      });
+      }, ["sending"]);
       if (sent) {
         await this.webhooks.publish("email.sent", sent);
       }
@@ -255,8 +308,9 @@ export class EmailService {
         updated_at: new Date().toISOString(),
         error: message,
         send_lease_until: undefined,
-      });
+      }, ["sending"]);
       if (finalAttempt) {
+        emitCountMetric("SendFailures");
         if (failed) {
           await this.webhooks.publish("email.failed", failed, {
             error: message,

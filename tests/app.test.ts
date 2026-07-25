@@ -8,8 +8,10 @@ import type {
   MailTransport,
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
+import { ApiKeyService } from "../src/services/api-key-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
+import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
 class RecordingTransport implements MailTransport {
@@ -25,17 +27,26 @@ function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const webhooks = new WebhookService(store, queue);
+  const suppressions = new SuppressionService(store);
+  const apiKeys = new ApiKeyService(store, "re_test_secret");
   const transport = new RecordingTransport();
-  const emails = new EmailService(store, queue, transport, webhooks);
+  const emails = new EmailService(
+    store,
+    queue,
+    transport,
+    webhooks,
+    suppressions,
+  );
   const domains = new DomainService(
     store,
     new LocalDomainProvider(),
     "ap-northeast-1",
   );
   const app = createApp({
-    apiKey: "re_test_secret",
+    apiKeyService: apiKeys,
     domainService: domains,
     emailService: emails,
+    suppressionService: suppressions,
     webhookService: webhooks,
   });
   const request = (
@@ -51,7 +62,18 @@ function fixture() {
         ...init.headers,
       },
     });
-  return { app, domains, emails, queue, request, store, transport, webhooks };
+  return {
+    apiKeys,
+    app,
+    domains,
+    emails,
+    queue,
+    request,
+    store,
+    suppressions,
+    transport,
+    webhooks,
+  };
 }
 
 const email = {
@@ -169,5 +191,105 @@ describe("HTTP API", () => {
       }),
     });
     expect(response.status).toBe(422);
+  });
+
+  it("issues hashed scoped API keys and enforces least privilege", async () => {
+    const { request } = fixture();
+    const createdResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "transactional sender",
+        scopes: ["emails:send"],
+      }),
+    });
+    expect(createdResponse.status).toBe(200);
+    const created = (await createdResponse.json()) as {
+      id: string;
+      token: string;
+    };
+    expect(created.token).toMatch(/^re_hs_key_[a-f0-9]{32}\./);
+
+    const sent = await request(
+      "/emails",
+      {
+        method: "POST",
+        body: JSON.stringify(email),
+      },
+      created.token,
+    );
+    expect(sent.status).toBe(200);
+
+    const forbidden = await request("/domains", {}, created.token);
+    expect(forbidden.status).toBe(403);
+
+    const list = (await (await request("/api-keys")).json()) as {
+      data: Array<Record<string, unknown>>;
+    };
+    expect(list.data[0]).not.toHaveProperty("token");
+    expect(list.data[0]).not.toHaveProperty("key_hash");
+
+    const revoked = await request(`/api-keys/${created.id}`, {
+      method: "DELETE",
+    });
+    expect(revoked.status).toBe(200);
+    const denied = await request(
+      "/emails",
+      {
+        method: "POST",
+        body: JSON.stringify(email),
+      },
+      created.token,
+    );
+    expect(denied.status).toBe(401);
+  });
+
+  it("prevents a scoped API key from escalating its authority", async () => {
+    const { request } = fixture();
+    const managerResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "key manager",
+        scopes: ["api_keys:write"],
+      }),
+    });
+    const manager = (await managerResponse.json()) as { token: string };
+
+    const escalation = await request(
+      "/api-keys",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: "escalated sender",
+          scopes: ["emails:send"],
+        }),
+      },
+      manager.token,
+    );
+
+    expect(escalation.status).toBe(403);
+  });
+
+  it("suppresses a manually blocked recipient without enqueueing SES work", async () => {
+    const { queue, request } = fixture();
+    const suppression = await request("/suppressions", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "blocked@example.net",
+        reason: "manual",
+      }),
+    });
+    expect(suppression.status).toBe(200);
+
+    const send = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({ ...email, to: "blocked@example.net" }),
+    });
+    const { id } = (await send.json()) as { id: string };
+    const stored = await request(`/emails/${id}`);
+    await expect(stored.json()).resolves.toMatchObject({
+      status: "suppressed",
+      last_event: "suppressed",
+    });
+    expect(queue.jobs).toHaveLength(0);
   });
 });

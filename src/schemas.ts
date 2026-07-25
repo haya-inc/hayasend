@@ -93,3 +93,32 @@ export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   after: z.string().min(1).optional(),
 });
+
+export const apiScopeSchema = z.enum([
+  "emails:send",
+  "emails:read",
+  "domains:read",
+  "domains:write",
+  "webhooks:read",
+  "webhooks:write",
+  "suppressions:read",
+  "suppressions:write",
+  "api_keys:read",
+  "api_keys:write",
+]);
+
+export const apiKeySchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    scopes: z.array(apiScopeSchema).min(1),
+    expires_at: z.iso.datetime().optional(),
+  })
+  .strict();
+
+export const suppressionSchema = z
+  .object({
+    email: z.email(),
+    reason: z.literal("manual").default("manual"),
+    detail: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();

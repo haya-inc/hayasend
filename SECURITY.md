@@ -19,7 +19,8 @@ Do not test against infrastructure you do not own or administer.
 
 ## Operational notes
 
-- Use a high-entropy bootstrap key and rotate it if disclosed.
+- Use the bootstrap key only to create scoped application keys.
+- Revoke and rotate an application key immediately if disclosed.
 - Restrict AWS deployment permissions and CloudTrail access.
 - Process SES bounce and complaint events in every sending path.
 - Treat webhook URLs as sensitive operational configuration.

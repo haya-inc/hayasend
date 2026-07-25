@@ -15,8 +15,10 @@ import {
 } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import type { Job } from "./core/types.js";
+import { ApiKeyService } from "./services/api-key-service.js";
 import { DomainService } from "./services/domain-service.js";
 import { EmailService } from "./services/email-service.js";
+import { SuppressionService } from "./services/suppression-service.js";
 import { WebhookService } from "./services/webhook-service.js";
 
 export interface Runtime extends AppServices {
@@ -27,11 +29,14 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const store = new MemoryStore();
   const queue = new LocalJobQueue();
   const webhooks = new WebhookService(store, queue);
+  const suppressions = new SuppressionService(store);
+  const apiKeys = new ApiKeyService(store, config.apiKey);
   const emailService = new EmailService(
     store,
     queue,
     new ConsoleMailTransport(),
     webhooks,
+    suppressions,
   );
   const domainService = new DomainService(
     store,
@@ -49,9 +54,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   queue.setHandler(processJob);
 
   return {
-    apiKey: config.apiKey,
+    apiKeyService: apiKeys,
     domainService,
     emailService,
+    suppressionService: suppressions,
     webhookService: webhooks,
     processJob,
   };
@@ -66,11 +72,14 @@ export function createAwsRuntime(config: Config = loadConfig()): Runtime {
   const store = new DynamoStore(config.tableName, config.payloadBucket);
   const queue = new SqsJobQueue(config.queueUrl);
   const webhooks = new WebhookService(store, queue);
+  const suppressions = new SuppressionService(store);
+  const apiKeys = new ApiKeyService(store, config.apiKey);
   const emailService = new EmailService(
     store,
     queue,
     new SesMailTransport(config.configurationSet),
     webhooks,
+    suppressions,
   );
   const domainService = new DomainService(
     store,
@@ -79,9 +88,10 @@ export function createAwsRuntime(config: Config = loadConfig()): Runtime {
   );
 
   return {
-    apiKey: config.apiKey,
+    apiKeyService: apiKeys,
     domainService,
     emailService,
+    suppressionService: suppressions,
     webhookService: webhooks,
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {

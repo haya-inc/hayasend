@@ -26,6 +26,59 @@ export type WebhookEventType =
   | "email.suppressed"
   | "email.received";
 
+export type ApiScope =
+  | "*"
+  | "emails:send"
+  | "emails:read"
+  | "domains:read"
+  | "domains:write"
+  | "webhooks:read"
+  | "webhooks:write"
+  | "suppressions:read"
+  | "suppressions:write"
+  | "api_keys:read"
+  | "api_keys:write";
+
+export interface AuthenticatedPrincipal {
+  id: string;
+  name: string;
+  scopes: ApiScope[];
+  bootstrap: boolean;
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  key_hash: string;
+  scopes: ApiScope[];
+  created_at: string;
+  expires_at?: string | undefined;
+  revoked_at?: string | undefined;
+}
+
+export interface PublicApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: ApiScope[];
+  created_at: string;
+  expires_at?: string | undefined;
+  revoked_at?: string | undefined;
+}
+
+export type SuppressionReason = "bounce" | "complaint" | "manual";
+
+export interface SuppressionRecord {
+  id: string;
+  email: string;
+  reason: SuppressionReason;
+  created_at: string;
+  updated_at: string;
+  source_email_id?: string | undefined;
+  detail?: string | undefined;
+}
+
 export interface EmailTag {
   name: string;
   value: string;

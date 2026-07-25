@@ -8,8 +8,10 @@ import type {
   MailTransport,
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
+import { ApiKeyService } from "../src/services/api-key-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
+import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
 const passthroughTransport: MailTransport = {
@@ -27,8 +29,9 @@ describe("official Resend Node SDK compatibility", () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();
     const webhooks = new WebhookService(store, queue);
+    const suppressions = new SuppressionService(store);
     const app = createApp({
-      apiKey: "re_hayasend_compatible",
+      apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
       domainService: new DomainService(
         store,
         new LocalDomainProvider(),
@@ -39,7 +42,9 @@ describe("official Resend Node SDK compatibility", () => {
         queue,
         passthroughTransport,
         webhooks,
+        suppressions,
       ),
+      suppressionService: suppressions,
       webhookService: webhooks,
     });
     const nativeFetch = globalThis.fetch;

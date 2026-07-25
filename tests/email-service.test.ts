@@ -7,6 +7,7 @@ import type {
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
 import { EmailService } from "../src/services/email-service.js";
+import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
 class StubTransport implements MailTransport {
@@ -28,8 +29,15 @@ function fixture() {
   const queue = new CapturingJobQueue();
   const transport = new StubTransport();
   const webhooks = new WebhookService(store, queue);
-  const service = new EmailService(store, queue, transport, webhooks);
-  return { queue, service, store, transport };
+  const suppressions = new SuppressionService(store);
+  const service = new EmailService(
+    store,
+    queue,
+    transport,
+    webhooks,
+    suppressions,
+  );
+  return { queue, service, store, suppressions, transport };
 }
 
 const input = {
@@ -97,5 +105,35 @@ describe("EmailService", () => {
       scheduled_at: "2026-07-26T00:10:00.000Z",
     });
     expect(queue.jobs[0]?.delaySeconds).toBe(600);
+  });
+
+  it("does not enqueue or deliver to a suppressed recipient", async () => {
+    const { queue, service, suppressions, transport } = fixture();
+    await suppressions.put({
+      email: "Recipient <recipient@example.net>",
+      reason: "complaint",
+    });
+    const created = await service.create(input);
+    expect(created.record.status).toBe("suppressed");
+    expect(queue.jobs).toHaveLength(0);
+    await service.processSend(created.record.id);
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it("rechecks suppressions immediately before delivery", async () => {
+    const { service, store, suppressions, transport } = fixture();
+    const created = await service.create(input);
+    await suppressions.put({
+      email: "recipient@example.net",
+      reason: "bounce",
+    });
+
+    await service.processSend(created.record.id);
+
+    expect(transport.sent).toHaveLength(0);
+    await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+      status: "suppressed",
+      last_event: "suppressed",
+    });
   });
 });

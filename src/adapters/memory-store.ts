@@ -1,10 +1,13 @@
 import { ConflictError } from "../core/errors.js";
 import type {
+  ApiKeyRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
+  EmailStatus,
   IdempotencyClaim,
   Page,
+  SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
@@ -43,6 +46,8 @@ export class MemoryStore implements Store {
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
+  private readonly apiKeys = new Map<string, ApiKeyRecord>();
+  private readonly suppressions = new Map<string, SuppressionRecord>();
 
   async createEmail(
     record: EmailRecord,
@@ -116,9 +121,13 @@ export class MemoryStore implements Store {
   async updateEmail(
     id: string,
     updates: Partial<EmailRecord>,
+    fromStatuses?: EmailStatus[],
   ): Promise<EmailRecord | undefined> {
     const record = this.emails.get(id);
-    if (!record) {
+    if (
+      !record ||
+      (fromStatuses !== undefined && !fromStatuses.includes(record.status))
+    ) {
       return undefined;
     }
     const updated = { ...record, ...structuredClone(updates) };
@@ -184,5 +193,56 @@ export class MemoryStore implements Store {
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>> {
     return pageFromMap(this.webhooks.values(), limit, cursor);
+  }
+
+  async createApiKey(record: ApiKeyRecord): Promise<void> {
+    this.apiKeys.set(record.id, structuredClone(record));
+  }
+
+  async getApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    const record = this.apiKeys.get(id);
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async updateApiKey(
+    id: string,
+    updates: Partial<ApiKeyRecord>,
+  ): Promise<ApiKeyRecord | undefined> {
+    const record = this.apiKeys.get(id);
+    if (!record) {
+      return undefined;
+    }
+    const updated = { ...record, ...structuredClone(updates) };
+    this.apiKeys.set(id, updated);
+    return structuredClone(updated);
+  }
+
+  async listApiKeys(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<ApiKeyRecord>> {
+    return pageFromMap(this.apiKeys.values(), limit, cursor);
+  }
+
+  async putSuppression(record: SuppressionRecord): Promise<void> {
+    this.suppressions.set(record.id, structuredClone(record));
+  }
+
+  async getSuppression(
+    emailHash: string,
+  ): Promise<SuppressionRecord | undefined> {
+    const record = this.suppressions.get(emailHash);
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async deleteSuppression(emailHash: string): Promise<boolean> {
+    return this.suppressions.delete(emailHash);
+  }
+
+  async listSuppressions(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<SuppressionRecord>> {
+    return pageFromMap(this.suppressions.values(), limit, cursor);
   }
 }

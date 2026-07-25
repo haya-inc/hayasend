@@ -15,16 +15,36 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { ConflictError } from "../core/errors.js";
 import type {
+  ApiKeyRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
+  EmailStatus,
   IdempotencyClaim,
   Page,
+  SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
 
-type Entity = EmailRecord | DomainRecord | WebhookEndpoint;
+type Entity =
+  | EmailRecord
+  | DomainRecord
+  | WebhookEndpoint
+  | ApiKeyRecord
+  | SuppressionRecord;
+type EntityKind =
+  | "EMAIL"
+  | "DOMAIN"
+  | "WEBHOOK"
+  | "APIKEY"
+  | "SUPPRESSION";
+type IndexPartition =
+  | "EMAILS"
+  | "DOMAINS"
+  | "WEBHOOKS"
+  | "API_KEYS"
+  | "SUPPRESSIONS";
 
 interface StoredEntity {
   PK: string;
@@ -37,18 +57,26 @@ interface StoredEntity {
   request_hash?: string;
 }
 
-function entityKey(kind: "EMAIL" | "DOMAIN" | "WEBHOOK", id: string) {
+const INDEX_PARTITION: Record<EntityKind, IndexPartition> = {
+  EMAIL: "EMAILS",
+  DOMAIN: "DOMAINS",
+  WEBHOOK: "WEBHOOKS",
+  APIKEY: "API_KEYS",
+  SUPPRESSION: "SUPPRESSIONS",
+};
+
+function entityKey(kind: EntityKind, id: string) {
   return { PK: `${kind}#${id}`, SK: `${kind}#${id}` };
 }
 
 function storedEntity(
-  kind: "EMAIL" | "DOMAIN" | "WEBHOOK",
+  kind: EntityKind,
   record: Entity,
 ): StoredEntity {
   const key = entityKey(kind, record.id);
   return {
     ...key,
-    GSI1PK: `${kind}S`,
+    GSI1PK: INDEX_PARTITION[kind],
     GSI1SK: `${record.created_at}#${record.id}`,
     entity: record,
   };
@@ -217,19 +245,71 @@ export class DynamoStore implements Store {
   async updateEmail(
     id: string,
     updates: Partial<EmailRecord>,
+    fromStatuses?: EmailStatus[],
   ): Promise<EmailRecord | undefined> {
-    const current = await this.getEntity<EmailRecord>("EMAIL", id);
-    if (!current) {
-      return undefined;
+    const setExpressions: string[] = [];
+    const removeExpressions: string[] = [];
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
+
+    Object.entries(updates).forEach(([field, value], index) => {
+      const name = `#field${index}`;
+      names[name] = field;
+      if (value === undefined) {
+        removeExpressions.push(`entity.${name}`);
+      } else {
+        const placeholder = `:value${index}`;
+        values[placeholder] = value;
+        setExpressions.push(`entity.${name} = ${placeholder}`);
+      }
+    });
+    if (setExpressions.length === 0 && removeExpressions.length === 0) {
+      return this.getEntity<EmailRecord>("EMAIL", id);
     }
-    const updated = { ...current, ...updates };
-    await this.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: storedEntity("EMAIL", updated),
-      }),
-    );
-    return updated;
+
+    const updateExpression = [
+      setExpressions.length > 0 ? `SET ${setExpressions.join(", ")}` : "",
+      removeExpressions.length > 0
+        ? `REMOVE ${removeExpressions.join(", ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    let conditionExpression = "attribute_exists(PK)";
+    if (fromStatuses && fromStatuses.length > 0) {
+      names["#currentStatus"] = "status";
+      const statusValues = fromStatuses.map((status, index) => {
+        const placeholder = `:fromStatus${index}`;
+        values[placeholder] = status;
+        return placeholder;
+      });
+      conditionExpression += ` AND entity.#currentStatus IN (${statusValues.join(", ")})`;
+    }
+
+    try {
+      const result = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: entityKey("EMAIL", id),
+          UpdateExpression: updateExpression,
+          ConditionExpression: conditionExpression,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return (result.Attributes as StoredEntity | undefined)?.entity as
+        | EmailRecord
+        | undefined;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "ConditionalCheckFailedException"
+      ) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async listEmails(
@@ -284,9 +364,61 @@ export class DynamoStore implements Store {
     return this.listEntities<WebhookEndpoint>("WEBHOOKS", limit, cursor);
   }
 
+  async createApiKey(record: ApiKeyRecord): Promise<void> {
+    await this.putEntity("APIKEY", record);
+  }
+
+  async getApiKey(id: string): Promise<ApiKeyRecord | undefined> {
+    return this.getEntity<ApiKeyRecord>("APIKEY", id);
+  }
+
+  async updateApiKey(
+    id: string,
+    updates: Partial<ApiKeyRecord>,
+  ): Promise<ApiKeyRecord | undefined> {
+    return this.updateEntity<ApiKeyRecord>("APIKEY", id, updates);
+  }
+
+  async listApiKeys(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<ApiKeyRecord>> {
+    return this.listEntities<ApiKeyRecord>("API_KEYS", limit, cursor);
+  }
+
+  async putSuppression(record: SuppressionRecord): Promise<void> {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: storedEntity("SUPPRESSION", record),
+      }),
+    );
+  }
+
+  async getSuppression(
+    emailHash: string,
+  ): Promise<SuppressionRecord | undefined> {
+    return this.getEntity<SuppressionRecord>("SUPPRESSION", emailHash);
+  }
+
+  async deleteSuppression(emailHash: string): Promise<boolean> {
+    return this.deleteEntity("SUPPRESSION", emailHash);
+  }
+
+  async listSuppressions(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<SuppressionRecord>> {
+    return this.listEntities<SuppressionRecord>(
+      "SUPPRESSIONS",
+      limit,
+      cursor,
+    );
+  }
+
   private async putEntity(
-    kind: "DOMAIN" | "WEBHOOK",
-    record: DomainRecord | WebhookEndpoint,
+    kind: "DOMAIN" | "WEBHOOK" | "APIKEY",
+    record: DomainRecord | WebhookEndpoint | ApiKeyRecord,
   ) {
     await this.client.send(
       new PutCommand({
@@ -298,7 +430,7 @@ export class DynamoStore implements Store {
   }
 
   private async getEntity<T extends Entity>(
-    kind: "EMAIL" | "DOMAIN" | "WEBHOOK",
+    kind: EntityKind,
     id: string,
   ): Promise<T | undefined> {
     const result = await this.client.send(
@@ -312,7 +444,7 @@ export class DynamoStore implements Store {
   }
 
   private async updateEntity<T extends Entity>(
-    kind: "EMAIL" | "DOMAIN",
+    kind: "DOMAIN" | "APIKEY",
     id: string,
     updates: Partial<T>,
   ): Promise<T | undefined> {
@@ -331,7 +463,7 @@ export class DynamoStore implements Store {
   }
 
   private async deleteEntity(
-    kind: "DOMAIN" | "WEBHOOK",
+    kind: "DOMAIN" | "WEBHOOK" | "SUPPRESSION",
     id: string,
   ): Promise<boolean> {
     const result = await this.client.send(
@@ -345,7 +477,7 @@ export class DynamoStore implements Store {
   }
 
   private async listEntities<T extends Entity>(
-    indexPartition: "EMAILS" | "DOMAINS" | "WEBHOOKS",
+    indexPartition: IndexPartition,
     limit: number,
     cursor?: string,
   ): Promise<Page<T>> {
