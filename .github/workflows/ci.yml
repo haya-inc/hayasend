@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Validate OpenAPI
+        run: npx --yes @redocly/cli@2.12.5 lint openapi.yaml
+      - name: Bundle Lambda entry points
+        run: >
+          npx esbuild
+          src/aws/api.ts
+          src/aws/worker.ts
+          src/aws/ses-events.ts
+          --bundle
+          --platform=node
+          --target=node22
+          --format=esm
+          --outdir=/tmp/hayasend-esbuild

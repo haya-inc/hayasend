@@ -1,0 +1,518 @@
+openapi: 3.1.0
+info:
+  title: HayaSend API
+  version: 0.1.0
+  description: Resend-compatible transactional email API backed by Amazon SES.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8787
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      summary: Check service health
+      security: []
+      operationId: health
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service, version]
+                properties:
+                  ok:
+                    type: boolean
+                  service:
+                    const: hayasend
+                  version:
+                    type: string
+  /emails:
+    post:
+      summary: Send an email
+      operationId: sendEmail
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendEmail"
+      responses:
+        "200":
+          $ref: "#/components/responses/CreatedId"
+        "422":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List emails
+      operationId: listEmails
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Email page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Email"
+  /emails/batch:
+    post:
+      summary: Send a batch of emails
+      operationId: sendBatch
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/SendEmail"
+      responses:
+        "200":
+          description: Accepted email identifiers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Id"
+  /emails/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve an email
+      operationId: getEmail
+      responses:
+        "200":
+          description: Email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Email"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Reschedule an email
+      operationId: rescheduleEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scheduled_at]
+              properties:
+                scheduled_at:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/CreatedId"
+  /emails/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      summary: Cancel an email
+      operationId: cancelEmail
+      responses:
+        "200":
+          $ref: "#/components/responses/CreatedId"
+  /domains:
+    post:
+      summary: Add a sending domain
+      operationId: createDomain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  format: hostname
+      responses:
+        "200":
+          description: Domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+    get:
+      summary: List sending domains
+      operationId: listDomains
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Domain page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Domain"
+  /domains/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve a sending domain
+      operationId: getDomain
+      responses:
+        "200":
+          description: Domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+    delete:
+      summary: Delete a sending domain
+      operationId: deleteDomain
+      responses:
+        "200":
+          $ref: "#/components/responses/Deleted"
+  /domains/{id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      summary: Refresh domain verification
+      operationId: verifyDomain
+      responses:
+        "200":
+          description: Refreshed domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+  /webhooks:
+    post:
+      summary: Register a webhook
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint, events]
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: "#/components/schemas/WebhookEvent"
+      responses:
+        "200":
+          description: Webhook and one-time signing secret
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Webhook"
+                  - type: object
+                    required: [signing_secret]
+                    properties:
+                      signing_secret:
+                        type: string
+    get:
+      summary: List webhooks
+      operationId: listWebhooks
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Webhook page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Webhook"
+  /webhooks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve a webhook
+      operationId: getWebhook
+      responses:
+        "200":
+          description: Webhook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+    delete:
+      summary: Delete a webhook
+      operationId: deleteWebhook
+      responses:
+        "200":
+          $ref: "#/components/responses/Deleted"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 256
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    After:
+      name: after
+      in: query
+      schema:
+        type: string
+  responses:
+    CreatedId:
+      description: Resource accepted
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Id"
+    Deleted:
+      description: Resource deleted
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [object, id, deleted]
+            properties:
+              object:
+                type: string
+              id:
+                type: string
+              deleted:
+                const: true
+    Error:
+      description: API error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [statusCode, name, message]
+            properties:
+              statusCode:
+                type: integer
+              name:
+                type: string
+              message:
+                type: string
+  schemas:
+    Id:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+    SendEmail:
+      type: object
+      additionalProperties: false
+      required: [from, to, subject]
+      anyOf:
+        - required: [html]
+        - required: [text]
+      properties:
+        from:
+          type: string
+        to:
+          $ref: "#/components/schemas/AddressList"
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+        cc:
+          $ref: "#/components/schemas/AddressList"
+        bcc:
+          $ref: "#/components/schemas/AddressList"
+        reply_to:
+          $ref: "#/components/schemas/AddressList"
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          maxItems: 49
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, value]
+            properties:
+              name:
+                type: string
+              value:
+                type: string
+        attachments:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [filename, content]
+            properties:
+              filename:
+                type: string
+              content:
+                type: string
+                contentEncoding: base64
+              content_type:
+                type: string
+              content_id:
+                type: string
+              content_disposition:
+                enum: [inline, attachment]
+        scheduled_at:
+          type: string
+    AddressList:
+      oneOf:
+        - type: string
+        - type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: string
+    Email:
+      allOf:
+        - $ref: "#/components/schemas/SendEmail"
+        - type: object
+          required: [id, status, last_event, created_at, updated_at]
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+            last_event:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            provider_id:
+              type: string
+            error:
+              type: string
+    Domain:
+      type: object
+      required: [id, name, status, region, records, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          enum: [not_started, pending, verified, failed]
+        region:
+          type: string
+        records:
+          type: array
+          items:
+            type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WebhookEvent:
+      enum:
+        - email.sent
+        - email.delivered
+        - email.delivery_delayed
+        - email.opened
+        - email.clicked
+        - email.bounced
+        - email.complained
+        - email.failed
+        - email.scheduled
+        - email.suppressed
+        - email.received
+    Webhook:
+      type: object
+      required: [id, endpoint, events, status, created_at]
+      properties:
+        id:
+          type: string
+        endpoint:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookEvent"
+        status:
+          enum: [enabled, disabled]
+        created_at:
+          type: string
+          format: date-time
+    List:
+      type: object
+      required: [object, data, has_more]
+      properties:
+        object:
+          const: list
+        data:
+          type: array
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string

@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: HayaSend - Resend-compatible email API on Amazon SES
+
+Parameters:
+  ApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Bootstrap bearer key. Use a secret beginning with re_ for SDK compatibility.
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+    MemorySize: 256
+    Timeout: 30
+    Tracing: Active
+    Environment:
+      Variables:
+        HAYASEND_MODE: aws
+        HAYASEND_API_KEY: !Ref ApiKey
+        HAYASEND_TABLE_NAME: !Ref DataTable
+        HAYASEND_QUEUE_URL: !Ref JobQueue
+        HAYASEND_PAYLOAD_BUCKET: !Ref PayloadBucket
+        HAYASEND_CONFIGURATION_SET: !Ref ConfigurationSet
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageVariables:
+        environment: production
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/api.ts
+        Format: esm
+        Minify: true
+        OutExtension:
+          - .js=.mjs
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: .
+      Handler: src/aws/api.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+        - S3CrudPolicy:
+            BucketName: !Ref PayloadBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:CreateEmailIdentity
+                - ses:DeleteEmailIdentity
+                - ses:GetEmailIdentity
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/worker.ts
+        Format: esm
+        Minify: true
+        OutExtension:
+          - .js=.mjs
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: .
+      Handler: src/aws/worker.handler
+      ReservedConcurrentExecutions: 10
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+        - S3ReadPolicy:
+            BucketName: !Ref PayloadBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Jobs:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt JobQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            ScalingConfig:
+              MaximumConcurrency: 10
+
+  SesEventsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/ses-events.ts
+        Format: esm
+        Minify: true
+        OutExtension:
+          - .js=.mjs
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: .
+      Handler: src/aws/ses-events.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+      Events:
+        SesEvents:
+          Type: SNS
+          Properties:
+            Topic: !Ref SesEventTopic
+
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  PayloadBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireEmailPayloads
+            Status: Enabled
+            ExpirationInDays: 45
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  JobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  SesEventTopic:
+    Type: AWS::SNS::Topic
+
+  SesEventTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref SesEventTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSesPublish
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref SesEventTopic
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+
+  ConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: !Sub ${AWS::StackName}-events
+
+  ConfigurationSetEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    Properties:
+      ConfigurationSetName: !Ref ConfigurationSet
+      EventDestination:
+        Enabled: true
+        MatchingEventTypes:
+          - send
+          - reject
+          - bounce
+          - complaint
+          - delivery
+          - renderingFailure
+          - deliveryDelay
+          - open
+          - click
+        SnsDestination:
+          TopicARN: !Ref SesEventTopic
+
+Outputs:
+  ApiBaseUrl:
+    Description: Set this as RESEND_BASE_URL when using the official Resend Node SDK.
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  QueueArn:
+    Value: !GetAtt JobQueue.Arn
+  DeadLetterQueueUrl:
+    Value: !Ref DeadLetterQueue
+  TableName:
+    Value: !Ref DataTable
+  PayloadBucketName:
+    Value: !Ref PayloadBucket
+  ConfigurationSetName:
+    Value: !Ref ConfigurationSet

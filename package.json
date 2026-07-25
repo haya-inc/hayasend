@@ -1,0 +1,39 @@
+{
+  "name": "@haya-inc/hayasend",
+  "version": "0.1.0",
+  "description": "Resend-compatible, AWS-native email infrastructure you run in your own account.",
+  "type": "module",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "dev": "tsx src/server.ts",
+    "doctor": "tsx src/cli.ts doctor",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1095.0",
+    "@aws-sdk/client-s3": "3.1095.0",
+    "@aws-sdk/client-sesv2": "3.1095.0",
+    "@aws-sdk/client-sqs": "3.1095.0",
+    "@aws-sdk/lib-dynamodb": "3.1095.0",
+    "@hono/node-server": "2.0.11",
+    "@hono/zod-validator": "0.9.0",
+    "hono": "4.12.32",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.152",
+    "@types/node": "26.1.1",
+    "esbuild": "0.28.1",
+    "resend": "6.18.0",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
