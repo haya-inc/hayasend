@@ -28,7 +28,7 @@ account, and HayaSend never logs message bodies.
 - SES delivery, delay, bounce, complaint, open, click, and failure events
 - opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
   deterministic duplicate suppression, `email.received` webhooks, and
-  Resend-shaped content and attachment retrieval
+  Resend-shaped content, attachment retrieval, and SDK-assisted forwarding
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES

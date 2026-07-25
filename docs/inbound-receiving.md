@@ -99,6 +99,30 @@ Webhook consumers must treat delivery as at least once and deduplicate on
 message ID and uses a DynamoDB lease to collapse concurrent Mail Manager
 invocations.
 
+## Forward explicitly with the official SDK
+
+The official Node SDK can forward a retained message without a HayaSend-only
+API:
+
+```ts
+await resend.emails.receiving.forward(
+  {
+    emailId,
+    from: "Forwarder <forwarder@verified.example.com>",
+    to: "archive@example.net",
+  },
+  { idempotencyKey: `forward-${emailId}` },
+);
+```
+
+The API key needs `emails:read` to retrieve the message and `emails:send` to
+submit the forwarded copy. The helper downloads the 15-minute raw MIME URL,
+parses it on the caller, and sends the content and attachments through the
+normal email API. Use a verified SES identity for `from`; using the original,
+untrusted sender would fail identity policy and can break DMARC. A stable
+idempotency key prevents duplicate forwarded sends when a webhook consumer
+retries.
+
 ## Storage and failure behavior
 
 Mail Manager executes these actions in order for matching recipients:
@@ -128,10 +152,10 @@ fields are bounded to keep responses below API Gateway limits; when
 
 ## Current boundary
 
-This foundation is catch-all at the Mail Manager ingress. Alias routing,
-forwarding, loop detection, and ARC-aware forwarding remain v0.2 work. Do not
-point a production mailbox domain at HayaSend until those behaviors match the
-intended mail flow.
+This foundation is catch-all at the Mail Manager ingress. Explicit SDK-assisted
+forwarding is supported, but automatic alias routing, loop detection, and
+ARC-aware forwarding policy remain v0.2 work. Do not point a production mailbox
+domain at HayaSend until those behaviors match the intended mail flow.
 
 AWS references:
 

@@ -23,3 +23,22 @@ The official SDK's inline base64 attachments continue to work. Files that
 would approach API Gateway's request limit should use HayaSend's
 `POST /attachments` HTTP extension and then be sent as
 `attachments: [{ attachment_id: "att_..." }]`.
+
+The official Node SDK's receiving forward helper also works unchanged:
+
+```ts
+await email.emails.receiving.forward(
+  {
+    emailId: receivedEmailId,
+    from: "Forwarder <forwarder@verified.example.com>",
+    to: "archive@example.net",
+  },
+  { idempotencyKey: `forward-${receivedEmailId}` },
+);
+```
+
+Use a key with both `emails:read` and `emails:send`. The helper downloads the
+short-lived raw MIME URL, parses it locally, and submits the body and
+attachments through `POST /emails`. The `from` value must use a sending
+identity verified in the deployment's SES account; never substitute the
+untrusted original sender address.

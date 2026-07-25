@@ -23,13 +23,15 @@ migration path. It does not claim full Resend API coverage.
 | Receiving | list/retrieve | Implemented | opt-in Mail Manager deployment; bounded `data_uri` or `cid` HTML |
 | Receiving | `email.received` webhook | Implemented | metadata only; signed and retried through SQS |
 | Receiving | raw MIME and attachments | Implemented | 15-minute S3 download URLs |
-| Receiving | aliases/forwarding | Planned | remaining v0.2 work |
+| Receiving | official SDK forward helper | Implemented | raw MIME is parsed client-side, then sent through the normal API |
+| Receiving | automatic alias routing | Planned | loop detection and ARC-aware policy remain v0.2 work |
 | Templates | hosted templates | Planned | React Email remains usable client-side |
 | Contacts/broadcasts | marketing APIs | Not planned for v1 | compliance work required |
 
 The CI suite constructs the official `resend` Node SDK with a custom `baseUrl`
 and exercises sending, webhook management, received-email listing/retrieval,
-and received attachment listing/retrieval through the HayaSend application.
+received attachment listing/retrieval, and raw-MIME forwarding through the
+HayaSend application.
 
 Compatibility bugs should include the SDK name and version, the smallest safe
 payload that reproduces the issue, and the expected response shape.

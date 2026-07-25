@@ -80,6 +80,21 @@ describe("official Resend Node SDK compatibility", () => {
       async (input: string | URL | Request, init?: RequestInit) => {
         const incoming = new Request(input, init);
         const url = new URL(incoming.url);
+        if (url.hostname === "local.hayasend.invalid") {
+          const prefix = "/inbound/";
+          if (!url.pathname.startsWith(prefix)) {
+            return new Response(null, { status: 404 });
+          }
+          const objectKey = decodeURIComponent(
+            url.pathname.slice(prefix.length),
+          );
+          return new Response(
+            Buffer.from(await inboundStorage.readRaw(objectKey)),
+            {
+              headers: { "content-type": "message/rfc822" },
+            },
+          );
+        }
         if (url.hostname !== "api.hayasend.test") {
           return nativeFetch(input, init);
         }
@@ -222,6 +237,37 @@ describe("official Resend Node SDK compatibility", () => {
     expect(retrievedAttachment.data).toMatchObject({
       id: receivedAttachment.id,
       filename: "sdk.txt",
+    });
+
+    const forwarded = await resend.emails.receiving.forward(
+      {
+        emailId: receivedRecord.id,
+        from: "HayaSend Forwarder <forwarder@example.com>",
+        to: "archive@example.net",
+      },
+      { idempotencyKey: `forward-${receivedRecord.id}` },
+    );
+    expect(forwarded.error).toBeNull();
+    expect(forwarded.data?.id).toMatch(/^email_/);
+    const forwardedEmail = await store.getEmail(
+      forwarded.data?.id ?? "",
+    );
+    expect(forwardedEmail).toMatchObject({
+      from: "HayaSend Forwarder <forwarder@example.com>",
+      to: ["archive@example.net"],
+      subject: "SDK inbound compatibility",
+      text: expect.stringContaining("Received through the SDK."),
+      attachments: [
+        {
+          filename: "sdk.txt",
+          content_type: "text/plain",
+          content: Buffer.from("sdk attachment").toString("base64"),
+        },
+      ],
+    });
+    expect(queue.jobs.at(-1)?.job).toEqual({
+      type: "send_email",
+      email_id: forwarded.data?.id,
     });
   });
 });
