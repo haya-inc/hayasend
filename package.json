@@ -28,7 +28,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/aws-lambda": "8.10.152",
+    "@types/aws-lambda": "8.10.162",
     "@types/node": "26.1.1",
     "esbuild": "0.28.1",
     "resend": "6.18.0",
