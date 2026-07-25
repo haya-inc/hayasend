@@ -5,12 +5,19 @@
   "type": "module",
   "private": true,
   "license": "Apache-2.0",
+  "bin": {
+    "hayasend": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
+    "cli": "tsx src/cli.ts",
     "dev": "tsx src/server.ts",
     "doctor": "tsx src/cli.ts doctor",
     "start": "node dist/server.js",

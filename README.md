@@ -103,6 +103,21 @@ key `re_hayasend_dev`. Source development binds to `127.0.0.1` by default.
 If you deliberately change `HAYASEND_HOST`, remember that the preview contains
 message bodies and must not be exposed to an untrusted network.
 
+To add a pinned local setup to another application without overwriting its
+files, run this from a HayaSend checkout:
+
+```bash
+npm run cli -- init --dir ../my-application
+docker compose -f ../my-application/compose.hayasend.yaml up -d
+npm run cli -- doctor
+```
+
+The command creates a hardened Compose file and
+`.env.hayasend.example`. Use `npm run cli -- help` for the full command list
+and read [the CLI guide](docs/cli.md) for secret handling and real-send
+behavior. The future standalone CLI will use the same commands and generated
+files.
+
 ```bash
 curl http://localhost:8787/emails \
   -H 'Authorization: Bearer re_hayasend_dev' \
