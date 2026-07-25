@@ -7,6 +7,9 @@ describe("loadConfig", () => {
       mode: "local",
       apiKey: "re_hayasend_dev",
       port: 8787,
+      inboundRawPrefix: "inbound/raw/",
+      inboundRetentionDays: 7,
+      inboundMaxMessageBytes: 25 * 1024 * 1024,
     });
   });
 
@@ -38,5 +41,14 @@ describe("loadConfig", () => {
 
     expect(config.apiKeySecretArn).toContain(":secretsmanager:");
     expect(config.apiKey).toBeUndefined();
+  });
+
+  it("rejects unsafe inbound retention and S3-prefix settings", () => {
+    expect(() =>
+      loadConfig({ HAYASEND_INBOUND_RETENTION_DAYS: "31" }),
+    ).toThrow("HAYASEND_INBOUND_RETENTION_DAYS");
+    expect(() =>
+      loadConfig({ HAYASEND_INBOUND_RAW_PREFIX: "../mail/" }),
+    ).toThrow("HAYASEND_INBOUND_RAW_PREFIX");
   });
 });

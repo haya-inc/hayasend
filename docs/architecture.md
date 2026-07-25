@@ -50,6 +50,8 @@ A single DynamoDB table stores typed entities:
 
 - `EMAIL#<id>`
 - `ATTACHMENT#<id>`
+- `RECEIVED#<id>`
+- `RECEIVED_CLAIM#<id>`
 - `DOMAIN#<id>`
 - `WEBHOOK#<id>`
 - `IDEMPOTENCY#<sha256>`
@@ -69,6 +71,33 @@ an arbitrary remote URL. The bucket denies plaintext transport and objects
 expire after 45 days; email metadata remains in DynamoDB. Public email
 responses expose attachment metadata only.
 
+## Receive path
+
+Inbound resources are opt-in and isolated from the outbound payload bucket.
+When enabled, a public SES Mail Manager ingress accepts IPv4 and IPv6 traffic
+for explicitly configured envelope-recipient domain suffixes, up to the
+configured size limit. Operators decide whether STARTTLS is optional or
+required.
+
+For each accepted message and its matched envelope recipients, the rule first
+writes raw MIME to the dedicated S3 bucket and only then invokes Lambda
+asynchronously. Both actions drop on configuration failure. The bucket has
+versioning, a
+customer-managed rotating KMS key, public-access blocking, TLS-only access,
+and configurable 1–30 day lifecycle expiry.
+
+The parser validates the provider message ID and raw size, caps MIME nesting
+and header size, extracts bodies and at most 50 attachments, and persists
+structured objects. A deterministic `RECEIVED#` ID plus a leased
+`RECEIVED_CLAIM#` item prevents concurrent repeated invocations from creating
+multiple records. The `email.received` webhook carries metadata only.
+Authenticated receiving endpoints return parsed content and short-lived S3
+links for raw MIME and attachment downloads.
+
+Because Lambda, SQS, and webhooks are at-least-once systems, consumers still
+deduplicate webhook events on `data.email_id`. HayaSend never claims
+exactly-once notification delivery.
+
 ## Webhook signatures
 
 Webhook payloads are signed as:
@@ -85,5 +114,5 @@ reject stale timestamps.
 
 - one bootstrap administrator key per deployment;
 - payload retention is fixed at 45 days;
-- no inbound path yet;
+- inbound forwarding, alias routing, and ARC preservation are not implemented;
 - no deployment test has run in a dedicated AWS account.

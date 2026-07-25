@@ -8,9 +8,42 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
     Description: Optional ARN of an existing Secrets Manager secret containing a 32+ character bootstrap key.
+  EnableInbound:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Provision a public SES Mail Manager ingress endpoint and encrypted receiving storage.
+  InboundRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+    Description: Days to retain raw messages, parsed bodies, attachments, and receiving metadata.
+  InboundMaxMessageSizeBytes:
+    Type: Number
+    Default: 26214400
+    MinValue: 1
+    MaxValue: 41943040
+    Description: Maximum raw inbound message size accepted by the Mail Manager traffic policy.
+  InboundRecipientSuffixes:
+    Type: String
+    Default: "@example.invalid"
+    AllowedPattern: '^@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}(?:,@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}){0,9}$'
+    Description: Comma-separated envelope-recipient suffixes, including leading @, accepted by the public ingress (maximum 10).
+  InboundTlsPolicy:
+    Type: String
+    Default: OPTIONAL
+    AllowedValues:
+      - OPTIONAL
+      - REQUIRED
+      - FIPS
+    Description: STARTTLS policy for the public ingress. OPTIONAL offers the broadest internet deliverability.
 
 Conditions:
   CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
+  InboundEnabled: !Equals [!Ref EnableInbound, "true"]
 
 Globals:
   Function:
@@ -35,6 +68,9 @@ Globals:
         HAYASEND_SCHEDULER_GROUP_NAME: !Ref EmailScheduleGroup
         HAYASEND_SCHEDULER_ROLE_ARN: !GetAtt SchedulerTargetRole.Arn
         HAYASEND_SCHEDULER_DLQ_ARN: !GetAtt SchedulerDeadLetterQueue.Arn
+        HAYASEND_INBOUND_RAW_PREFIX: inbound/raw/
+        HAYASEND_INBOUND_RETENTION_DAYS: !Ref InboundRetentionDays
+        HAYASEND_INBOUND_MAX_MESSAGE_BYTES: !Ref InboundMaxMessageSizeBytes
         NODE_OPTIONS: --enable-source-maps
 
 Resources:
@@ -63,6 +99,12 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
+      Environment:
+        Variables:
+          HAYASEND_INBOUND_BUCKET: !If
+            - InboundEnabled
+            - !Ref InboundBucket
+            - ""
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DataTable
@@ -98,6 +140,19 @@ Resources:
               Condition:
                 StringEquals:
                   iam:PassedToService: scheduler.amazonaws.com
+        - !If
+          - InboundEnabled
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${InboundBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt InboundKey.Arn
+          - !Ref AWS::NoValue
       Events:
         Root:
           Type: HttpApi
@@ -191,6 +246,233 @@ Resources:
           Type: SNS
           Properties:
             Topic: !Ref SesEventTopic
+
+  InboundFunction:
+    Type: AWS::Serverless::Function
+    Condition: InboundEnabled
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/inbound.ts
+        Format: esm
+        Minify: true
+        OutExtension:
+          - .js=.mjs
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: .
+      Handler: src/aws/inbound.handler
+      Environment:
+        Variables:
+          HAYASEND_INBOUND_BUCKET: !Ref InboundBucket
+      MemorySize: 1024
+      Timeout: 120
+      EphemeralStorage:
+        Size: 1024
+      ReservedConcurrentExecutions: 5
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt InboundDeadLetterQueue.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt InboundDeadLetterQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub ${InboundBucket.Arn}/*
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:DescribeKey
+                - kms:Encrypt
+                - kms:GenerateDataKey
+              Resource: !GetAtt InboundKey.Arn
+
+  InboundKey:
+    Type: AWS::KMS::Key
+    Condition: InboundEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub Encryption key for ${AWS::StackName} inbound email content.
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: "*"
+
+  InboundBucket:
+    Type: AWS::S3::Bucket
+    Condition: InboundEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt InboundKey.Arn
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireInboundContent
+            Status: Enabled
+            ExpirationInDays: !Ref InboundRetentionDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: RemoveInboundDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  InboundBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: InboundEnabled
+    Properties:
+      Bucket: !Ref InboundBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt InboundBucket.Arn
+              - !Sub ${InboundBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  InboundRuleExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: InboundEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:mailmanager-rule-set/*
+      Policies:
+        - PolicyName: PersistAndProcessInboundEmail
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${InboundBucket.Arn}/inbound/raw/*
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:Encrypt
+                  - kms:GenerateDataKey*
+                Resource: !GetAtt InboundKey.Arn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt InboundFunction.Arn
+
+  InboundTrafficPolicy:
+    Type: AWS::SES::MailManagerTrafficPolicy
+    Condition: InboundEnabled
+    Properties:
+      DefaultAction: DENY
+      MaxMessageSizeBytes: !Ref InboundMaxMessageSizeBytes
+      PolicyStatements:
+        - Action: ALLOW
+          Conditions:
+            - IpExpression:
+                Evaluate:
+                  Attribute: SENDER_IP
+                Operator: CIDR_MATCHES
+                Values:
+                  - 0.0.0.0/0
+            - StringExpression:
+                Evaluate:
+                  Attribute: RECIPIENT
+                Operator: ENDS_WITH
+                Values: !Split [",", !Ref InboundRecipientSuffixes]
+        - Action: ALLOW
+          Conditions:
+            - Ipv6Expression:
+                Evaluate:
+                  Attribute: SENDER_IPV6
+                Operator: CIDR_MATCHES
+                Values:
+                  - ::/0
+            - StringExpression:
+                Evaluate:
+                  Attribute: RECIPIENT
+                Operator: ENDS_WITH
+                Values: !Split [",", !Ref InboundRecipientSuffixes]
+
+  InboundRuleSet:
+    Type: AWS::SES::MailManagerRuleSet
+    Condition: InboundEnabled
+    Properties:
+      Rules:
+        - Name: persist-and-notify
+          Actions:
+            - WriteToS3:
+                ActionFailurePolicy: DROP
+                RoleArn: !GetAtt InboundRuleExecutionRole.Arn
+                S3Bucket: !Ref InboundBucket
+                S3Prefix: inbound/raw/
+                S3SseKmsKeyId: !GetAtt InboundKey.Arn
+            - InvokeLambda:
+                ActionFailurePolicy: DROP
+                FunctionArn: !GetAtt InboundFunction.Arn
+                InvocationType: EVENT
+                RetryTimeMinutes: 60
+                RoleArn: !GetAtt InboundRuleExecutionRole.Arn
+
+  InboundIngressPoint:
+    Type: AWS::SES::MailManagerIngressPoint
+    Condition: InboundEnabled
+    Properties:
+      NetworkConfiguration:
+        PublicNetworkConfiguration:
+          IpType: DUAL_STACK
+      RuleSetId: !GetAtt InboundRuleSet.RuleSetId
+      TlsPolicy: !Ref InboundTlsPolicy
+      TrafficPolicyId: !GetAtt InboundTrafficPolicy.TrafficPolicyId
+      Type: OPEN
 
   DataTable:
     Type: AWS::DynamoDB::Table
@@ -295,6 +577,13 @@ Resources:
       KmsMasterKeyId: alias/aws/sqs
       MessageRetentionPeriod: 1209600
 
+  InboundDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Condition: InboundEnabled
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
   JobQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -375,6 +664,25 @@ Resources:
       Dimensions:
         - Name: QueueName
           Value: !GetAtt SchedulerDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  InboundDeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: InboundEnabled
+    Properties:
+      AlarmDescription: HayaSend could not process an inbound email event.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt InboundDeadLetterQueue.QueueName
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 1
@@ -494,7 +802,9 @@ Resources:
                   ["HayaSend", "SuppressedEmails", "Service", "HayaSend"],
                   [".", "PermanentBounces", ".", "."],
                   [".", "Complaints", ".", "."],
-                  [".", "SendFailures", ".", "."]
+                  [".", "SendFailures", ".", "."],
+                  [".", "InboundEmailsProcessed", ".", "."],
+                  [".", "InboundProcessingErrors", ".", "."]
                 ]
               }
             },
@@ -577,6 +887,18 @@ Outputs:
     Value: !Ref DataTable
   PayloadBucketName:
     Value: !Ref PayloadBucket
+  InboundBucketName:
+    Description: Dedicated KMS-encrypted receiving bucket. Empty when inbound receiving is disabled.
+    Value: !If
+      - InboundEnabled
+      - !Ref InboundBucket
+      - ""
+  InboundMxRecord:
+    Description: Set an MX record with priority 10 to this value only after configuring receiving webhooks.
+    Value: !If
+      - InboundEnabled
+      - !GetAtt InboundIngressPoint.ARecord
+      - ""
   ConfigurationSetName:
     Value: !Ref ConfigurationSet
   BootstrapSecretArn:

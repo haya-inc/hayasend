@@ -33,6 +33,7 @@ jobs:
         run: >
           npx esbuild
           src/aws/api.ts
+          src/aws/inbound.ts
           src/aws/worker.ts
           src/aws/ses-events.ts
           --bundle

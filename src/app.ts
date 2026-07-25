@@ -20,6 +20,7 @@ import {
   batchEmailSchema,
   domainSchema,
   paginationSchema,
+  receivedEmailQuerySchema,
   sendEmailSchema,
   suppressionSchema,
   updateEmailSchema,
@@ -32,6 +33,7 @@ import {
 } from "./services/attachment-service.js";
 import type { DomainService } from "./services/domain-service.js";
 import type { EmailService } from "./services/email-service.js";
+import type { ReceivedEmailService } from "./services/received-email-service.js";
 import type { SuppressionService } from "./services/suppression-service.js";
 import type { WebhookService } from "./services/webhook-service.js";
 
@@ -46,6 +48,7 @@ export interface AppServices {
   attachmentService: AttachmentService;
   domainService: DomainService;
   emailService: EmailService;
+  receivedEmailService: ReceivedEmailService;
   suppressionService: SuppressionService;
   webhookService: WebhookService;
 }
@@ -265,6 +268,56 @@ export function createApp(services: AppServices) {
         data: page.data.map(publicEmail),
       });
     },
+  );
+
+  app.get(
+    "/emails/receiving",
+    requireScope("emails:read"),
+    zValidator("query", paginationSchema, validationCallback),
+    async (context) => {
+      const { limit, after } = context.req.valid("query");
+      const page = await services.receivedEmailService.list(
+        limit,
+        after,
+      );
+      return context.json({ object: "list", ...page });
+    },
+  );
+
+  app.get(
+    "/emails/receiving/:id",
+    requireScope("emails:read"),
+    zValidator("query", receivedEmailQuerySchema, validationCallback),
+    async (context) =>
+      context.json(
+        await services.receivedEmailService.get(
+          context.req.param("id"),
+          context.req.valid("query").html_format,
+        ),
+      ),
+  );
+
+  app.get(
+    "/emails/receiving/:id/attachments",
+    requireScope("emails:read"),
+    async (context) =>
+      context.json(
+        await services.receivedEmailService.listAttachments(
+          context.req.param("id"),
+        ),
+      ),
+  );
+
+  app.get(
+    "/emails/receiving/:id/attachments/:attachmentId",
+    requireScope("emails:read"),
+    async (context) =>
+      context.json(
+        await services.receivedEmailService.getAttachment(
+          context.req.param("id"),
+          context.req.param("attachmentId"),
+        ),
+      ),
   );
 
   app.get(

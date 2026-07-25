@@ -107,17 +107,24 @@ export class WebhookService {
     email: EmailRecord,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
+    return this.publishData(type, {
+      created_at: email.created_at,
+      email_id: email.id,
+      from: email.from,
+      to: email.to,
+      subject: email.subject,
+      ...extra,
+    });
+  }
+
+  async publishData(
+    type: WebhookEventType,
+    data: WebhookEvent["data"],
+  ): Promise<void> {
     const event: WebhookEvent = {
       type,
       created_at: new Date().toISOString(),
-      data: {
-        created_at: email.created_at,
-        email_id: email.id,
-        from: email.from,
-        to: email.to,
-        subject: email.subject,
-        ...extra,
-      },
+      data,
     };
     let cursor: string | undefined;
     do {

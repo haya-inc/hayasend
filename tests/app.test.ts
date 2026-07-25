@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
+import { MemoryInboundStorage } from "../src/adapters/inbound-storage.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
@@ -15,6 +16,7 @@ import { ApiKeyService } from "../src/services/api-key-service.js";
 import { AttachmentService } from "../src/services/attachment-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
+import { ReceivedEmailService } from "../src/services/received-email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
@@ -31,6 +33,18 @@ function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const webhooks = new WebhookService(store, queue);
+  const inboundStorage = new MemoryInboundStorage();
+  const receivedEmailService = new ReceivedEmailService(
+    store,
+    inboundStorage,
+    queue,
+    webhooks,
+    {
+      rawPrefix: "inbound/raw/",
+      retentionDays: 7,
+      maxMessageBytes: 25 * 1024 * 1024,
+    },
+  );
   const suppressions = new SuppressionService(store);
   const apiKeys = new ApiKeyService(store, "re_test_secret");
   const attachments = new AttachmentService(
@@ -57,6 +71,7 @@ function fixture() {
     attachmentService: attachments,
     domainService: domains,
     emailService: emails,
+    receivedEmailService,
     suppressionService: suppressions,
     webhookService: webhooks,
   });
@@ -79,7 +94,9 @@ function fixture() {
     attachments,
     domains,
     emails,
+    inboundStorage,
     queue,
+    receivedEmailService,
     request,
     store,
     suppressions,
@@ -129,6 +146,60 @@ describe("HTTP API", () => {
       from: email.from,
       to: [email.to],
       subject: email.subject,
+    });
+  });
+
+  it("lists and retrieves received emails before the generic email route", async () => {
+    const {
+      inboundStorage,
+      receivedEmailService,
+      request,
+    } = fixture();
+    inboundStorage.seedRaw(
+      "inbound/raw/aws-inbound-api",
+      [
+        "From: Sender <sender@example.com>",
+        "To: inbound@example.net",
+        "Message-ID: <api-test@example.com>",
+        "Subject: Received through API",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Inbound body",
+      ].join("\r\n"),
+    );
+    const record = await receivedEmailService.ingest({
+      provider_message_id: "aws-inbound-api",
+      source: "sender@example.com",
+      destinations: ["inbound@example.net"],
+      timestamp: "2026-07-26T08:00:00.000Z",
+      verdicts: {},
+    });
+
+    const list = await request("/emails/receiving");
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      object: "list",
+      data: [
+        {
+          id: record?.id,
+          subject: "Received through API",
+        },
+      ],
+    });
+
+    const retrieved = await request(
+      `/emails/receiving/${record?.id}`,
+    );
+    expect(retrieved.status).toBe(200);
+    await expect(retrieved.json()).resolves.toMatchObject({
+      object: "email",
+      id: record?.id,
+      text: expect.stringContaining("Inbound body"),
+      raw: {
+        download_url: expect.stringContaining(
+          "https://local.hayasend.invalid/inbound/",
+        ),
+      },
     });
   });
 

@@ -23,6 +23,7 @@ import type {
   EmailStatus,
   IdempotencyClaim,
   Page,
+  ReceivedEmailRecord,
   SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -34,17 +35,21 @@ type Entity =
   | DomainRecord
   | WebhookEndpoint
   | ApiKeyRecord
-  | SuppressionRecord;
+  | SuppressionRecord
+  | ReceivedEmailRecord;
 type EntityKind =
   | "EMAIL"
   | "ATTACHMENT"
+  | "RECEIVED"
+  | "RECEIVED_CLAIM"
   | "DOMAIN"
   | "WEBHOOK"
   | "APIKEY"
   | "SUPPRESSION";
-type IndexedEntityKind = Exclude<EntityKind, "ATTACHMENT">;
+type IndexedEntityKind = Exclude<EntityKind, "ATTACHMENT" | "RECEIVED_CLAIM">;
 type IndexPartition =
   | "EMAILS"
+  | "RECEIVED_EMAILS"
   | "DOMAINS"
   | "WEBHOOKS"
   | "API_KEYS"
@@ -63,6 +68,7 @@ interface StoredEntity {
 
 const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   EMAIL: "EMAILS",
+  RECEIVED: "RECEIVED_EMAILS",
   DOMAIN: "DOMAINS",
   WEBHOOK: "WEBHOOKS",
   APIKEY: "API_KEYS",
@@ -348,6 +354,107 @@ export class DynamoStore implements Store {
     );
   }
 
+  async claimReceivedEmail(
+    id: string,
+    now: number,
+    leaseUntil: number,
+    expiresAt: number,
+  ): Promise<boolean> {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: entityKey("RECEIVED_CLAIM", id),
+          UpdateExpression: "SET lease_until = :lease, #ttl = :ttl",
+          ConditionExpression: "attribute_not_exists(PK) OR lease_until < :now",
+          ExpressionAttributeNames: { "#ttl": "ttl" },
+          ExpressionAttributeValues: {
+            ":lease": leaseUntil,
+            ":now": now,
+            ":ttl": expiresAt,
+          },
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async releaseReceivedEmailClaim(
+    id: string,
+    leaseUntil: number,
+  ): Promise<void> {
+    try {
+      await this.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: entityKey("RECEIVED_CLAIM", id),
+          ConditionExpression: "lease_until = :lease",
+          ExpressionAttributeValues: {
+            ":lease": leaseUntil,
+          },
+        }),
+      );
+    } catch (error) {
+      if (
+        (error as { name?: string }).name !== "ConditionalCheckFailedException"
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  async createReceivedEmail(record: ReceivedEmailRecord): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: {
+            ...storedEntity("RECEIVED", record),
+            ttl: Math.floor(new Date(record.expires_at).getTime() / 1_000),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async getReceivedEmail(id: string): Promise<ReceivedEmailRecord | undefined> {
+    return this.getEntity<ReceivedEmailRecord>("RECEIVED", id);
+  }
+
+  async updateReceivedEmail(
+    id: string,
+    updates: Partial<ReceivedEmailRecord>,
+  ): Promise<ReceivedEmailRecord | undefined> {
+    return this.updateEntity<ReceivedEmailRecord>("RECEIVED", id, updates);
+  }
+
+  async listReceivedEmails(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<ReceivedEmailRecord>> {
+    return this.listEntities<ReceivedEmailRecord>(
+      "RECEIVED_EMAILS",
+      limit,
+      cursor,
+    );
+  }
+
   async createDomain(record: DomainRecord): Promise<void> {
     await this.putEntity("DOMAIN", record);
   }
@@ -473,7 +580,7 @@ export class DynamoStore implements Store {
   }
 
   private async updateEntity<T extends Entity>(
-    kind: "DOMAIN" | "APIKEY",
+    kind: "DOMAIN" | "APIKEY" | "RECEIVED",
     id: string,
     updates: Partial<T>,
   ): Promise<T | undefined> {
@@ -482,10 +589,17 @@ export class DynamoStore implements Store {
       return undefined;
     }
     const updated = { ...current, ...updates };
+    const item = storedEntity(kind, updated);
+    if (kind === "RECEIVED") {
+      item.ttl = Math.floor(
+        new Date((updated as ReceivedEmailRecord).expires_at).getTime() /
+          1_000,
+      );
+    }
     await this.client.send(
       new PutCommand({
         TableName: this.tableName,
-        Item: storedEntity(kind, updated),
+        Item: item,
       }),
     );
     return updated;

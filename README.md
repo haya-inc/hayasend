@@ -25,6 +25,9 @@ account, and HayaSend never logs message bodies.
 - SES domain creation, DKIM record discovery, refresh, and deletion
 - signed webhooks with SQS retry and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
+- opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
+  deterministic duplicate suppression, `email.received` webhooks, and
+  Resend-shaped content and attachment retrieval
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
@@ -163,6 +166,13 @@ optional `BootstrapSecretArn` parameter. The CloudFormation output
 `ApiBaseUrl` is the value to use for `HAYASEND_BASE_URL` or the SDK's
 `baseUrl` option.
 
+Inbound receiving is deliberately disabled by default. Enable it only after
+reading [the inbound receiving guide](docs/inbound-receiving.md). The stack
+then returns `InboundMxRecord`; HayaSend never changes DNS automatically. A
+deployment must also replace the non-routable
+`InboundRecipientSuffixes=@example.invalid` default with its intended
+receiving-domain suffix.
+
 Treat the secret value as a bootstrap administrator key. Use it only to create
 least-privilege application keys. Retrieve it without copying the secret into
 Lambda configuration:
@@ -215,6 +225,12 @@ Application / Resend SDK
 SES events ----> SNS ----> event normalizer
                               |
                          signed webhooks
+
+Internet SMTP ----> Mail Manager ----> KMS-encrypted S3
+                         |                    |
+                         +----> parser Lambda +----> receiving API
+                                      |
+                               email.received webhook
 ```
 
 SQS handles immediate and short-delay jobs. Longer reservations use
@@ -231,6 +247,10 @@ and delivery semantics.
 - Local mode is development-only and has no persistence.
 - AWS mode stores metadata in DynamoDB and message bodies and attachments in
   a private, encrypted S3 bucket with a 45-day lifecycle.
+- Optional inbound mode uses a separate versioned bucket with a
+  customer-managed KMS key and configurable 1–30 day retention. Raw MIME and
+  extracted attachments are available only through authenticated,
+  short-lived download URLs.
 - Attachments can use inline base64 or checksum-bound direct uploads. HayaSend
   deliberately rejects remote attachment URLs to avoid server-side request
   forgery.

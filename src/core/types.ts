@@ -141,6 +141,66 @@ export interface AttachmentUploadTarget {
   expires_at: string;
 }
 
+export interface DownloadTarget {
+  download_url: string;
+  expires_at: string;
+}
+
+export interface ReceivedEmailAttachment {
+  id: string;
+  filename: string;
+  size: number;
+  content_type: string;
+  content_disposition: "inline" | "attachment" | null;
+  content_id: string | null;
+  object_key: string;
+}
+
+export type PublicReceivedEmailAttachment = Omit<
+  ReceivedEmailAttachment,
+  "object_key"
+>;
+
+export interface ReceivedEmailContent {
+  html: string | null;
+  text: string | null;
+  headers: Record<string, string>;
+}
+
+export interface ReceivedEmailRecord {
+  id: string;
+  provider_message_id: string;
+  message_id: string;
+  from: string;
+  to: string[];
+  received_for: string[];
+  bcc: string[];
+  cc: string[];
+  reply_to: string[];
+  subject: string;
+  created_at: string;
+  raw_object_key: string;
+  content_object_key: string;
+  attachments: ReceivedEmailAttachment[];
+  content_truncated: boolean;
+  expires_at: string;
+  webhook_queued_at?: string | undefined;
+}
+
+export interface InboundEmailEvent {
+  provider_message_id: string;
+  source: string;
+  destinations: string[];
+  timestamp: string;
+  verdicts: {
+    spam?: string | undefined;
+    virus?: string | undefined;
+    spf?: string | undefined;
+    dkim?: string | undefined;
+    dmarc?: string | undefined;
+  };
+}
+
 export interface SendEmailInput {
   from: string;
   to: string[];
@@ -241,6 +301,10 @@ export interface WebhookEvent {
 export type Job =
   | {
       type: "send_email";
+      email_id: string;
+    }
+  | {
+      type: "publish_received_email";
       email_id: string;
     }
   | {

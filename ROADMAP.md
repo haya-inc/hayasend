@@ -20,12 +20,13 @@ The roadmap is ordered by user risk, not by feature count.
 
 ## v0.2 — Receive and forward
 
-- SES Mail Manager ingress endpoint and traffic policies
-- encrypted S3 raw-message storage with configurable expiry
-- `email.received` webhook and temporary attachment URLs
-- alias routing and catch-all rules
-- forwarding that rewrites sender headers safely
-- loop detection, duplicate suppression, and ARC preservation
+- [x] SES Mail Manager ingress endpoint and traffic policies
+- [x] encrypted S3 raw-message storage with configurable expiry
+- [x] `email.received` webhook and temporary attachment URLs
+- [x] deterministic receipt duplicate suppression
+- [ ] alias routing and catch-all rules
+- [ ] forwarding that rewrites sender headers safely
+- [ ] loop detection and ARC preservation
 
 ## v0.3 — Developer workflow
 

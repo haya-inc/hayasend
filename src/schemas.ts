@@ -117,6 +117,10 @@ export const paginationSchema = z.object({
   after: z.string().min(1).optional(),
 });
 
+export const receivedEmailQuerySchema = z.object({
+  html_format: z.enum(["data_uri", "cid"]).default("data_uri"),
+});
+
 export const apiScopeSchema = z.enum([
   "emails:send",
   "emails:read",

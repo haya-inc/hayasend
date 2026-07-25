@@ -97,6 +97,93 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Id"
+  /emails/receiving:
+    get:
+      summary: List received emails
+      description: Requires the emails:read scope. Message bodies are omitted.
+      operationId: listReceivedEmails
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Received email page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReceivedEmailSummary"
+  /emails/receiving/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve a received email
+      description: Returns parsed content and a 15-minute URL for the original raw MIME message.
+      operationId: getReceivedEmail
+      parameters:
+        - name: html_format
+          in: query
+          description: Embed inline attachments as bounded data URIs or preserve cid references.
+          schema:
+            type: string
+            enum: [data_uri, cid]
+            default: data_uri
+      responses:
+        "200":
+          description: Received email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivedEmail"
+        "404":
+          $ref: "#/components/responses/Error"
+  /emails/receiving/{id}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: List received email attachments
+      operationId: listReceivedEmailAttachments
+      responses:
+        "200":
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReceivedEmailAttachmentDownload"
+  /emails/receiving/{id}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: attachmentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Retrieve a received email attachment
+      description: Returns metadata and a 15-minute download URL.
+      operationId: getReceivedEmailAttachment
+      responses:
+        "200":
+          description: Attachment download target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivedEmailAttachmentDownload"
+        "404":
+          $ref: "#/components/responses/Error"
   /emails/{id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
@@ -682,6 +769,123 @@ components:
           type: string
         error:
           type: string
+    ReceivedEmailSummary:
+      type: object
+      required:
+        - object
+        - id
+        - from
+        - to
+        - received_for
+        - bcc
+        - cc
+        - reply_to
+        - subject
+        - message_id
+        - attachments
+        - created_at
+      properties:
+        object:
+          const: email
+        id:
+          type: string
+          pattern: ^recv_[a-f0-9]{32}$
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        received_for:
+          type: array
+          description: SMTP envelope recipients accepted by the ingress.
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        cc:
+          type: array
+          items:
+            type: string
+        reply_to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        message_id:
+          type: string
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceivedEmailAttachment"
+        created_at:
+          type: string
+          format: date-time
+        content_truncated:
+          type: boolean
+          description: True when structured body fields were bounded; use raw.download_url for complete MIME.
+    ReceivedEmail:
+      allOf:
+        - $ref: "#/components/schemas/ReceivedEmailSummary"
+        - type: object
+          required: [html, html_format, text, headers, raw]
+          properties:
+            html:
+              type: [string, "null"]
+            html_format:
+              type: string
+              enum: [data_uri, cid]
+              description: The inline-image representation actually returned.
+            text:
+              type: [string, "null"]
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+            raw:
+              $ref: "#/components/schemas/DownloadTarget"
+    ReceivedEmailAttachment:
+      type: object
+      required:
+        - id
+        - filename
+        - size
+        - content_type
+        - content_disposition
+        - content_id
+      properties:
+        id:
+          type: string
+          pattern: ^att_[a-f0-9]{32}$
+        filename:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        content_type:
+          type: string
+        content_disposition:
+          type: [string, "null"]
+          enum: [inline, attachment, null]
+        content_id:
+          type: [string, "null"]
+    DownloadTarget:
+      type: object
+      required: [download_url, expires_at]
+      properties:
+        download_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    ReceivedEmailAttachmentDownload:
+      allOf:
+        - $ref: "#/components/schemas/ReceivedEmailAttachment"
+        - $ref: "#/components/schemas/DownloadTarget"
     InlineAttachment:
       type: object
       additionalProperties: false

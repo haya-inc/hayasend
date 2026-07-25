@@ -11,7 +11,11 @@ const runtime = createAwsRuntime();
 
 function parseJob(record: SQSRecord): Job {
   const parsed = JSON.parse(record.body) as Partial<Job>;
-  if (parsed.type !== "send_email" && parsed.type !== "deliver_webhook") {
+  if (
+    parsed.type !== "send_email" &&
+    parsed.type !== "publish_received_email" &&
+    parsed.type !== "deliver_webhook"
+  ) {
     throw new Error("Unsupported job type.");
   }
   return parsed as Job;

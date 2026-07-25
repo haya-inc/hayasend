@@ -20,6 +20,11 @@ For disposable end-to-end validation, use the
 
 Do not use the bootstrap key in normal application traffic.
 
+If inbound receiving is enabled, complete the separate pre-MX checklist in
+[Inbound receiving](inbound-receiving.md): register an `email.received`
+webhook, send a canary to the receiving subdomain, retrieve its raw MIME and
+attachment through the API, and only then move important mail flow.
+
 ## Alarms
 
 | Alarm | Immediate response |
@@ -27,6 +32,7 @@ Do not use the bootstrap key in normal application traffic.
 | Dead-letter queue contains a job | Inspect the job type and error logs before redrive |
 | Scheduler dead-letter queue contains an invocation | Inspect Scheduler target permissions and the original email ID; do not redrive the envelope directly into the job queue |
 | Scheduler invocation dropped | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions |
+| Inbound dead-letter queue contains an event | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event |
 | Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
 | API internal error | Use `x-request-id` to correlate API logs |
 | Send retries exhausted | Inspect SES response, account state, identity, and configuration set |
@@ -50,6 +56,31 @@ authorization errors against those separate IAM roles.
 
 Never copy raw message bodies, recipient lists, API keys, or webhook secrets
 into tickets.
+
+## Inbound receiving
+
+The inbound bucket and KMS key are retained when CloudFormation deletes the
+stack. This protects received mail from accidental stack deletion but means
+decommissioning requires a separate, deliberate data-destruction procedure.
+Record the retention decision and recovery window before emptying the bucket
+or scheduling KMS key deletion.
+
+Mail Manager can invoke the parser more than once for a message. This is
+expected: the deterministic received ID and DynamoDB processing lease collapse
+duplicates. Webhook delivery remains at least once, so downstream consumers
+must deduplicate on `data.email_id`.
+
+If a received email is visible in S3 but absent from the API:
+
+1. check the inbound DLQ and parser Lambda error count;
+2. verify the Mail Manager rule executed Write to S3 before Invoke Lambda;
+3. verify the object key is `inbound/raw/<SES messageId>`;
+4. check KMS decrypt and S3 read/write permissions for the parser role;
+5. redrive after the failed invocation has released its processing lease (or
+   after the 150-second crash-recovery lease expires).
+
+Never paste the raw MIME into logs or issue trackers. Use object identifiers
+and request IDs during diagnosis.
 
 ## Dead-letter queue
 

@@ -8,6 +8,7 @@ import type {
   EmailStatus,
   IdempotencyClaim,
   Page,
+  ReceivedEmailRecord,
   SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -48,6 +49,8 @@ export class MemoryStore implements Store {
     string,
     AttachmentUploadRecord
   >();
+  private readonly receivedEmails = new Map<string, ReceivedEmailRecord>();
+  private readonly receivedClaims = new Map<string, number>();
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
@@ -156,6 +159,62 @@ export class MemoryStore implements Store {
   ): Promise<AttachmentUploadRecord | undefined> {
     const record = this.attachmentUploads.get(id);
     return record ? structuredClone(record) : undefined;
+  }
+
+  async claimReceivedEmail(
+    id: string,
+    now: number,
+    leaseUntil: number,
+    _expiresAt: number,
+  ): Promise<boolean> {
+    const currentLease = this.receivedClaims.get(id);
+    if (currentLease !== undefined && currentLease >= now) {
+      return false;
+    }
+    this.receivedClaims.set(id, leaseUntil);
+    return true;
+  }
+
+  async releaseReceivedEmailClaim(
+    id: string,
+    leaseUntil: number,
+  ): Promise<void> {
+    if (this.receivedClaims.get(id) === leaseUntil) {
+      this.receivedClaims.delete(id);
+    }
+  }
+
+  async createReceivedEmail(record: ReceivedEmailRecord): Promise<boolean> {
+    if (this.receivedEmails.has(record.id)) {
+      return false;
+    }
+    this.receivedEmails.set(record.id, structuredClone(record));
+    return true;
+  }
+
+  async getReceivedEmail(id: string): Promise<ReceivedEmailRecord | undefined> {
+    const record = this.receivedEmails.get(id);
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async updateReceivedEmail(
+    id: string,
+    updates: Partial<ReceivedEmailRecord>,
+  ): Promise<ReceivedEmailRecord | undefined> {
+    const record = this.receivedEmails.get(id);
+    if (!record) {
+      return undefined;
+    }
+    const updated = { ...record, ...structuredClone(updates) };
+    this.receivedEmails.set(id, updated);
+    return structuredClone(updated);
+  }
+
+  async listReceivedEmails(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<ReceivedEmailRecord>> {
+    return pageFromMap(this.receivedEmails.values(), limit, cursor);
   }
 
   async createDomain(record: DomainRecord): Promise<void> {

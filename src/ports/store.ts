@@ -7,6 +7,7 @@ import type {
   EmailStatus,
   IdempotencyClaim,
   Page,
+  ReceivedEmailRecord,
   SuppressionRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -33,6 +34,24 @@ export interface Store {
   getAttachmentUpload(
     id: string,
   ): Promise<AttachmentUploadRecord | undefined>;
+
+  claimReceivedEmail(
+    id: string,
+    now: number,
+    leaseUntil: number,
+    expiresAt: number,
+  ): Promise<boolean>;
+  releaseReceivedEmailClaim(id: string, leaseUntil: number): Promise<void>;
+  createReceivedEmail(record: ReceivedEmailRecord): Promise<boolean>;
+  getReceivedEmail(id: string): Promise<ReceivedEmailRecord | undefined>;
+  updateReceivedEmail(
+    id: string,
+    updates: Partial<ReceivedEmailRecord>,
+  ): Promise<ReceivedEmailRecord | undefined>;
+  listReceivedEmails(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<ReceivedEmailRecord>>;
 
   createDomain(record: DomainRecord): Promise<void>;
   getDomain(id: string): Promise<DomainRecord | undefined>;

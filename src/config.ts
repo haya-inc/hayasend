@@ -14,6 +14,10 @@ export interface Config {
   schedulerGroupName?: string;
   schedulerRoleArn?: string;
   schedulerDeadLetterQueueArn?: string;
+  inboundBucket?: string;
+  inboundRawPrefix: string;
+  inboundRetentionDays: number;
+  inboundMaxMessageBytes: number;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -38,11 +42,50 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_PORT must be an integer between 1 and 65535.",
     );
   }
+  const inboundRetentionDays = Number(
+    env.HAYASEND_INBOUND_RETENTION_DAYS ?? 7,
+  );
+  if (
+    !Number.isInteger(inboundRetentionDays) ||
+    inboundRetentionDays < 1 ||
+    inboundRetentionDays > 30
+  ) {
+    throw new ValidationError(
+      "HAYASEND_INBOUND_RETENTION_DAYS must be an integer between 1 and 30.",
+    );
+  }
+  const inboundMaxMessageBytes = Number(
+    env.HAYASEND_INBOUND_MAX_MESSAGE_BYTES ?? 25 * 1024 * 1024,
+  );
+  if (
+    !Number.isInteger(inboundMaxMessageBytes) ||
+    inboundMaxMessageBytes < 1 ||
+    inboundMaxMessageBytes > 40 * 1024 * 1024
+  ) {
+    throw new ValidationError(
+      "HAYASEND_INBOUND_MAX_MESSAGE_BYTES must be an integer between 1 and 41943040.",
+    );
+  }
+  const inboundRawPrefix =
+    env.HAYASEND_INBOUND_RAW_PREFIX ?? "inbound/raw/";
+  if (
+    inboundRawPrefix.length < 1 ||
+    inboundRawPrefix.length > 62 ||
+    inboundRawPrefix.includes("..") ||
+    /[^a-zA-Z0-9!_.*'()/-]/.test(inboundRawPrefix)
+  ) {
+    throw new ValidationError(
+      "HAYASEND_INBOUND_RAW_PREFIX must be a safe S3 prefix of at most 62 characters.",
+    );
+  }
 
   return {
     mode,
     port,
     region: env.AWS_REGION ?? "ap-northeast-1",
+    inboundRawPrefix,
+    inboundRetentionDays,
+    inboundMaxMessageBytes,
     ...(mode === "local" && apiKey ? { apiKey } : {}),
     ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME
@@ -71,6 +114,9 @@ export function loadConfig(env = process.env): Config {
           schedulerDeadLetterQueueArn:
             env.HAYASEND_SCHEDULER_DLQ_ARN,
         }
+      : {}),
+    ...(env.HAYASEND_INBOUND_BUCKET
+      ? { inboundBucket: env.HAYASEND_INBOUND_BUCKET }
       : {}),
   };
 }

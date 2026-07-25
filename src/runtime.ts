@@ -3,6 +3,11 @@ import {
   MemoryAttachmentStorage,
   S3AttachmentStorage,
 } from "./adapters/attachment-storage.js";
+import {
+  DisabledInboundStorage,
+  MemoryInboundStorage,
+  S3InboundStorage,
+} from "./adapters/inbound-storage.js";
 import { DynamoStore } from "./adapters/dynamo-store.js";
 import {
   AwsEmailScheduler,
@@ -30,6 +35,7 @@ import {
 import { AttachmentService } from "./services/attachment-service.js";
 import { DomainService } from "./services/domain-service.js";
 import { EmailService } from "./services/email-service.js";
+import { ReceivedEmailService } from "./services/received-email-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
 import { WebhookService } from "./services/webhook-service.js";
 
@@ -41,6 +47,17 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const store = new MemoryStore();
   const queue = new LocalJobQueue();
   const webhooks = new WebhookService(store, queue);
+  const receivedEmails = new ReceivedEmailService(
+    store,
+    new MemoryInboundStorage(),
+    queue,
+    webhooks,
+    {
+      rawPrefix: config.inboundRawPrefix,
+      retentionDays: config.inboundRetentionDays,
+      maxMessageBytes: config.inboundMaxMessageBytes,
+    },
+  );
   const suppressions = new SuppressionService(store);
   const attachmentService = new AttachmentService(
     store,
@@ -70,6 +87,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
       await emailService.processSend(job.email_id, attempt);
       return;
     }
+    if (job.type === "publish_received_email") {
+      await receivedEmails.publishWebhook(job.email_id);
+      return;
+    }
     await webhooks.deliver(job.webhook_id, job.event);
   };
   queue.setHandler(processJob);
@@ -79,6 +100,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     attachmentService,
     domainService,
     emailService,
+    receivedEmailService: receivedEmails,
     suppressionService: suppressions,
     webhookService: webhooks,
     processJob,
@@ -109,6 +131,19 @@ export function createAwsRuntime(
   const store = new DynamoStore(config.tableName, config.payloadBucket);
   const queue = new SqsJobQueue(config.queueUrl);
   const webhooks = new WebhookService(store, queue);
+  const receivedEmails = new ReceivedEmailService(
+    store,
+    config.inboundBucket
+      ? new S3InboundStorage(config.inboundBucket)
+      : new DisabledInboundStorage(),
+    queue,
+    webhooks,
+    {
+      rawPrefix: config.inboundRawPrefix,
+      retentionDays: config.inboundRetentionDays,
+      maxMessageBytes: config.inboundMaxMessageBytes,
+    },
+  );
   const suppressions = new SuppressionService(store);
   const attachmentService = new AttachmentService(
     store,
@@ -141,11 +176,16 @@ export function createAwsRuntime(
     attachmentService,
     domainService,
     emailService,
+    receivedEmailService: receivedEmails,
     suppressionService: suppressions,
     webhookService: webhooks,
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {
         await emailService.processSend(job.email_id, attempt);
+        return;
+      }
+      if (job.type === "publish_received_email") {
+        await receivedEmails.publishWebhook(job.email_id);
         return;
       }
       await webhooks.deliver(job.webhook_id, job.event);
