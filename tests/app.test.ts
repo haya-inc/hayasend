@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
+import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
@@ -10,6 +12,7 @@ import type {
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
 import { ApiKeyService } from "../src/services/api-key-service.js";
+import { AttachmentService } from "../src/services/attachment-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
@@ -30,6 +33,10 @@ function fixture() {
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
   const apiKeys = new ApiKeyService(store, "re_test_secret");
+  const attachments = new AttachmentService(
+    store,
+    new MemoryAttachmentStorage(),
+  );
   const transport = new RecordingTransport();
   const scheduler = new QueueEmailScheduler(queue);
   const emails = new EmailService(
@@ -38,6 +45,7 @@ function fixture() {
     transport,
     webhooks,
     suppressions,
+    attachments,
   );
   const domains = new DomainService(
     store,
@@ -46,6 +54,7 @@ function fixture() {
   );
   const app = createApp({
     apiKeyService: apiKeys,
+    attachmentService: attachments,
     domainService: domains,
     emailService: emails,
     suppressionService: suppressions,
@@ -67,6 +76,7 @@ function fixture() {
   return {
     apiKeys,
     app,
+    attachments,
     domains,
     emails,
     queue,
@@ -193,6 +203,98 @@ describe("HTTP API", () => {
       }),
     });
     expect(response.status).toBe(422);
+  });
+
+  it("uploads a checksum-bound attachment without exposing its content", async () => {
+    const { app, emails, request, transport } = fixture();
+    const content = Buffer.from("private attachment content");
+    const checksum = createHash("sha256").update(content).digest("hex");
+    const createUpload = await request("/attachments", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: "invoice.txt",
+        content_type: "text/plain",
+        size_bytes: content.byteLength,
+        checksum_sha256: checksum,
+      }),
+    });
+    expect(createUpload.status).toBe(200);
+    const upload = (await createUpload.json()) as {
+      id: string;
+      upload_url: string;
+      upload_headers: Record<string, string>;
+    };
+
+    const tamperedUrl = new URL(upload.upload_url);
+    tamperedUrl.searchParams.set("token", "wrong");
+    const deniedUpload = await app.request(tamperedUrl, {
+      method: "PUT",
+      headers: upload.upload_headers,
+      body: content,
+    });
+    expect(deniedUpload.status).toBe(422);
+
+    const uploaded = await app.request(upload.upload_url, {
+      method: "PUT",
+      headers: upload.upload_headers,
+      body: content,
+    });
+    expect(uploaded.status).toBe(204);
+
+    const send = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        attachments: [{ attachment_id: upload.id }],
+      }),
+    });
+    expect(send.status).toBe(200);
+    const { id } = (await send.json()) as { id: string };
+    const retrieved = (await (
+      await request(`/emails/${id}`)
+    ).json()) as Record<string, unknown>;
+    expect(retrieved.attachments).toEqual([
+      {
+        attachment_id: upload.id,
+        filename: "invoice.txt",
+        content_type: "text/plain",
+      },
+    ]);
+    expect(JSON.stringify(retrieved)).not.toContain(
+      content.toString("base64"),
+    );
+    expect(JSON.stringify(retrieved)).not.toContain("object_key");
+    expect(JSON.stringify(retrieved)).not.toContain(checksum);
+
+    await emails.processSend(id);
+    expect(transport.sent[0]?.attachments?.[0]).toMatchObject({
+      filename: "invoice.txt",
+      content: content.toString("base64"),
+    });
+    expect(transport.sent[0]?.attachments?.[0]).not.toHaveProperty(
+      "object_key",
+    );
+  });
+
+  it("never returns inline attachment bodies from email reads", async () => {
+    const { request } = fixture();
+    const content = Buffer.from("inline private content").toString("base64");
+    const sent = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        attachments: [{ filename: "inline.txt", content }],
+      }),
+    });
+    const { id } = (await sent.json()) as { id: string };
+
+    const retrieved = await request(`/emails/${id}`);
+    await expect(retrieved.json()).resolves.toMatchObject({
+      attachments: [{ filename: "inline.txt" }],
+    });
+    expect(await (await request(`/emails/${id}`)).text()).not.toContain(
+      content,
+    );
   });
 
   it("issues hashed scoped API keys and enforces least privilege", async () => {

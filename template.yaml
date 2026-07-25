@@ -243,6 +243,19 @@ Resources:
           - Id: ExpireEmailPayloads
             Status: Enabled
             ExpirationInDays: 45
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"
+            AllowedMethods:
+              - PUT
+            AllowedHeaders:
+              - content-type
+              - x-amz-checksum-sha256
+            ExposedHeaders:
+              - ETag
+              - x-amz-checksum-sha256
+            MaxAge: 300
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
@@ -251,6 +264,24 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+
+  PayloadBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PayloadBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt PayloadBucket.Arn
+              - !Sub ${PayloadBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
 
   DeadLetterQueue:
     Type: AWS::SQS::Queue

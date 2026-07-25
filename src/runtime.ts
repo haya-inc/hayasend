@@ -1,4 +1,8 @@
 import type { AppServices } from "./app.js";
+import {
+  MemoryAttachmentStorage,
+  S3AttachmentStorage,
+} from "./adapters/attachment-storage.js";
 import { DynamoStore } from "./adapters/dynamo-store.js";
 import {
   AwsEmailScheduler,
@@ -23,6 +27,7 @@ import {
   ApiKeyService,
   type BootstrapKeyProvider,
 } from "./services/api-key-service.js";
+import { AttachmentService } from "./services/attachment-service.js";
 import { DomainService } from "./services/domain-service.js";
 import { EmailService } from "./services/email-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
@@ -37,6 +42,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const queue = new LocalJobQueue();
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const attachmentService = new AttachmentService(
+    store,
+    new MemoryAttachmentStorage(),
+  );
   const scheduler = new QueueEmailScheduler(queue);
   const apiKeys = new ApiKeyService(
     store,
@@ -48,6 +57,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     new ConsoleMailTransport(),
     webhooks,
     suppressions,
+    attachmentService,
   );
   const domainService = new DomainService(
     store,
@@ -66,6 +76,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
 
   return {
     apiKeyService: apiKeys,
+    attachmentService,
     domainService,
     emailService,
     suppressionService: suppressions,
@@ -99,6 +110,10 @@ export function createAwsRuntime(
   const queue = new SqsJobQueue(config.queueUrl);
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const attachmentService = new AttachmentService(
+    store,
+    new S3AttachmentStorage(config.payloadBucket),
+  );
   const scheduler = new AwsEmailScheduler(queue, {
     groupName: config.schedulerGroupName,
     queueArn: config.queueArn,
@@ -113,6 +128,7 @@ export function createAwsRuntime(
     new SesMailTransport(config.configurationSet),
     webhooks,
     suppressions,
+    attachmentService,
   );
   const domainService = new DomainService(
     store,
@@ -122,6 +138,7 @@ export function createAwsRuntime(
 
   return {
     apiKeyService: apiKeys,
+    attachmentService,
     domainService,
     emailService,
     suppressionService: suppressions,

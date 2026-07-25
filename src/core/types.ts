@@ -84,12 +84,61 @@ export interface EmailTag {
   value: string;
 }
 
-export interface EmailAttachment {
-  filename: string;
-  content: string;
+interface EmailAttachmentPresentation {
   content_type?: string | undefined;
   content_id?: string | undefined;
   content_disposition?: "inline" | "attachment" | undefined;
+}
+
+export interface InlineEmailAttachmentInput
+  extends EmailAttachmentPresentation {
+  filename: string;
+  content: string;
+}
+
+export interface UploadedEmailAttachmentInput
+  extends EmailAttachmentPresentation {
+  attachment_id: string;
+  filename?: string | undefined;
+}
+
+export type EmailAttachmentInput =
+  | InlineEmailAttachmentInput
+  | UploadedEmailAttachmentInput;
+
+export interface EmailAttachment extends EmailAttachmentPresentation {
+  filename: string;
+  content?: string | undefined;
+  attachment_id?: string | undefined;
+  object_key?: string | undefined;
+  size_bytes?: number | undefined;
+  checksum_sha256?: string | undefined;
+}
+
+export interface AttachmentUploadRecord {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  checksum_sha256: string;
+  object_key: string;
+  upload_token_hash: string;
+  created_at: string;
+  upload_expires_at: string;
+  expires_at: string;
+}
+
+export interface AttachmentObjectReference {
+  object_key: string;
+  size_bytes: number;
+  checksum_sha256: string;
+}
+
+export interface AttachmentUploadTarget {
+  method: "PUT";
+  url: string;
+  headers: Record<string, string>;
+  expires_at: string;
 }
 
 export interface SendEmailInput {
@@ -103,11 +152,12 @@ export interface SendEmailInput {
   reply_to?: string[] | undefined;
   headers?: Record<string, string> | undefined;
   tags?: EmailTag[] | undefined;
-  attachments?: EmailAttachment[] | undefined;
+  attachments?: EmailAttachmentInput[] | undefined;
   scheduled_at?: string | undefined;
 }
 
-export interface EmailRecord extends SendEmailInput {
+export interface EmailRecord extends Omit<SendEmailInput, "attachments"> {
+  attachments?: EmailAttachment[] | undefined;
   id: string;
   status: EmailStatus;
   last_event: string;

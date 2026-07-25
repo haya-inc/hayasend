@@ -9,7 +9,8 @@ migration path. It does not claim full Resend API coverage.
 | Emails | retrieve/list | Implemented | HayaSend adds internal status fields |
 | Emails | update/cancel | Implemented | queued or scheduled messages only |
 | Batch | send | Implemented | 1–100 messages |
-| Attachments | base64 content | Implemented | 6 MiB decoded aggregate guardrail |
+| Attachments | base64 content | Implemented | constrained by the 9 MiB serialized request guardrail |
+| Attachments | direct upload | HayaSend extension | checksum-bound S3 PUT; 25 MiB decoded aggregate |
 | Attachments | remote path | Rejected | avoids server-side URL fetching |
 | Scheduling | ISO 8601 | Implemented | SQS up to 15 minutes; EventBridge Scheduler beyond |
 | Scheduling | relative English | Partial | `in N minutes/hours/days` |

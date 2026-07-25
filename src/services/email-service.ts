@@ -17,6 +17,7 @@ import type {
 import type { EmailScheduler } from "../ports/email-scheduler.js";
 import type { MailTransport } from "../ports/mail-transport.js";
 import type { Store } from "../ports/store.js";
+import type { AttachmentService } from "./attachment-service.js";
 import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
 
@@ -62,16 +63,6 @@ function validateInput(input: SendEmailInput) {
     ensureSafeHeaderValue("header name", name);
     ensureSafeHeaderValue(`header ${name}`, value);
   }
-  const attachmentBytes = (input.attachments ?? []).reduce(
-    (total, attachment) =>
-      total + Buffer.byteLength(attachment.content, "base64"),
-    0,
-  );
-  if (attachmentBytes > 6 * 1024 * 1024) {
-    throw new ValidationError(
-      "Decoded attachment content must not exceed 6 MiB.",
-    );
-  }
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > 9 * 1024 * 1024) {
     throw new ValidationError(
       "The serialized request must not exceed 9 MiB.",
@@ -86,6 +77,7 @@ export class EmailService {
     private readonly transport: MailTransport,
     private readonly webhooks: WebhookService,
     private readonly suppressions: SuppressionService,
+    private readonly attachments: AttachmentService,
   ) {}
 
   async create(
@@ -95,13 +87,20 @@ export class EmailService {
   ): Promise<CreateEmailResult> {
     validateInput(input);
     const scheduledAt = parseScheduledAt(input.scheduled_at, now);
+    const resolvedAttachments = await this.attachments.resolve(
+      input.attachments,
+      Buffer.byteLength(input.html ?? "", "utf8") +
+        Buffer.byteLength(input.text ?? "", "utf8"),
+      now,
+    );
     const suppressedRecipients = await this.suppressions.findSuppressed([
       ...input.to,
       ...(input.cc ?? []),
       ...(input.bcc ?? []),
     ]);
-    const normalized: SendEmailInput = {
-      ...input,
+    const { attachments: _inputAttachments, ...emailInput } = input;
+    const normalized = {
+      ...emailInput,
       to: [...new Set(input.to)],
       ...(input.cc ? { cc: [...new Set(input.cc)] } : {}),
       ...(input.bcc ? { bcc: [...new Set(input.bcc)] } : {}),
@@ -109,6 +108,9 @@ export class EmailService {
         ? { reply_to: [...new Set(input.reply_to)] }
         : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+      ...(resolvedAttachments
+        ? { attachments: resolvedAttachments }
+        : {}),
     };
     const hash = requestHash(normalized);
     const timestamp = now.toISOString();
@@ -175,6 +177,11 @@ export class EmailService {
     if (inputs.length === 0 || inputs.length > 100) {
       throw new ValidationError(
         "A batch must contain between 1 and 100 emails.",
+      );
+    }
+    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 9 * 1024 * 1024) {
+      throw new ValidationError(
+        "The serialized batch request must not exceed 9 MiB.",
       );
     }
     return Promise.all(
@@ -300,7 +307,32 @@ export class EmailService {
     }
 
     try {
-      const result = await this.transport.send(sending);
+      const sendable = sending.attachments
+        ? {
+            ...sending,
+            attachments: await Promise.all(
+              sending.attachments.map(async (attachment) => ({
+                filename: attachment.filename,
+                content: Buffer.from(
+                  await this.attachments.read(attachment),
+                ).toString("base64"),
+                ...(attachment.content_type
+                  ? { content_type: attachment.content_type }
+                  : {}),
+                ...(attachment.content_id
+                  ? { content_id: attachment.content_id }
+                  : {}),
+                ...(attachment.content_disposition
+                  ? {
+                      content_disposition:
+                        attachment.content_disposition,
+                    }
+                  : {}),
+              })),
+            ),
+          }
+        : sending;
+      const result = await this.transport.send(sendable);
       const sent = await this.store.updateEmail(id, {
         status: "sent",
         last_event: "sent",

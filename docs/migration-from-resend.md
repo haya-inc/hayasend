@@ -18,3 +18,8 @@ const email = new Resend(process.env.HAYASEND_API_KEY, {
 
 Do not switch production traffic until suppression lists, AWS SES production
 access, alarms, dead-letter queue handling, and rollback have been verified.
+
+The official SDK's inline base64 attachments continue to work. Files that
+would approach API Gateway's request limit should use HayaSend's
+`POST /attachments` HTTP extension and then be sent as
+`attachments: [{ attachment_id: "att_..." }]`.

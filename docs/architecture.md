@@ -15,14 +15,16 @@ revocation.
 
 ## Send path
 
-1. The HTTP API authenticates and validates a Resend-shaped request.
+1. The HTTP API authenticates and validates a Resend-shaped request. Larger
+   attachments first use a 15-minute, SHA-256-bound presigned S3 PUT and are
+   then referenced by opaque attachment ID.
 2. DynamoDB claims the idempotency key and stores the email in one transaction.
 3. The suppression list is checked before SQS accepts an immediate or
    short-delay job. Delays beyond 15 minutes use a self-deleting EventBridge
    Scheduler entry that targets the same queue.
-4. The worker reloads current state and rechecks suppressions immediately
-   before calling SES v2, so a newly suppressed recipient cannot receive an
-   already scheduled message.
+4. The worker reloads current state, rechecks suppressions, and verifies
+   attachment size and SHA-256 immediately before calling SES v2, so a newly
+   suppressed recipient or corrupted attachment cannot be delivered.
 5. SES events arrive through SNS and update the record.
 6. Matching webhook deliveries return to SQS, so webhook failure cannot cause
    the email to be sent twice.
@@ -47,6 +49,7 @@ idempotency that SES does not currently expose.
 A single DynamoDB table stores typed entities:
 
 - `EMAIL#<id>`
+- `ATTACHMENT#<id>`
 - `DOMAIN#<id>`
 - `WEBHOOK#<id>`
 - `IDEMPOTENCY#<sha256>`
@@ -54,12 +57,17 @@ A single DynamoDB table stores typed entities:
 - `SUPPRESSION#<sha256-normalized-email>`
 
 `GSI1` provides reverse-chronological lists by entity type. Idempotency claims
-expire after 24 hours through DynamoDB TTL. The table has AWS-managed
-encryption and point-in-time recovery.
+and unreferenced attachment metadata expire after 24 hours through DynamoDB
+TTL. Once an email is accepted, its immutable object reference is copied into
+the email payload so a scheduled send does not depend on upload metadata
+retention. The table has AWS-managed encryption and point-in-time recovery.
 
 HTML, text, and attachments are externalized into a private, encrypted S3
 bucket so DynamoDB's 400 KiB item limit does not constrain normal email
-payloads. Objects expire after 45 days; metadata remains in DynamoDB.
+payloads. Direct uploads accept only a caller-declared size and SHA-256, never
+an arbitrary remote URL. The bucket denies plaintext transport and objects
+expire after 45 days; email metadata remains in DynamoDB. Public email
+responses expose attachment metadata only.
 
 ## Webhook signatures
 

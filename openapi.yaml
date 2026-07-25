@@ -138,6 +138,52 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CreatedId"
+  /attachments:
+    post:
+      summary: Create a direct attachment upload
+      description: Returns a 15-minute checksum-bound PUT URL. Reference the uploaded object by attachment_id within 24 hours.
+      operationId: createAttachmentUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentUploadRequest"
+      responses:
+        "200":
+          description: Direct upload target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentUpload"
+        "422":
+          $ref: "#/components/responses/Error"
+  /attachments/{id}/content:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Upload attachment content in local development mode
+      description: The AWS deployment returns a direct S3 URL instead. Clients should treat upload_url as opaque.
+      operationId: uploadLocalAttachmentContent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              contentMediaType: application/octet-stream
+              contentEncoding: binary
+      responses:
+        "204":
+          description: Content accepted
+        "422":
+          $ref: "#/components/responses/Error"
   /domains:
     post:
       summary: Add a sending domain
@@ -564,21 +610,9 @@ components:
           type: array
           maxItems: 20
           items:
-            type: object
-            additionalProperties: false
-            required: [filename, content]
-            properties:
-              filename:
-                type: string
-              content:
-                type: string
-                contentEncoding: base64
-              content_type:
-                type: string
-              content_id:
-                type: string
-              content_disposition:
-                enum: [inline, attachment]
+            oneOf:
+              - $ref: "#/components/schemas/InlineAttachment"
+              - $ref: "#/components/schemas/UploadedAttachment"
         scheduled_at:
           type: string
     AddressList:
@@ -590,27 +624,169 @@ components:
           items:
             type: string
     Email:
-      allOf:
-        - $ref: "#/components/schemas/SendEmail"
-        - type: object
-          required: [id, status, last_event, created_at, updated_at]
-          properties:
-            id:
-              type: string
-            status:
-              type: string
-            last_event:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-            provider_id:
-              type: string
-            error:
-              type: string
+      type: object
+      required:
+        [id, from, to, subject, status, last_event, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+        cc:
+          type: array
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        reply_to:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: object
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicAttachment"
+        scheduled_at:
+          type: string
+        status:
+          type: string
+        last_event:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        provider_id:
+          type: string
+        error:
+          type: string
+    InlineAttachment:
+      type: object
+      additionalProperties: false
+      required: [filename, content]
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+          contentEncoding: base64
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    UploadedAttachment:
+      type: object
+      additionalProperties: false
+      required: [attachment_id]
+      properties:
+        attachment_id:
+          type: string
+          pattern: ^att_[a-f0-9]{32}$
+        filename:
+          type: string
+          maxLength: 255
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    PublicAttachment:
+      type: object
+      required: [filename]
+      properties:
+        attachment_id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    AttachmentUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [filename, content_type, size_bytes, checksum_sha256]
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+        content_type:
+          type: string
+          maxLength: 255
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 26214400
+        checksum_sha256:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+    AttachmentUpload:
+      type: object
+      required:
+        - id
+        - filename
+        - content_type
+        - size_bytes
+        - checksum_sha256
+        - upload_url
+        - upload_method
+        - upload_headers
+        - expires_at
+        - attachment_expires_at
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          type: string
+        upload_url:
+          type: string
+          format: uri
+        upload_method:
+          const: PUT
+        upload_headers:
+          type: object
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        attachment_expires_at:
+          type: string
+          format: date-time
     Domain:
       type: object
       required: [id, name, status, region, records, created_at, updated_at]

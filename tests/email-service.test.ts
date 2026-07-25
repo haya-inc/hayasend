@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import type { EmailRecord } from "../src/core/types.js";
@@ -9,6 +10,7 @@ import type {
 } from "../src/ports/mail-transport.js";
 import type { EmailScheduler } from "../src/ports/email-scheduler.js";
 import { EmailService } from "../src/services/email-service.js";
+import { AttachmentService } from "../src/services/attachment-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
@@ -69,6 +71,10 @@ function fixture() {
   const transport = new StubTransport();
   const webhooks = new WebhookService(store, queue);
   const suppressions = new SuppressionService(store);
+  const attachments = new AttachmentService(
+    store,
+    new MemoryAttachmentStorage(),
+  );
   const scheduler = new RecordingEmailScheduler(
     new QueueEmailScheduler(queue),
   );
@@ -78,6 +84,7 @@ function fixture() {
     transport,
     webhooks,
     suppressions,
+    attachments,
   );
   return {
     queue,
@@ -154,6 +161,25 @@ describe("EmailService", () => {
       scheduled_at: "2026-07-26T00:10:00.000Z",
     });
     expect(queue.jobs[0]?.delaySeconds).toBe(600);
+  });
+
+  it("applies the 30-day scheduling limit to relative values", async () => {
+    const { service } = fixture();
+    const now = new Date("2026-07-26T00:00:00.000Z");
+    await expect(
+      service.create(
+        { ...input, scheduled_at: "in 31 days" },
+        undefined,
+        now,
+      ),
+    ).rejects.toThrow("no more than 30 days");
+    await expect(
+      service.create(
+        { ...input, scheduled_at: "in 0 days" },
+        undefined,
+        now,
+      ),
+    ).rejects.toThrow("must be in the future");
   });
 
   it("cancels the external schedule when an email is canceled", async () => {

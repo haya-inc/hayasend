@@ -1,6 +1,7 @@
 import { ConflictError } from "../core/errors.js";
 import type {
   ApiKeyRecord,
+  AttachmentUploadRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
@@ -43,6 +44,10 @@ function pageFromMap<T extends { created_at: string }>(
 
 export class MemoryStore implements Store {
   private readonly emails = new Map<string, EmailRecord>();
+  private readonly attachmentUploads = new Map<
+    string,
+    AttachmentUploadRecord
+  >();
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
@@ -140,6 +145,17 @@ export class MemoryStore implements Store {
     cursor?: string,
   ): Promise<Page<EmailRecord>> {
     return pageFromMap(this.emails.values(), limit, cursor);
+  }
+
+  async putAttachmentUpload(record: AttachmentUploadRecord): Promise<void> {
+    this.attachmentUploads.set(record.id, structuredClone(record));
+  }
+
+  async getAttachmentUpload(
+    id: string,
+  ): Promise<AttachmentUploadRecord | undefined> {
+    const record = this.attachmentUploads.get(id);
+    return record ? structuredClone(record) : undefined;
   }
 
   async createDomain(record: DomainRecord): Promise<void> {

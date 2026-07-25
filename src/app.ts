@@ -16,6 +16,7 @@ import type {
 import { emitCountMetric } from "./core/metrics.js";
 import {
   apiKeySchema,
+  attachmentUploadSchema,
   batchEmailSchema,
   domainSchema,
   paginationSchema,
@@ -25,6 +26,10 @@ import {
   webhookSchema,
 } from "./schemas.js";
 import type { ApiKeyService } from "./services/api-key-service.js";
+import {
+  MAX_ATTACHMENT_BYTES,
+  type AttachmentService,
+} from "./services/attachment-service.js";
 import type { DomainService } from "./services/domain-service.js";
 import type { EmailService } from "./services/email-service.js";
 import type { SuppressionService } from "./services/suppression-service.js";
@@ -38,6 +43,7 @@ interface AppEnv {
 
 export interface AppServices {
   apiKeyService: ApiKeyService;
+  attachmentService: AttachmentService;
   domainService: DomainService;
   emailService: EmailService;
   suppressionService: SuppressionService;
@@ -76,7 +82,54 @@ function publicEmail(record: EmailRecord) {
     error,
     ...email
   } = record;
-  return error ? { ...email, error } : email;
+  const publicAttachments = email.attachments?.map((attachment) => ({
+    ...(attachment.attachment_id
+      ? { attachment_id: attachment.attachment_id }
+      : {}),
+    filename: attachment.filename,
+    ...(attachment.content_type
+      ? { content_type: attachment.content_type }
+      : {}),
+    ...(attachment.content_id ? { content_id: attachment.content_id } : {}),
+    ...(attachment.content_disposition
+      ? { content_disposition: attachment.content_disposition }
+      : {}),
+  }));
+  const safeEmail = {
+    ...email,
+    ...(publicAttachments ? { attachments: publicAttachments } : {}),
+  };
+  return error ? { ...safeEmail, error } : safeEmail;
+}
+
+async function readBodyWithLimit(request: Request, limit: number) {
+  if (!request.body) {
+    throw new ValidationError("Attachment content is required.");
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    length += value.byteLength;
+    if (length > limit) {
+      await reader.cancel();
+      throw new ValidationError(
+        `Attachment content must not exceed ${limit} bytes.`,
+      );
+    }
+    chunks.push(value);
+  }
+  const content = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    content.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return content;
 }
 
 export function createApp(services: AppServices) {
@@ -89,7 +142,13 @@ export function createApp(services: AppServices) {
     context.header("x-content-type-options", "nosniff");
     context.header("cache-control", "no-store");
 
-    if (context.req.path === "/healthz") {
+    const attachmentUploadPath =
+      /^\/attachments\/[^/]+\/content$/.test(context.req.path);
+    if (
+      context.req.path === "/healthz" ||
+      (attachmentUploadPath &&
+        ["PUT", "OPTIONS"].includes(context.req.method))
+    ) {
       await next();
       return;
     }
@@ -112,6 +171,57 @@ export function createApp(services: AppServices) {
       version: "0.1.0",
     }),
   );
+
+  app.post(
+    "/attachments",
+    requireScope("emails:send"),
+    zValidator("json", attachmentUploadSchema, validationCallback),
+    async (context) =>
+      context.json(
+        await services.attachmentService.create(
+          context.req.valid("json"),
+          new URL(context.req.url).origin,
+        ),
+      ),
+  );
+
+  app.options("/attachments/:id/content", (context) => {
+    context.header("access-control-allow-origin", "*");
+    context.header("access-control-allow-methods", "PUT, OPTIONS");
+    context.header("access-control-allow-headers", "content-type");
+    context.header("access-control-max-age", "300");
+    return context.body(null, 204);
+  });
+
+  app.put("/attachments/:id/content", async (context) => {
+    const rawContentLength = context.req.header("content-length");
+    const contentLength =
+      rawContentLength === undefined ? undefined : Number(rawContentLength);
+    if (
+      contentLength !== undefined &&
+      (!Number.isSafeInteger(contentLength) ||
+        contentLength < 0 ||
+        contentLength > MAX_ATTACHMENT_BYTES)
+    ) {
+      throw new ValidationError("Invalid attachment content length.");
+    }
+    const record = await services.attachmentService.authorizeProxyUpload(
+      context.req.param("id"),
+      context.req.query("token") ?? "",
+      contentLength,
+    );
+    const content = await readBodyWithLimit(
+      context.req.raw,
+      record.size_bytes,
+    );
+    await services.attachmentService.upload(
+      record,
+      content,
+      context.req.header("content-type") ?? "",
+    );
+    context.header("access-control-allow-origin", "*");
+    return context.body(null, 204);
+  });
 
   app.post(
     "/emails",

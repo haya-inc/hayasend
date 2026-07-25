@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
+import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
@@ -10,6 +11,7 @@ import type {
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
 import { ApiKeyService } from "../src/services/api-key-service.js";
+import { AttachmentService } from "../src/services/attachment-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
@@ -31,9 +33,14 @@ describe("official Resend Node SDK compatibility", () => {
     const queue = new CapturingJobQueue();
     const webhooks = new WebhookService(store, queue);
     const suppressions = new SuppressionService(store);
+    const attachments = new AttachmentService(
+      store,
+      new MemoryAttachmentStorage(),
+    );
     const scheduler = new QueueEmailScheduler(queue);
     const app = createApp({
       apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
+      attachmentService: attachments,
       domainService: new DomainService(
         store,
         new LocalDomainProvider(),
@@ -45,6 +52,7 @@ describe("official Resend Node SDK compatibility", () => {
         passthroughTransport,
         webhooks,
         suppressions,
+        attachments,
       ),
       suppressionService: suppressions,
       webhookService: webhooks,

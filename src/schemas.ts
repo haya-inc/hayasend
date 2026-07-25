@@ -16,13 +16,36 @@ const tag = z
   })
   .strict();
 
-const attachment = z
+const attachmentPresentation = {
+  content_type: z.string().min(1).max(255).optional(),
+  content_id: z.string().min(1).max(998).optional(),
+  content_disposition: z.enum(["inline", "attachment"]).optional(),
+};
+
+const inlineAttachment = z
   .object({
     filename: z.string().min(1).max(255),
     content: z.string().min(1),
-    content_type: z.string().min(1).max(255).optional(),
-    content_id: z.string().min(1).max(998).optional(),
-    content_disposition: z.enum(["inline", "attachment"]).optional(),
+    ...attachmentPresentation,
+  })
+  .strict();
+
+const uploadedAttachment = z
+  .object({
+    attachment_id: z.string().regex(/^att_[a-f0-9]{32}$/),
+    filename: z.string().min(1).max(255).optional(),
+    ...attachmentPresentation,
+  })
+  .strict();
+
+const attachment = z.union([inlineAttachment, uploadedAttachment]);
+
+export const attachmentUploadSchema = z
+  .object({
+    filename: z.string().min(1).max(255),
+    content_type: z.string().min(1).max(255),
+    size_bytes: z.number().int().min(1).max(25 * 1024 * 1024),
+    checksum_sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
   })
   .strict();
 

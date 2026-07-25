@@ -1,8 +1,11 @@
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it } from "vitest";
 import { DynamoStore } from "../src/adapters/dynamo-store.js";
-import type { EmailRecord } from "../src/core/types.js";
+import type {
+  AttachmentUploadRecord,
+  EmailRecord,
+} from "../src/core/types.js";
 
 const email: EmailRecord = {
   id: "email_123",
@@ -19,6 +22,39 @@ const email: EmailRecord = {
 };
 
 describe("DynamoStore", () => {
+  it("stores upload metadata with a DynamoDB TTL", async () => {
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return {};
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+    const upload: AttachmentUploadRecord = {
+      id: "att_1234567890abcdef1234567890abcdef",
+      filename: "report.txt",
+      content_type: "text/plain",
+      size_bytes: 42,
+      checksum_sha256: "0".repeat(64),
+      object_key: "attachments/att_123/content",
+      upload_token_hash: "hash",
+      created_at: "2030-01-01T00:00:00.000Z",
+      upload_expires_at: "2030-01-01T00:15:00.000Z",
+      expires_at: "2030-01-02T00:00:00.000Z",
+    };
+
+    await store.putAttachmentUpload(upload);
+
+    expect(commands[0]).toBeInstanceOf(PutCommand);
+    expect((commands[0] as PutCommand).input.Item).toMatchObject({
+      PK: `ATTACHMENT#${upload.id}`,
+      SK: `ATTACHMENT#${upload.id}`,
+      entity: upload,
+      ttl: 1_893_542_400,
+    });
+  });
+
   it("uses a conditional partial update for state transitions", async () => {
     const commands: unknown[] = [];
     const client = {

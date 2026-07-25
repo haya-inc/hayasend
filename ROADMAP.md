@@ -13,7 +13,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] API-key records with scopes, expiry, and revocation
 - [x] suppression-list enforcement before enqueue
 - [x] EventBridge Scheduler for long schedules
-- [ ] presigned S3 attachment uploads beyond the API Gateway payload limit
+- [x] presigned S3 attachment uploads beyond the API Gateway payload limit
 - [ ] deployment integration test in a dedicated AWS test account
 - [x] bootstrap-key storage in Secrets Manager
 

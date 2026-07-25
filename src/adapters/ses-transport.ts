@@ -38,16 +38,23 @@ export class SesMailTransport implements MailTransport {
         : {}),
       ...(email.attachments
         ? {
-            Attachments: email.attachments.map((attachment) => ({
-              FileName: attachment.filename,
-              RawContent: Buffer.from(attachment.content, "base64"),
-              ContentType: attachment.content_type,
-              ContentId: attachment.content_id,
-              ContentDisposition:
-                attachment.content_disposition === "inline"
-                  ? "INLINE"
-                  : "ATTACHMENT",
-            })),
+            Attachments: email.attachments.map((attachment) => {
+              if (!attachment.content) {
+                throw new Error(
+                  `Attachment ${attachment.filename} was not materialized.`,
+                );
+              }
+              return {
+                FileName: attachment.filename,
+                RawContent: Buffer.from(attachment.content, "base64"),
+                ContentType: attachment.content_type,
+                ContentId: attachment.content_id,
+                ContentDisposition:
+                  attachment.content_disposition === "inline"
+                    ? "INLINE"
+                    : "ATTACHMENT",
+              };
+            }),
           }
         : {}),
     };

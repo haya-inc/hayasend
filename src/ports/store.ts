@@ -1,5 +1,6 @@
 import type {
   ApiKeyRecord,
+  AttachmentUploadRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
@@ -27,6 +28,11 @@ export interface Store {
     fromStatuses?: EmailStatus[],
   ): Promise<EmailRecord | undefined>;
   listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>>;
+
+  putAttachmentUpload(record: AttachmentUploadRecord): Promise<void>;
+  getAttachmentUpload(
+    id: string,
+  ): Promise<AttachmentUploadRecord | undefined>;
 
   createDomain(record: DomainRecord): Promise<void>;
   getDomain(id: string): Promise<DomainRecord | undefined>;

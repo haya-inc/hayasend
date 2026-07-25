@@ -16,6 +16,7 @@ import {
 import { ConflictError } from "../core/errors.js";
 import type {
   ApiKeyRecord,
+  AttachmentUploadRecord,
   CreateEmailResult,
   DomainRecord,
   EmailRecord,
@@ -29,16 +30,19 @@ import type { Store } from "../ports/store.js";
 
 type Entity =
   | EmailRecord
+  | AttachmentUploadRecord
   | DomainRecord
   | WebhookEndpoint
   | ApiKeyRecord
   | SuppressionRecord;
 type EntityKind =
   | "EMAIL"
+  | "ATTACHMENT"
   | "DOMAIN"
   | "WEBHOOK"
   | "APIKEY"
   | "SUPPRESSION";
+type IndexedEntityKind = Exclude<EntityKind, "ATTACHMENT">;
 type IndexPartition =
   | "EMAILS"
   | "DOMAINS"
@@ -57,7 +61,7 @@ interface StoredEntity {
   request_hash?: string;
 }
 
-const INDEX_PARTITION: Record<EntityKind, IndexPartition> = {
+const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   EMAIL: "EMAILS",
   DOMAIN: "DOMAINS",
   WEBHOOK: "WEBHOOKS",
@@ -70,7 +74,7 @@ function entityKey(kind: EntityKind, id: string) {
 }
 
 function storedEntity(
-  kind: EntityKind,
+  kind: IndexedEntityKind,
   record: Entity,
 ): StoredEntity {
   const key = entityKey(kind, record.id);
@@ -317,6 +321,31 @@ export class DynamoStore implements Store {
     cursor?: string,
   ): Promise<Page<EmailRecord>> {
     return this.listEntities<EmailRecord>("EMAILS", limit, cursor);
+  }
+
+  async putAttachmentUpload(
+    record: AttachmentUploadRecord,
+  ): Promise<void> {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          ...entityKey("ATTACHMENT", record.id),
+          entity: record,
+          ttl: Math.floor(new Date(record.expires_at).getTime() / 1_000),
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+  }
+
+  async getAttachmentUpload(
+    id: string,
+  ): Promise<AttachmentUploadRecord | undefined> {
+    return this.getEntity<AttachmentUploadRecord>(
+      "ATTACHMENT",
+      id,
+    );
   }
 
   async createDomain(record: DomainRecord): Promise<void> {

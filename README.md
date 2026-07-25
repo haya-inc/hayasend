@@ -14,6 +14,7 @@ account, and HayaSend never logs message bodies.
 
 - `POST /emails` with HTML, text, CC, BCC, reply-to, headers, tags, and
   base64 attachments
+- checksum-bound direct S3 attachment uploads up to 25 MiB
 - `POST /emails/batch` for up to 100 messages
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
@@ -84,6 +85,60 @@ curl http://localhost:8787/emails \
 
 Local mode records metadata in memory and writes only envelope metadata to
 stdout. It does not contact SES or deliver real messages.
+
+## Upload larger attachments
+
+Inline base64 remains compatible with the Resend SDK. For larger files, use
+HayaSend's direct-upload extension so the bytes do not pass through API
+Gateway:
+
+```ts
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+const content = await readFile("./invoice.pdf");
+const checksum = createHash("sha256").update(content).digest("hex");
+const upload = await fetch(`${process.env.HAYASEND_BASE_URL}/attachments`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${process.env.HAYASEND_API_KEY}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    filename: "invoice.pdf",
+    content_type: "application/pdf",
+    size_bytes: content.byteLength,
+    checksum_sha256: checksum,
+  }),
+}).then((response) => response.json());
+
+await fetch(upload.upload_url, {
+  method: upload.upload_method,
+  headers: upload.upload_headers,
+  body: content,
+});
+
+await fetch(`${process.env.HAYASEND_BASE_URL}/emails`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${process.env.HAYASEND_API_KEY}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    from: "Product <hello@example.com>",
+    to: "person@example.net",
+    subject: "Your invoice",
+    text: "The invoice is attached.",
+    attachments: [{ attachment_id: upload.id }],
+  }),
+});
+```
+
+The PUT URL expires after 15 minutes and the uploaded object must be referenced
+within 24 hours. HayaSend checks both byte length and SHA-256 before accepting
+the email, then verifies the downloaded bytes again before SES delivery. The
+aggregate decoded attachment limit is 25 MiB, leaving room for MIME expansion
+under SES's 40 MB message limit.
 
 ## Deploy to AWS
 
@@ -174,8 +229,11 @@ and delivery semantics.
 - Local mode is development-only and has no persistence.
 - AWS mode stores metadata in DynamoDB and message bodies and attachments in
   a private, encrypted S3 bucket with a 45-day lifecycle.
-- Attachments must be supplied as base64. HayaSend deliberately rejects
-  remote attachment URLs to avoid server-side request forgery.
+- Attachments can use inline base64 or checksum-bound direct uploads. HayaSend
+  deliberately rejects remote attachment URLs to avoid server-side request
+  forgery.
+- Email retrieval returns attachment metadata but never inline content,
+  internal object keys, upload tokens, or checksums.
 - Webhook requests use timestamped HMAC-SHA256 signatures and Resend-compatible
   `svix-*` headers.
 - Application keys are scope-limited and stored as hashes; the deployment

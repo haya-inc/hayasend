@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { processSesEvent } from "../src/aws/ses-events.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import type {
@@ -8,6 +9,7 @@ import type {
   MailTransportResult,
 } from "../src/ports/mail-transport.js";
 import { EmailService } from "../src/services/email-service.js";
+import { AttachmentService } from "../src/services/attachment-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 
@@ -23,12 +25,17 @@ function fixture() {
   const webhooks = new WebhookService(store, queue);
   const suppressionService = new SuppressionService(store);
   const scheduler = new QueueEmailScheduler(queue);
+  const attachmentService = new AttachmentService(
+    store,
+    new MemoryAttachmentStorage(),
+  );
   const emailService = new EmailService(
     store,
     scheduler,
     transport,
     webhooks,
     suppressionService,
+    attachmentService,
   );
   return { emailService, suppressionService };
 }

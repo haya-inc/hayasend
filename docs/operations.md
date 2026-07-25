@@ -13,6 +13,8 @@ This runbook is the minimum operating procedure for an AWS deployment.
 6. Send canary messages to controlled recipients.
 7. Confirm `email.sent` and `email.delivered` webhooks.
 8. Confirm that a controlled permanent bounce creates a suppression.
+9. Upload a canary attachment, send it, and confirm the retrieved email
+   contains metadata but no attachment body or S3 object key.
 
 Do not use the bootstrap key in normal application traffic.
 
@@ -27,6 +29,22 @@ Do not use the bootstrap key in normal application traffic.
 | API internal error | Use `x-request-id` to correlate API logs |
 | Send retries exhausted | Inspect SES response, account state, identity, and configuration set |
 | Complaint received | Confirm suppression creation and review the originating traffic |
+
+## Attachment uploads
+
+Direct-upload URLs expire after 15 minutes. A caller can reference a verified
+upload for 24 hours; accepted email payloads and attachment objects remain for
+45 days, covering the 30-day scheduling window.
+
+If email creation says the attachment was not uploaded, confirm the client sent
+the exact `upload_headers` returned by `POST /attachments`, including
+`x-amz-checksum-sha256` in AWS mode. A size or checksum mismatch requires a new
+upload declaration. Do not bypass the integrity check or replace the object
+manually.
+
+The API and worker both read the payload bucket, while only the API can create
+upload URLs. Investigate unexpected `HeadObject`, `GetObject`, or `PutObject`
+authorization errors against those separate IAM roles.
 
 Never copy raw message bodies, recipient lists, API keys, or webhook secrets
 into tickets.
