@@ -19,6 +19,13 @@ npm test
 npm run build
 ```
 
+Changes to runtime dependencies, startup, or container files must also pass:
+
+```bash
+docker build -t hayasend:test .
+docker run --rm --read-only --cap-drop ALL hayasend:test
+```
+
 Pull requests should explain the user impact, include tests, update relevant
 documentation, and remain focused on one change.
 

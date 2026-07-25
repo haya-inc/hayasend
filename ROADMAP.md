@@ -24,12 +24,14 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] encrypted S3 raw-message storage with configurable expiry
 - [x] `email.received` webhook and temporary attachment URLs
 - [x] deterministic receipt duplicate suppression
+- [x] explicit received-message forwarding through the official Node SDK
 - [ ] alias routing and catch-all rules
-- [ ] forwarding that rewrites sender headers safely
+- [ ] automatic forwarding that rewrites sender headers safely
 - [ ] loop detection and ARC preservation
 
 ## v0.3 — Developer workflow
 
+- [x] hardened local container quickstart
 - local preview inbox
 - template versions using React Email
 - `hayasend init`, `deploy`, `doctor`, `test`, and migration commands

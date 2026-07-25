@@ -1,0 +1,10 @@
+.aws-sam
+.env
+.env.*
+.git
+.github
+coverage
+dist
+node_modules
+*.log
+.DS_Store

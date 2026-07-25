@@ -41,3 +41,40 @@ jobs:
           --target=node22
           --format=esm
           --outdir=/tmp/hayasend-esbuild
+      - name: Build local container
+        run: |
+          docker build --check .
+          docker build \
+            --build-arg VERSION=ci \
+            --build-arg REVISION=${{ github.sha }} \
+            --tag hayasend:ci \
+            .
+      - name: Smoke-test hardened local container
+        run: |
+          docker run --detach \
+            --name hayasend-ci \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --publish 127.0.0.1:8787:8787 \
+            hayasend:ci
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8787/healthz > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              docker logs hayasend-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.Config.User}}' hayasend-ci)" = "node"
+          curl --fail --silent http://127.0.0.1:8787/emails \
+            --header 'Authorization: Bearer re_hayasend_dev' \
+            --header 'Content-Type: application/json' \
+            --header 'Idempotency-Key: container-smoke' \
+            --data '{"from":"Smoke <sender@example.com>","to":"recipient@example.net","subject":"Container smoke test","text":"Read-only local mode works."}' \
+            | grep --quiet '"id":"email_'
+      - name: Stop local container
+        if: always()
+        run: docker rm --force hayasend-ci || true

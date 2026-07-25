@@ -13,6 +13,7 @@
     "check": "tsc --noEmit",
     "dev": "tsx src/server.ts",
     "doctor": "tsx src/cli.ts doctor",
+    "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

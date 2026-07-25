@@ -63,10 +63,31 @@ the key prefix.
 
 ## Run locally
 
+With Docker, the API starts in hardened, read-only local mode:
+
+```bash
+docker compose up --build
+```
+
+The image runs as the unprivileged `node` user with all Linux capabilities
+dropped and binds only to `127.0.0.1:8787`. To run it directly:
+
+```bash
+docker build -t hayasend:local .
+docker run --rm \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  -p 127.0.0.1:8787:8787 \
+  hayasend:local
+```
+
+For source development:
+
 Requirements:
 
 - Node.js 22 or newer
-- npm 11 or newer
+- npm 10 or newer
 
 ```bash
 npm install
