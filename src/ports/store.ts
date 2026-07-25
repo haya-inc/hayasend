@@ -9,6 +9,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 
@@ -75,6 +76,29 @@ export interface Store {
     limit: number,
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>>;
+  createWebhookDelivery(record: WebhookDeliveryRecord): Promise<boolean>;
+  getWebhookDelivery(
+    id: string,
+  ): Promise<WebhookDeliveryRecord | undefined>;
+  updateWebhookDelivery(
+    id: string,
+    updates: Partial<
+      Pick<
+        WebhookDeliveryRecord,
+        | "status"
+        | "attempts"
+        | "response_status"
+        | "last_error"
+        | "last_attempt_at"
+        | "updated_at"
+      >
+    >,
+  ): Promise<WebhookDeliveryRecord | undefined>;
+  listWebhookDeliveries(
+    webhookId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<WebhookDeliveryRecord>>;
 
   createApiKey(record: ApiKeyRecord): Promise<void>;
   getApiKey(id: string): Promise<ApiKeyRecord | undefined>;

@@ -90,7 +90,8 @@ and request IDs during diagnosis.
 4. Redrive messages using the SQS dead-letter queue redrive operation.
 5. Watch queue age, job failures, and downstream event state.
 
-Webhook jobs may be retried safely. Send jobs are protected by a state lease,
+Webhook jobs may be retried safely when consumers deduplicate `svix-id`.
+Send jobs are protected by a state lease,
 but a rare duplicate remains possible if SES accepted a message before a
 worker stopped without recording the provider ID.
 
@@ -98,6 +99,21 @@ AWS-mode webhook endpoints must remain publicly resolvable over HTTPS. A DNS
 change to any private, loopback, link-local, reserved, or mixed public/private
 answer intentionally fails delivery and eventually moves the job to the DLQ.
 HayaSend does not follow webhook redirects; register the final canonical URL.
+
+Webhook delivery summaries are available from
+`GET /webhooks/{id}/deliveries`; retrieve the retained event with
+`GET /webhooks/{id}/deliveries/{deliveryId}`. After correcting an endpoint,
+`POST /webhooks/{id}/deliveries/{deliveryId}/replay` creates a new message ID
+linked by `replayed_from`. Automatic SQS retries deliberately keep the
+original `svix-id`. A delivery can therefore move from `failed` to
+`succeeded`; use its attempt count and last-attempt fields rather than treating
+the first failure as final.
+
+Set `WebhookDeliveryRetentionDays` to the shortest useful recovery window.
+Expired records are excluded from reads immediately, although DynamoDB TTL can
+take additional time to delete them physically. Delivery history contains
+event metadata such as recipient addresses and subject lines; do not export it
+to tickets or analytics by default.
 
 The Scheduler DLQ is separate from the worker DLQ because its messages are
 Scheduler delivery envelopes rather than HayaSend jobs. After fixing the

@@ -10,6 +10,7 @@ describe("loadConfig", () => {
       inboundRawPrefix: "inbound/raw/",
       inboundRetentionDays: 7,
       inboundMaxMessageBytes: 25 * 1024 * 1024,
+      webhookDeliveryRetentionDays: 7,
     });
   });
 
@@ -50,5 +51,13 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ HAYASEND_INBOUND_RAW_PREFIX: "../mail/" }),
     ).toThrow("HAYASEND_INBOUND_RAW_PREFIX");
+  });
+
+  it("rejects unsafe webhook delivery retention", () => {
+    expect(() =>
+      loadConfig({
+        HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS: "31",
+      }),
+    ).toThrow("HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS");
   });
 });

@@ -3,6 +3,7 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it } from "vitest";
@@ -11,6 +12,7 @@ import type {
   AttachmentUploadRecord,
   EmailRecord,
   ReceivedEmailRecord,
+  WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../src/core/types.js";
 
@@ -26,6 +28,28 @@ const email: EmailRecord = {
   updated_at: "2026-07-26T00:00:01.000Z",
   request_hash: "hash",
   attempts: 1,
+};
+
+const webhookDelivery: WebhookDeliveryRecord = {
+  id: "msg_123",
+  webhook_id: "wh_123",
+  event_type: "email.sent",
+  event: {
+    type: "email.sent",
+    created_at: "2030-01-01T00:00:00.000Z",
+    data: {
+      created_at: "2030-01-01T00:00:00.000Z",
+      email_id: "email_123",
+      from: "sender@example.com",
+      to: ["recipient@example.net"],
+      subject: "Subject",
+    },
+  },
+  status: "pending",
+  attempts: 0,
+  created_at: "2030-01-01T00:00:00.000Z",
+  updated_at: "2030-01-01T00:00:00.000Z",
+  expires_at: "2030-01-08T00:00:00.000Z",
 };
 
 describe("DynamoStore", () => {
@@ -152,6 +176,86 @@ describe("DynamoStore", () => {
     expect(command.input.UpdateExpression).not.toContain(
       "signing_secret",
     );
+  });
+
+  it("stores, updates, and paginates expiring webhook deliveries", async () => {
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        if (command instanceof UpdateCommand) {
+          return {
+            Attributes: {
+              entity: {
+                ...webhookDelivery,
+                status: "succeeded",
+                attempts: 1,
+                response_status: 204,
+              },
+            },
+          };
+        }
+        if (command instanceof QueryCommand) {
+          return {
+            Items: [{ entity: webhookDelivery }],
+            LastEvaluatedKey: {
+              PK: "WEBHOOK_DELIVERY#msg_123",
+              SK: "WEBHOOK_DELIVERY#msg_123",
+            },
+          };
+        }
+        return {};
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    expect(await store.createWebhookDelivery(webhookDelivery)).toBe(true);
+    const updated = await store.updateWebhookDelivery(
+      webhookDelivery.id,
+      {
+        status: "succeeded",
+        attempts: 1,
+        response_status: 204,
+        last_error: undefined,
+        updated_at: "2030-01-01T00:00:01.000Z",
+      },
+    );
+    const page = await store.listWebhookDeliveries(
+      webhookDelivery.webhook_id,
+      20,
+    );
+
+    expect(updated).toMatchObject({
+      status: "succeeded",
+      attempts: 1,
+      response_status: 204,
+    });
+    expect(page.data).toEqual([webhookDelivery]);
+    expect(page.has_more).toBe(true);
+    expect(commands[0]).toBeInstanceOf(PutCommand);
+    expect((commands[0] as PutCommand).input.Item).toMatchObject({
+      PK: "WEBHOOK_DELIVERY#msg_123",
+      SK: "WEBHOOK_DELIVERY#msg_123",
+      GSI1PK: "WEBHOOK_DELIVERIES#wh_123",
+      entity: webhookDelivery,
+      ttl: Math.floor(Date.parse(webhookDelivery.expires_at) / 1_000),
+    });
+    expect(commands[1]).toBeInstanceOf(UpdateCommand);
+    expect((commands[1] as UpdateCommand).input).toMatchObject({
+      ConditionExpression: "attribute_exists(PK) AND ttl > :now",
+      ReturnValues: "ALL_NEW",
+    });
+    expect((commands[1] as UpdateCommand).input.UpdateExpression).toContain(
+      "REMOVE entity.",
+    );
+    expect(commands[2]).toBeInstanceOf(QueryCommand);
+    expect((commands[2] as QueryCommand).input).toMatchObject({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :partition",
+      FilterExpression: "ttl > :now",
+      ScanIndexForward: false,
+      Limit: 20,
+    });
   });
 
   it("claims inbound processing with a lease and persists retention TTL", async () => {

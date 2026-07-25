@@ -215,6 +215,13 @@ try {
   );
   assert.equal("signing_secret" in publicWebhook, false);
   assert.equal(publicWebhook.status, "disabled");
+  const webhookDeliveries = await api(
+    "GET",
+    `/webhooks/${created.webhookId}/deliveries?limit=1`,
+    applicationKey,
+  );
+  assert.equal(webhookDeliveries.object, "list");
+  assert.deepEqual(webhookDeliveries.data, []);
 
   console.info(
     JSON.stringify({
@@ -230,6 +237,7 @@ try {
         "ses_domain_identity",
         "webhook_public_endpoint_validation",
         "webhook_update",
+        "webhook_delivery_history",
         "webhook_secret_privacy",
       ],
     }),

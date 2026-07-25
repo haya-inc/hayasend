@@ -40,6 +40,12 @@ Parameters:
       - REQUIRED
       - FIPS
     Description: STARTTLS policy for the public ingress. OPTIONAL offers the broadest internet deliverability.
+  WebhookDeliveryRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+    Description: Days to retain webhook event metadata and delivery attempts for inspection and replay.
 
 Conditions:
   CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
@@ -71,6 +77,7 @@ Globals:
         HAYASEND_INBOUND_RAW_PREFIX: inbound/raw/
         HAYASEND_INBOUND_RETENTION_DAYS: !Ref InboundRetentionDays
         HAYASEND_INBOUND_MAX_MESSAGE_BYTES: !Ref InboundMaxMessageSizeBytes
+        HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS: !Ref WebhookDeliveryRetentionDays
         NODE_OPTIONS: --enable-source-maps
 
 Resources:

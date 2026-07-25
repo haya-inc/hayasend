@@ -54,6 +54,7 @@ A single DynamoDB table stores typed entities:
 - `RECEIVED_CLAIM#<id>`
 - `DOMAIN#<id>`
 - `WEBHOOK#<id>`
+- `WEBHOOK_DELIVERY#<id>`
 - `IDEMPOTENCY#<sha256>`
 - `APIKEY#<id>`
 - `SUPPRESSION#<sha256-normalized-email>`
@@ -63,6 +64,13 @@ and unreferenced attachment metadata expire after 24 hours through DynamoDB
 TTL. Once an email is accepted, its immutable object reference is copied into
 the email payload so a scheduled send does not depend on upload metadata
 retention. The table has AWS-managed encryption and point-in-time recovery.
+
+Webhook delivery records use `GSI1PK=WEBHOOK_DELIVERIES#<webhook-id>` for
+reverse-chronological inspection. They retain the exact event metadata needed
+for replay plus attempt count, status code, and a bounded error string. They
+never retain an email body, attachment, signing secret, or HTTP response body.
+The configurable 1–30 day expiry is enforced on reads as well as by DynamoDB
+TTL because physical TTL deletion is asynchronous.
 
 HTML, text, and attachments are externalized into a private, encrypted S3
 bucket so DynamoDB's 400 KiB item limit does not constrain normal email
@@ -117,6 +125,11 @@ HMAC-SHA256(secret, "<message-id>.<unix-timestamp>.<raw-json-body>")
 The base64 signature is sent as `v1,<signature>` in `svix-signature`, together
 with `svix-id` and `svix-timestamp`. Consumers must verify the raw body and
 reject stale timestamps.
+
+The message ID is allocated before SQS enqueue and remains stable across
+automatic retries, allowing consumers to deduplicate at-least-once delivery.
+A manual replay creates a new delivery record and message ID, links it through
+`replayed_from`, and preserves the original event and event timestamp.
 
 ## Known pre-v1 limits
 

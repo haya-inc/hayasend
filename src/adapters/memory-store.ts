@@ -10,6 +10,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
@@ -54,6 +55,10 @@ export class MemoryStore implements Store {
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
+  private readonly webhookDeliveries = new Map<
+    string,
+    WebhookDeliveryRecord
+  >();
   private readonly apiKeys = new Map<string, ApiKeyRecord>();
   private readonly suppressions = new Map<string, SuppressionRecord>();
 
@@ -283,6 +288,65 @@ export class MemoryStore implements Store {
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>> {
     return pageFromMap(this.webhooks.values(), limit, cursor);
+  }
+
+  async createWebhookDelivery(
+    record: WebhookDeliveryRecord,
+  ): Promise<boolean> {
+    if (this.webhookDeliveries.has(record.id)) {
+      return false;
+    }
+    this.webhookDeliveries.set(record.id, structuredClone(record));
+    return true;
+  }
+
+  async getWebhookDelivery(
+    id: string,
+  ): Promise<WebhookDeliveryRecord | undefined> {
+    const record = this.webhookDeliveries.get(id);
+    if (!record || Date.parse(record.expires_at) <= Date.now()) {
+      return undefined;
+    }
+    return structuredClone(record);
+  }
+
+  async updateWebhookDelivery(
+    id: string,
+    updates: Partial<
+      Pick<
+        WebhookDeliveryRecord,
+        | "status"
+        | "attempts"
+        | "response_status"
+        | "last_error"
+        | "last_attempt_at"
+        | "updated_at"
+      >
+    >,
+  ): Promise<WebhookDeliveryRecord | undefined> {
+    const record = await this.getWebhookDelivery(id);
+    if (!record) {
+      return undefined;
+    }
+    const updated = { ...record, ...structuredClone(updates) };
+    this.webhookDeliveries.set(id, updated);
+    return structuredClone(updated);
+  }
+
+  async listWebhookDeliveries(
+    webhookId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<WebhookDeliveryRecord>> {
+    return pageFromMap(
+      [...this.webhookDeliveries.values()].filter(
+        (record) =>
+          record.webhook_id === webhookId &&
+          Date.parse(record.expires_at) > Date.now(),
+      ),
+      limit,
+      cursor,
+    );
   }
 
   async createApiKey(record: ApiKeyRecord): Promise<void> {

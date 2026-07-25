@@ -23,7 +23,8 @@ account, and HayaSend never logs message bodies.
   EventBridge Scheduler for delays beyond 15 minutes
 - email retrieval, listing, cancellation, and rescheduling
 - SES domain creation, DKIM record discovery, refresh, and deletion
-- signed webhooks with SQS retry and a dead-letter queue
+- signed webhooks with SQS retry, retained delivery history, manual replay,
+  and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
 - opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
   deterministic duplicate suppression, `email.received` webhooks, and
@@ -166,6 +167,11 @@ optional `BootstrapSecretArn` parameter. The CloudFormation output
 `ApiBaseUrl` is the value to use for `HAYASEND_BASE_URL` or the SDK's
 `baseUrl` option.
 
+Webhook event payloads and delivery results are retained in encrypted
+DynamoDB for seven days by default so operators can inspect and replay them.
+Set `WebhookDeliveryRetentionDays` from 1–30 days to match the deployment's
+privacy and recovery requirements.
+
 Inbound receiving is deliberately disabled by default. Enable it only after
 reading [the inbound receiving guide](docs/inbound-receiving.md). The stack
 then returns `InboundMxRecord`; HayaSend never changes DNS automatically. A
@@ -258,6 +264,10 @@ and delivery semantics.
   internal object keys, upload tokens, or checksums.
 - Webhook requests use timestamped HMAC-SHA256 signatures and Resend-compatible
   `svix-*` headers.
+- Webhook history never stores email bodies, attachments, signing secrets, or
+  response bodies. Retained event metadata can contain addresses and subjects,
+  expires after the configured 1–30 day window, and is filtered from API reads
+  immediately at expiry while DynamoDB completes asynchronous deletion.
 - AWS-mode webhook registration and delivery require public HTTPS and reject
   private, loopback, link-local, and reserved IPv4/IPv6 destinations; delivery
   revalidates DNS at connection time and never follows redirects.

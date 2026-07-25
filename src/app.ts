@@ -440,6 +440,46 @@ export function createApp(services: AppServices) {
       ),
   );
 
+  app.get(
+    "/webhooks/:id/deliveries",
+    requireScope("webhooks:read"),
+    zValidator("query", paginationSchema, validationCallback),
+    async (context) => {
+      const { limit, after } = context.req.valid("query");
+      const page = await services.webhookService.listDeliveries(
+        context.req.param("id"),
+        limit,
+        after,
+      );
+      return context.json({ object: "list", ...page });
+    },
+  );
+
+  app.get(
+    "/webhooks/:id/deliveries/:deliveryId",
+    requireScope("webhooks:read"),
+    async (context) =>
+      context.json({
+        object: "webhook_delivery",
+        ...(await services.webhookService.getDelivery(
+          context.req.param("id"),
+          context.req.param("deliveryId"),
+        )),
+      }),
+  );
+
+  app.post(
+    "/webhooks/:id/deliveries/:deliveryId/replay",
+    requireScope("webhooks:write"),
+    async (context) =>
+      context.json(
+        await services.webhookService.replay(
+          context.req.param("id"),
+          context.req.param("deliveryId"),
+        ),
+      ),
+  );
+
   app.patch(
     "/webhooks/:id",
     requireScope("webhooks:write"),

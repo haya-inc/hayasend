@@ -110,9 +110,22 @@ describe("WebhookService", () => {
     }
 
     await service.update(created.webhook.id, { status: "disabled" });
-    await service.deliver(job.webhook_id, job.event);
+    await service.deliver(
+      job.webhook_id,
+      job.event,
+      job.delivery_id,
+    );
 
     expect(calls).toEqual([]);
+    await expect(
+      service.getDelivery(
+        created.webhook.id,
+        job.delivery_id ?? "",
+      ),
+    ).resolves.toMatchObject({
+      status: "cancelled",
+      attempts: 0,
+    });
   });
 
   it("publishes only to matching subscriptions and signs delivery", async () => {
@@ -144,12 +157,17 @@ describe("WebhookService", () => {
       throw new Error("Expected a webhook delivery job.");
     }
 
-    await service.deliver(job.webhook_id, job.event);
+    await service.deliver(
+      job.webhook_id,
+      job.event,
+      job.delivery_id,
+    );
     expect(calls).toHaveLength(1);
     const [url, init] = calls[0] ?? [];
     expect(url).toBe("https://example.com/hooks");
     expect(init?.redirect).toBe("error");
     const headers = new Headers(init?.headers);
+    expect(headers.get("svix-id")).toBe(job.delivery_id);
     const payload = String(init?.body);
     expect(headers.get("svix-signature")).toBe(
       signWebhook(
@@ -159,5 +177,117 @@ describe("WebhookService", () => {
         payload,
       ),
     );
+    const deliveries = await service.listDeliveries(
+      created.webhook.id,
+      20,
+    );
+    expect(deliveries.data).toHaveLength(1);
+    expect(deliveries.data[0]).toMatchObject({
+      object: "webhook_delivery",
+      id: job.delivery_id,
+      status: "succeeded",
+      attempts: 1,
+      response_status: 204,
+    });
+    expect(deliveries.data[0]).not.toHaveProperty("event");
+    await expect(
+      service.getDelivery(
+        created.webhook.id,
+        job.delivery_id ?? "",
+      ),
+    ).resolves.toMatchObject({
+      event: {
+        type: "email.sent",
+        data: { email_id: email.id },
+      },
+    });
+
+    const replay = await service.replay(
+      created.webhook.id,
+      job.delivery_id ?? "",
+    );
+    expect(replay).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      replayed_from: job.delivery_id,
+    });
+    expect(replay.id).not.toBe(job.delivery_id);
+    expect(queue.jobs[1]?.job).toMatchObject({
+      type: "deliver_webhook",
+      webhook_id: created.webhook.id,
+      delivery_id: replay.id,
+    });
+  });
+
+  it("keeps one delivery ID and records failure across automatic retries", async () => {
+    const store = new MemoryStore();
+    const queue = new CapturingJobQueue();
+    const messageIds: string[] = [];
+    let attempt = 0;
+    const service = new WebhookService(store, queue, {
+      httpFetch: async (_input, init) => {
+        messageIds.push(new Headers(init?.headers).get("svix-id") ?? "");
+        attempt += 1;
+        return attempt === 1
+          ? { ok: false, status: 503 }
+          : { ok: true, status: 204 };
+      },
+      validateEndpoint: async () => undefined,
+    });
+    const created = await service.create({
+      endpoint: "https://example.com/hooks",
+      events: ["email.sent"],
+    });
+    await service.publish("email.sent", email);
+    const job = queue.jobs[0]?.job;
+    if (!job || job.type !== "deliver_webhook") {
+      throw new Error("Expected a webhook delivery job.");
+    }
+
+    await expect(
+      service.deliver(
+        "wh_wrong_endpoint",
+        job.event,
+        job.delivery_id,
+        1,
+      ),
+    ).rejects.toThrow("does not belong");
+    await expect(
+      service.deliver(
+        job.webhook_id,
+        job.event,
+        job.delivery_id,
+        1,
+      ),
+    ).rejects.toThrow("HTTP 503");
+    await expect(
+      service.getDelivery(
+        created.webhook.id,
+        job.delivery_id ?? "",
+      ),
+    ).resolves.toMatchObject({
+      status: "failed",
+      attempts: 1,
+      response_status: 503,
+      last_error: "HTTP 503",
+    });
+
+    await service.deliver(
+      job.webhook_id,
+      job.event,
+      job.delivery_id,
+      2,
+    );
+    expect(messageIds).toEqual([job.delivery_id, job.delivery_id]);
+    await expect(
+      service.getDelivery(
+        created.webhook.id,
+        job.delivery_id ?? "",
+      ),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      attempts: 2,
+      response_status: 204,
+    });
   });
 });

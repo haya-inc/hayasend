@@ -458,6 +458,65 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Deleted"
+  /webhooks/{id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: List retained webhook deliveries
+      operationId: listWebhookDeliveries
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Webhook delivery page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/WebhookDeliverySummary"
+  /webhooks/{id}/deliveries/{deliveryId}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: deliveryId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Retrieve a retained webhook delivery and its event
+      operationId: getWebhookDelivery
+      responses:
+        "200":
+          description: Webhook delivery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+  /webhooks/{id}/deliveries/{deliveryId}/replay:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: deliveryId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Replay a retained event as a new webhook delivery
+      operationId: replayWebhookDelivery
+      responses:
+        "200":
+          description: Queued replay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliverySummary"
   /suppressions:
     post:
       summary: Add a suppression
@@ -1084,6 +1143,72 @@ components:
         created_at:
           type: string
           format: date-time
+    WebhookDeliverySummary:
+      type: object
+      required:
+        - object
+        - id
+        - webhook_id
+        - event_type
+        - status
+        - attempts
+        - created_at
+        - updated_at
+        - expires_at
+      properties:
+        object:
+          const: webhook_delivery
+        id:
+          type: string
+        webhook_id:
+          type: string
+        event_type:
+          $ref: "#/components/schemas/WebhookEvent"
+        status:
+          enum: [pending, delivering, succeeded, failed, cancelled]
+        attempts:
+          type: integer
+          minimum: 0
+        response_status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        last_error:
+          type: string
+          maxLength: 500
+        last_attempt_at:
+          type: string
+          format: date-time
+        replayed_from:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    WebhookDelivery:
+      allOf:
+        - $ref: "#/components/schemas/WebhookDeliverySummary"
+        - type: object
+          required: [event]
+          properties:
+            event:
+              type: object
+              additionalProperties: true
+              required: [type, created_at, data]
+              properties:
+                type:
+                  $ref: "#/components/schemas/WebhookEvent"
+                created_at:
+                  type: string
+                  format: date-time
+                data:
+                  type: object
+                  additionalProperties: true
     ApiScope:
       enum:
         - emails:send

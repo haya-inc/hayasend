@@ -49,6 +49,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   const webhooks = new WebhookService(store, queue, {
     httpFetch: fetch,
     validateEndpoint: async () => undefined,
+    deliveryRetentionDays: config.webhookDeliveryRetentionDays,
   });
   const receivedEmails = new ReceivedEmailService(
     store,
@@ -94,7 +95,12 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
       await receivedEmails.publishWebhook(job.email_id);
       return;
     }
-    await webhooks.deliver(job.webhook_id, job.event);
+    await webhooks.deliver(
+      job.webhook_id,
+      job.event,
+      job.delivery_id,
+      attempt,
+    );
   };
   queue.setHandler(processJob);
 
@@ -133,7 +139,9 @@ export function createAwsRuntime(
   }
   const store = new DynamoStore(config.tableName, config.payloadBucket);
   const queue = new SqsJobQueue(config.queueUrl);
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    deliveryRetentionDays: config.webhookDeliveryRetentionDays,
+  });
   const receivedEmails = new ReceivedEmailService(
     store,
     config.inboundBucket
@@ -191,7 +199,12 @@ export function createAwsRuntime(
         await receivedEmails.publishWebhook(job.email_id);
         return;
       }
-      await webhooks.deliver(job.webhook_id, job.event);
+      await webhooks.deliver(
+        job.webhook_id,
+        job.event,
+        job.delivery_id,
+        attempt,
+      );
     },
   };
 }

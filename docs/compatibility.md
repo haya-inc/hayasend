@@ -16,7 +16,8 @@ migration path. It does not claim full Resend API coverage.
 | Scheduling | relative English | Partial | `in N minutes/hours/days` |
 | Domains | create/get/list/delete/verify | Implemented | Amazon SES identities |
 | Webhooks | create/get/list/update/delete | Implemented | signed `svix-*` headers; public HTTPS in AWS mode |
-| Webhooks | delivery retry | Implemented | SQS and dead-letter queue |
+| Webhooks | delivery retry | Implemented | stable `svix-id`, SQS, and dead-letter queue |
+| Webhooks | delivery history/replay | HayaSend extension | configurable 1–30 day TTL; replay creates a linked message ID |
 | API keys | scoped create/list/revoke | HayaSend extension | secrets stored as hashes |
 | Suppressions | hard bounce/complaint/manual | HayaSend extension | checked before enqueue |
 | Receiving | list/retrieve | Implemented | opt-in Mail Manager deployment; bounded `data_uri` or `cid` HTML |

@@ -285,6 +285,33 @@ export interface PublicWebhookEndpoint {
   created_at: string;
 }
 
+export type WebhookDeliveryStatus =
+  | "pending"
+  | "delivering"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface WebhookDeliveryRecord {
+  id: string;
+  webhook_id: string;
+  event_type: WebhookEventType;
+  event: WebhookEvent;
+  status: WebhookDeliveryStatus;
+  attempts: number;
+  response_status?: number | undefined;
+  last_error?: string | undefined;
+  last_attempt_at?: string | undefined;
+  replayed_from?: string | undefined;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+}
+
+export type WebhookDeliverySummary = Omit<WebhookDeliveryRecord, "event"> & {
+  object: "webhook_delivery";
+};
+
 export interface WebhookEvent {
   type: WebhookEventType;
   created_at: string;
@@ -310,6 +337,7 @@ export type Job =
   | {
       type: "deliver_webhook";
       webhook_id: string;
+      delivery_id?: string | undefined;
       event: WebhookEvent;
     };
 

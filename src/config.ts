@@ -18,6 +18,7 @@ export interface Config {
   inboundRawPrefix: string;
   inboundRetentionDays: number;
   inboundMaxMessageBytes: number;
+  webhookDeliveryRetentionDays: number;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -78,6 +79,18 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_INBOUND_RAW_PREFIX must be a safe S3 prefix of at most 62 characters.",
     );
   }
+  const webhookDeliveryRetentionDays = Number(
+    env.HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS ?? 7,
+  );
+  if (
+    !Number.isInteger(webhookDeliveryRetentionDays) ||
+    webhookDeliveryRetentionDays < 1 ||
+    webhookDeliveryRetentionDays > 30
+  ) {
+    throw new ValidationError(
+      "HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS must be an integer between 1 and 30.",
+    );
+  }
 
   return {
     mode,
@@ -86,6 +99,7 @@ export function loadConfig(env = process.env): Config {
     inboundRawPrefix,
     inboundRetentionDays,
     inboundMaxMessageBytes,
+    webhookDeliveryRetentionDays,
     ...(mode === "local" && apiKey ? { apiKey } : {}),
     ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME

@@ -25,6 +25,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
@@ -34,6 +35,7 @@ type Entity =
   | AttachmentUploadRecord
   | DomainRecord
   | WebhookEndpoint
+  | WebhookDeliveryRecord
   | ApiKeyRecord
   | SuppressionRecord
   | ReceivedEmailRecord;
@@ -44,9 +46,13 @@ type EntityKind =
   | "RECEIVED_CLAIM"
   | "DOMAIN"
   | "WEBHOOK"
+  | "WEBHOOK_DELIVERY"
   | "APIKEY"
   | "SUPPRESSION";
-type IndexedEntityKind = Exclude<EntityKind, "ATTACHMENT" | "RECEIVED_CLAIM">;
+type IndexedEntityKind = Exclude<
+  EntityKind,
+  "ATTACHMENT" | "RECEIVED_CLAIM" | "WEBHOOK_DELIVERY"
+>;
 type IndexPartition =
   | "EMAILS"
   | "RECEIVED_EMAILS"
@@ -543,6 +549,154 @@ export class DynamoStore implements Store {
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>> {
     return this.listEntities<WebhookEndpoint>("WEBHOOKS", limit, cursor);
+  }
+
+  async createWebhookDelivery(
+    record: WebhookDeliveryRecord,
+  ): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: {
+            ...entityKey("WEBHOOK_DELIVERY", record.id),
+            GSI1PK: `WEBHOOK_DELIVERIES#${record.webhook_id}`,
+            GSI1SK: `${record.created_at}#${record.id}`,
+            entity: record,
+            ttl: Math.floor(Date.parse(record.expires_at) / 1_000),
+          },
+          ConditionExpression: "attribute_not_exists(PK)",
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "ConditionalCheckFailedException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async getWebhookDelivery(
+    id: string,
+  ): Promise<WebhookDeliveryRecord | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: entityKey("WEBHOOK_DELIVERY", id),
+        ConsistentRead: true,
+      }),
+    );
+    const record = (result.Item as StoredEntity | undefined)?.entity as
+      | WebhookDeliveryRecord
+      | undefined;
+    if (!record || Date.parse(record.expires_at) <= Date.now()) {
+      return undefined;
+    }
+    return record;
+  }
+
+  async updateWebhookDelivery(
+    id: string,
+    updates: Partial<
+      Pick<
+        WebhookDeliveryRecord,
+        | "status"
+        | "attempts"
+        | "response_status"
+        | "last_error"
+        | "last_attempt_at"
+        | "updated_at"
+      >
+    >,
+  ): Promise<WebhookDeliveryRecord | undefined> {
+    const setExpressions: string[] = [];
+    const removeExpressions: string[] = [];
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {
+      ":now": Math.floor(Date.now() / 1_000),
+    };
+    Object.entries(updates).forEach(([field, value], index) => {
+      const name = `#field${index}`;
+      names[name] = field;
+      if (value === undefined) {
+        removeExpressions.push(`entity.${name}`);
+      } else {
+        const placeholder = `:value${index}`;
+        values[placeholder] = value;
+        setExpressions.push(`entity.${name} = ${placeholder}`);
+      }
+    });
+    if (setExpressions.length === 0 && removeExpressions.length === 0) {
+      return this.getWebhookDelivery(id);
+    }
+    const updateExpression = [
+      setExpressions.length > 0 ? `SET ${setExpressions.join(", ")}` : "",
+      removeExpressions.length > 0
+        ? `REMOVE ${removeExpressions.join(", ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    try {
+      const result = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: entityKey("WEBHOOK_DELIVERY", id),
+          UpdateExpression: updateExpression,
+          ConditionExpression: "attribute_exists(PK) AND ttl > :now",
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return (result.Attributes as StoredEntity | undefined)?.entity as
+        | WebhookDeliveryRecord
+        | undefined;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "ConditionalCheckFailedException"
+      ) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async listWebhookDeliveries(
+    webhookId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<WebhookDeliveryRecord>> {
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: "GSI1",
+        KeyConditionExpression: "GSI1PK = :partition",
+        FilterExpression: "ttl > :now",
+        ExpressionAttributeValues: {
+          ":partition": `WEBHOOK_DELIVERIES#${webhookId}`,
+          ":now": Math.floor(Date.now() / 1_000),
+        },
+        ExclusiveStartKey: decodeCursor(cursor),
+        ScanIndexForward: false,
+        Limit: limit,
+      }),
+    );
+    const data = (result.Items ?? []).map(
+      (item) =>
+        (item as StoredEntity).entity as WebhookDeliveryRecord,
+    );
+    const nextCursor = encodeCursor(
+      result.LastEvaluatedKey as Record<string, unknown> | undefined,
+    );
+    return nextCursor
+      ? { data, has_more: true, next_cursor: nextCursor }
+      : { data, has_more: false };
   }
 
   async createApiKey(record: ApiKeyRecord): Promise<void> {

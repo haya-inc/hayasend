@@ -229,7 +229,7 @@ describe("HTTP API", () => {
   });
 
   it("supports batches, domains, and signed webhook registration", async () => {
-    const { request } = fixture();
+    const { queue, request, webhooks } = fixture();
     const batch = await request("/emails/batch", {
       method: "POST",
       body: JSON.stringify([email, { ...email, to: ["second@example.net"] }]),
@@ -263,6 +263,44 @@ describe("HTTP API", () => {
       id: expect.stringMatching(/^wh_/),
       signing_secret: expect.stringMatching(/^whsec_/),
     });
+    await webhooks.publishData("email.sent", {
+      created_at: "2026-07-26T00:00:00.000Z",
+      email_id: "email_delivery_history",
+      from: "sender@example.com",
+      to: ["recipient@example.net"],
+      subject: "Webhook history",
+    });
+    const deliveryJob = queue.jobs
+      .map(({ job }) => job)
+      .find((job) => job.type === "deliver_webhook");
+    if (!deliveryJob || deliveryJob.type !== "deliver_webhook") {
+      throw new Error("Expected a webhook delivery job.");
+    }
+    const deliveryId = deliveryJob.delivery_id ?? "";
+    const deliveries = await request(
+      `/webhooks/${webhookBody.id}/deliveries`,
+    );
+    await expect(deliveries.json()).resolves.toMatchObject({
+      object: "list",
+      data: [
+        {
+          object: "webhook_delivery",
+          id: deliveryId,
+          status: "pending",
+        },
+      ],
+    });
+    const delivery = await request(
+      `/webhooks/${webhookBody.id}/deliveries/${deliveryId}`,
+    );
+    await expect(delivery.json()).resolves.toMatchObject({
+      object: "webhook_delivery",
+      id: deliveryId,
+      event: {
+        type: "email.sent",
+        data: { email_id: "email_delivery_history" },
+      },
+    });
     const updatedWebhook = await request(
       `/webhooks/${webhookBody.id}`,
       {
@@ -295,6 +333,23 @@ describe("HTTP API", () => {
       body: "{}",
     });
     expect(emptyUpdate.status).toBe(422);
+    await request(`/webhooks/${webhookBody.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "enabled" }),
+    });
+    const replay = await request(
+      `/webhooks/${webhookBody.id}/deliveries/${deliveryId}/replay`,
+      { method: "POST" },
+    );
+    const replayBody = (await replay.json()) as {
+      id: string;
+      replayed_from: string;
+    };
+    expect(replayBody).toMatchObject({
+      id: expect.stringMatching(/^msg_/),
+      replayed_from: deliveryId,
+    });
+    expect(replayBody.id).not.toBe(deliveryId);
   });
 
   it("rejects unsupported attachment URLs rather than fetching them", async () => {
