@@ -362,6 +362,8 @@ paths:
                 endpoint:
                   type: string
                   format: uri
+                  maxLength: 2048
+                  description: Public HTTPS URL in AWS mode; local mode also permits HTTP development endpoints.
                 events:
                   type: array
                   minItems: 1
@@ -1035,6 +1037,7 @@ components:
         endpoint:
           type: string
           format: uri
+          maxLength: 2048
         events:
           type: array
           items:

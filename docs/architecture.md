@@ -100,6 +100,14 @@ exactly-once notification delivery.
 
 ## Webhook signatures
 
+In AWS mode, webhook endpoints must use HTTPS and are resolved when registered
+and again for each new outbound connection. Every returned IPv4 and IPv6
+address must be globally routable. The connection uses only those validated
+results and does not follow redirects, preventing a public hostname or
+redirect from reaching VPC, loopback, link-local, carrier-grade NAT, or
+instance-metadata addresses. Local mode deliberately permits private
+endpoints for development.
+
 Webhook payloads are signed as:
 
 ```text

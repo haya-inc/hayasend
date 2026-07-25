@@ -104,7 +104,8 @@ gh run list --workflow aws-integration.yml --limit 1
 
 The live check covers health, scoped keys, checksum-bound attachment upload,
 schedule/reschedule/cancel, attachment privacy, suppressions, SES domain
-identity operations, and webhook secret privacy.
+identity operations, public webhook endpoint validation, and webhook secret
+privacy.
 
 After every run, confirm:
 

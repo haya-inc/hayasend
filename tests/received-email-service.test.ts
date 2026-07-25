@@ -60,7 +60,9 @@ function fixture(maxMessageBytes = 25 * 1024 * 1024) {
   const store = new MemoryStore();
   const storage = new MemoryInboundStorage();
   const queue = new CapturingJobQueue();
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    validateEndpoint: async () => undefined,
+  });
   const service = new ReceivedEmailService(
     store,
     storage,

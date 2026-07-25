@@ -20,6 +20,33 @@ const email: EmailRecord = {
 };
 
 describe("WebhookService", () => {
+  it("rejects private endpoints before storing them", async () => {
+    const service = new WebhookService(
+      new MemoryStore(),
+      new CapturingJobQueue(),
+    );
+    await expect(
+      service.create({
+        endpoint: "https://169.254.169.254/latest/meta-data/",
+        events: ["email.sent"],
+      }),
+    ).rejects.toMatchObject({ name: "validation_error" });
+  });
+
+  it("rejects credentials even when local network validation is disabled", async () => {
+    const service = new WebhookService(
+      new MemoryStore(),
+      new CapturingJobQueue(),
+      { validateEndpoint: async () => undefined },
+    );
+    await expect(
+      service.create({
+        endpoint: "http://user:secret@localhost:3000/hooks",
+        events: ["email.sent"],
+      }),
+    ).rejects.toMatchObject({ name: "validation_error" });
+  });
+
   it("publishes only to matching subscriptions and signs delivery", async () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();
@@ -28,7 +55,10 @@ describe("WebhookService", () => {
       calls.push([input, init]);
       return new Response(null, { status: 204 });
     };
-    const service = new WebhookService(store, queue, httpFetch);
+    const service = new WebhookService(store, queue, {
+      httpFetch,
+      validateEndpoint: async () => undefined,
+    });
     const created = await service.create({
       endpoint: "https://example.com/hooks",
       events: ["email.sent"],
@@ -50,6 +80,7 @@ describe("WebhookService", () => {
     expect(calls).toHaveLength(1);
     const [url, init] = calls[0] ?? [];
     expect(url).toBe("https://example.com/hooks");
+    expect(init?.redirect).toBe("error");
     const headers = new Headers(init?.headers);
     const payload = String(init?.body);
     expect(headers.get("svix-signature")).toBe(

@@ -46,7 +46,10 @@ export interface Runtime extends AppServices {
 export function createLocalRuntime(config = loadConfig()): Runtime {
   const store = new MemoryStore();
   const queue = new LocalJobQueue();
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    httpFetch: fetch,
+    validateEndpoint: async () => undefined,
+  });
   const receivedEmails = new ReceivedEmailService(
     store,
     new MemoryInboundStorage(),

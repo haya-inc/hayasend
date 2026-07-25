@@ -258,6 +258,9 @@ and delivery semantics.
   internal object keys, upload tokens, or checksums.
 - Webhook requests use timestamped HMAC-SHA256 signatures and Resend-compatible
   `svix-*` headers.
+- AWS-mode webhook registration and delivery require public HTTPS and reject
+  private, loopback, link-local, and reserved IPv4/IPv6 destinations; delivery
+  revalidates DNS at connection time and never follows redirects.
 - Application keys are scope-limited and stored as hashes; the deployment
   bootstrap key should not be embedded in applications.
 - The bootstrap key lives in Secrets Manager and is fetched only by the API

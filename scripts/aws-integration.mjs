@@ -196,8 +196,8 @@ try {
   );
 
   const webhook = await api("POST", "/webhooks", applicationKey, {
-    endpoint: "https://example.invalid/hayasend-integration",
-    events: ["email.delivered"],
+    endpoint: `${baseUrl}/healthz`,
+    events: ["email.received"],
   });
   created.webhookId = webhook.id;
   assert.match(webhook.signing_secret, /^whsec_/);
@@ -220,6 +220,7 @@ try {
         "public_attachment_privacy",
         "suppression",
         "ses_domain_identity",
+        "webhook_public_endpoint_validation",
         "webhook_secret_privacy",
       ],
     }),

@@ -94,6 +94,11 @@ Webhook jobs may be retried safely. Send jobs are protected by a state lease,
 but a rare duplicate remains possible if SES accepted a message before a
 worker stopped without recording the provider ID.
 
+AWS-mode webhook endpoints must remain publicly resolvable over HTTPS. A DNS
+change to any private, loopback, link-local, reserved, or mixed public/private
+answer intentionally fails delivery and eventually moves the job to the DLQ.
+HayaSend does not follow webhook redirects; register the final canonical URL.
+
 The Scheduler DLQ is separate from the worker DLQ because its messages are
 Scheduler delivery envelopes rather than HayaSend jobs. After fixing the
 cause, recover the referenced email by rescheduling it through the API instead

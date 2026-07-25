@@ -15,7 +15,7 @@ migration path. It does not claim full Resend API coverage.
 | Scheduling | ISO 8601 | Implemented | SQS up to 15 minutes; EventBridge Scheduler beyond |
 | Scheduling | relative English | Partial | `in N minutes/hours/days` |
 | Domains | create/get/list/delete/verify | Implemented | Amazon SES identities |
-| Webhooks | create/get/list/delete | Implemented | signed `svix-*` headers |
+| Webhooks | create/get/list/delete | Implemented | signed `svix-*` headers; public HTTPS in AWS mode |
 | Webhooks | delivery retry | Implemented | SQS and dead-letter queue |
 | API keys | scoped create/list/revoke | HayaSend extension | secrets stored as hashes |
 | Suppressions | hard bounce/complaint/manual | HayaSend extension | checked before enqueue |

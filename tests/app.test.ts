@@ -32,7 +32,9 @@ class RecordingTransport implements MailTransport {
 function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    validateEndpoint: async () => undefined,
+  });
   const inboundStorage = new MemoryInboundStorage();
   const receivedEmailService = new ReceivedEmailService(
     store,

@@ -1,5 +1,11 @@
 import { createId, createWebhookSecret, signWebhook } from "../core/crypto.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
+import {
+  assertPublicWebhookEndpoint,
+  assertWebhookEndpointShape,
+  createSafeWebhookFetch,
+  type WebhookHttpClient,
+} from "../core/network-safety.js";
 import type {
   EmailRecord,
   Page,
@@ -25,6 +31,11 @@ const SUPPORTED_EVENTS = new Set<WebhookEventType>([
   "email.received",
 ]);
 
+export interface WebhookServiceOptions {
+  httpFetch?: WebhookHttpClient;
+  validateEndpoint?: (endpoint: URL) => Promise<void>;
+}
+
 export function publicWebhook(
   webhook: WebhookEndpoint,
 ): PublicWebhookEndpoint {
@@ -33,11 +44,20 @@ export function publicWebhook(
 }
 
 export class WebhookService {
+  private readonly httpFetch: WebhookHttpClient;
+  private readonly validateEndpoint: (
+    endpoint: URL,
+  ) => Promise<void>;
+
   constructor(
     private readonly store: Store,
     private readonly queue: JobQueue,
-    private readonly httpFetch: typeof fetch = fetch,
-  ) {}
+    options: WebhookServiceOptions = {},
+  ) {
+    this.httpFetch = options.httpFetch ?? createSafeWebhookFetch();
+    this.validateEndpoint =
+      options.validateEndpoint ?? assertPublicWebhookEndpoint;
+  }
 
   async create(input: {
     endpoint: string;
@@ -52,9 +72,7 @@ export class WebhookService {
     } catch {
       throw new ValidationError("endpoint must be a valid URL.");
     }
-    if (!["http:", "https:"].includes(endpoint.protocol)) {
-      throw new ValidationError("endpoint must use http or https.");
-    }
+    assertWebhookEndpointShape(endpoint);
     if (input.events.length === 0) {
       throw new ValidationError("At least one webhook event is required.");
     }
@@ -64,6 +82,7 @@ export class WebhookService {
     if (invalidEvent) {
       throw new ValidationError(`Unsupported webhook event: ${invalidEvent}`);
     }
+    await this.validateEndpoint(endpoint);
 
     const record: WebhookEndpoint = {
       id: createId("wh"),
@@ -171,6 +190,7 @@ export class WebhookService {
       },
       body: payload,
       signal: AbortSignal.timeout(10_000),
+      redirect: "error",
     });
     if (!response.ok) {
       throw new Error(
