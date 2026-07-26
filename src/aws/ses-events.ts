@@ -1,4 +1,8 @@
 import type { SNSEvent } from "aws-lambda";
+import {
+  safeErrorCategory,
+  safeRuntimeError,
+} from "../core/error-telemetry.js";
 import type { WebhookEventType } from "../core/types.js";
 import { emitCountMetric } from "../core/metrics.js";
 import {
@@ -46,6 +50,11 @@ const EVENT_MAP: Record<string, WebhookEventType> = {
 
 let runtime: Runtime | undefined;
 
+type SesEventServices = {
+  emailService: Pick<Runtime["emailService"], "applyProviderEvent">;
+  suppressionService: Pick<Runtime["suppressionService"], "put">;
+};
+
 function getRuntime() {
   runtime ??= createAwsRuntime();
   return runtime;
@@ -53,7 +62,7 @@ function getRuntime() {
 
 export async function processSesEvent(
   sesEvent: SesEvent,
-  services: Pick<Runtime, "emailService" | "suppressionService">,
+  services: SesEventServices,
 ): Promise<void> {
   const emailId = sesEvent.mail?.tags?.hayasend_id?.[0];
   const eventType = sesEvent.eventType
@@ -122,12 +131,37 @@ export async function processSesEvent(
   });
 }
 
-export async function handler(event: SNSEvent): Promise<void> {
-  const services = getRuntime();
+export async function processSesRecords(
+  event: SNSEvent,
+  services: SesEventServices,
+): Promise<void> {
   for (const record of event.Records) {
     await processSesEvent(
       JSON.parse(record.Sns.Message) as SesEvent,
       services,
     );
   }
+}
+
+export async function handleSesEvent(
+  event: SNSEvent,
+  services: SesEventServices,
+): Promise<void> {
+  try {
+    await processSesRecords(event, services);
+  } catch (error) {
+    emitCountMetric("SesEventProcessingErrors");
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "SES event processing failed",
+        error_type: safeErrorCategory(error),
+      }),
+    );
+    throw safeRuntimeError("SES event processing failed", error);
+  }
+}
+
+export async function handler(event: SNSEvent): Promise<void> {
+  return handleSesEvent(event, getRuntime());
 }

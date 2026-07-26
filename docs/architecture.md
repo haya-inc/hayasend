@@ -71,10 +71,11 @@ retention. The table has AWS-managed encryption and point-in-time recovery.
 
 Webhook delivery records use `GSI1PK=WEBHOOK_DELIVERIES#<webhook-id>` for
 reverse-chronological inspection. They retain the exact event metadata needed
-for replay plus attempt count, status code, and a bounded error string. They
-never retain an email body, attachment, signing secret, or HTTP response body.
-The configurable 1–30 day expiry is enforced on reads as well as by DynamoDB
-TTL because physical TTL deletion is asynchronous.
+for replay plus attempt count, status code, and a stable operational error
+category. They never retain an external exception string, email body,
+attachment, signing secret, or HTTP response body. The configurable 1–30 day
+expiry is enforced on reads as well as by DynamoDB TTL because physical TTL
+deletion is asynchronous.
 
 HTML, text, and attachments are externalized into a private, encrypted S3
 bucket so DynamoDB's 400 KiB item limit does not constrain normal email
@@ -82,6 +83,15 @@ payloads. Direct uploads accept only a caller-declared size and SHA-256, never
 an arbitrary remote URL. The bucket denies plaintext transport and objects
 expire after 45 days; email metadata remains in DynamoDB. Public email
 responses expose attachment metadata only.
+
+Application failure telemetry is deliberately data-minimized. API requests
+receive a server-generated request ID; failure logs retain that ID where
+applicable, opaque resource or queue identifiers, allowlisted HTTP or job
+metadata, aggregate counts, and a stable error category. Addresses, subjects,
+webhook URLs, payloads, caller-supplied correlation IDs, and provider or
+network exception strings do not enter application logs. Final email and
+webhook failure fields use the same categories rather than copying exception
+messages.
 
 Templates remain within the DynamoDB size boundary through a 128 KiB
 per-version limit. Each template record contains the editable draft and

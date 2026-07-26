@@ -290,4 +290,46 @@ describe("WebhookService", () => {
       response_status: 204,
     });
   });
+
+  it("does not retain sensitive network error text", async () => {
+    const store = new MemoryStore();
+    const queue = new CapturingJobQueue();
+    const sensitive =
+      "recipient@example.net private body re_secret_token https://example.com/hook";
+    const service = new WebhookService(store, queue, {
+      httpFetch: async () => {
+        throw Object.assign(new TypeError(sensitive), {
+          cause: { code: "ENOTFOUND", hostname: sensitive },
+        });
+      },
+      validateEndpoint: async () => undefined,
+    });
+    const created = await service.create({
+      endpoint: "https://example.com/hook",
+      events: ["email.sent"],
+    });
+    await service.publish("email.sent", email);
+    const job = queue.jobs[0]?.job;
+    if (!job || job.type !== "deliver_webhook") {
+      throw new Error("Expected a webhook delivery job.");
+    }
+
+    await expect(
+      service.deliver(
+        job.webhook_id,
+        job.event,
+        job.delivery_id,
+        1,
+      ),
+    ).rejects.toThrow(sensitive);
+
+    const delivery = await service.getDelivery(
+      created.webhook.id,
+      job.delivery_id ?? "",
+    );
+    expect(delivery.last_error).toBe(
+      "Webhook delivery failed (network_dns).",
+    );
+    expect(JSON.stringify(delivery)).not.toContain(sensitive);
+  });
 });

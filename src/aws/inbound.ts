@@ -1,4 +1,8 @@
 import type { InboundEmailEvent } from "../core/types.js";
+import {
+  safeErrorCategory,
+  safeRuntimeError,
+} from "../core/error-telemetry.js";
 import { emitCountMetric } from "../core/metrics.js";
 import {
   createAwsRuntime,
@@ -128,8 +132,17 @@ export async function processInboundEvent(
 export async function handler(
   event: MailManagerLambdaEvent,
 ): Promise<void> {
+  return handleInboundEvent(event, getRuntime());
+}
+
+export async function handleInboundEvent(
+  event: MailManagerLambdaEvent,
+  services: {
+    receivedEmailService: Pick<ReceivedEmailService, "ingest">;
+  },
+): Promise<void> {
   try {
-    await processInboundEvent(event, getRuntime());
+    await processInboundEvent(event, services);
     emitCountMetric("InboundEmailsProcessed");
   } catch (error) {
     emitCountMetric("InboundProcessingErrors");
@@ -137,9 +150,9 @@ export async function handler(
       JSON.stringify({
         level: "error",
         message: "Inbound email processing failed",
-        error: error instanceof Error ? error.message : String(error),
+        error_type: safeErrorCategory(error),
       }),
     );
-    throw error;
+    throw safeRuntimeError("Inbound email processing failed", error);
   }
 }

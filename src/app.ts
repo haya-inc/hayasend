@@ -10,6 +10,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "./core/errors.js";
+import { safeErrorCategory } from "./core/error-telemetry.js";
 import type {
   ApiScope,
   AuthenticatedPrincipal,
@@ -48,6 +49,7 @@ import type { TemplateService } from "./services/template-service.js";
 interface AppEnv {
   Variables: {
     principal: AuthenticatedPrincipal;
+    requestId: string;
   };
 }
 
@@ -207,8 +209,8 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   const localPreview = options.localPreview === true;
 
   app.use("*", async (context, next) => {
-    const requestId =
-      context.req.header("x-request-id")?.slice(0, 128) ?? randomUUID();
+    const requestId = randomUUID();
+    context.set("requestId", requestId);
     context.header("x-request-id", requestId);
     context.header("x-content-type-options", "nosniff");
     context.header("cache-control", "no-store");
@@ -874,17 +876,17 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       error instanceof AppError
         ? error
         : new AppError(500, "application_error", "Internal server error.");
-    console.error(
-      JSON.stringify({
-        level: "error",
-        request_id: context.req.header("x-request-id"),
-        method: context.req.method,
-        path: context.req.path,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
     if (appError.status >= 500) {
       emitCountMetric("ApiErrors");
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "API request failed",
+          request_id: context.get("requestId"),
+          method: context.req.method,
+          error_type: safeErrorCategory(error),
+        }),
+      );
     }
     return context.json(
       {

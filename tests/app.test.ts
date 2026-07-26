@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { MemoryInboundStorage } from "../src/adapters/inbound-storage.js";
@@ -852,5 +852,43 @@ describe("HTTP API", () => {
       last_event: "suppressed",
     });
     expect(queue.jobs).toHaveLength(0);
+  });
+
+  it("uses an internal request ID and logs no untrusted error details", async () => {
+    const result = fixture();
+    const sensitive =
+      "recipient@example.net-re_secret_token-private-subject";
+    vi.spyOn(result.emails, "get").mockRejectedValueOnce(
+      new Error(sensitive),
+    );
+    const errors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const response = await result.request(
+        `/emails/${encodeURIComponent(sensitive)}`,
+        { headers: { "x-request-id": sensitive } },
+      );
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get("x-request-id")).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(response.headers.get("x-request-id")).not.toBe(sensitive);
+      const logged = errors.mock.calls.flat().join(" ");
+      expect(logged).toContain('"message":"API request failed"');
+      expect(logged).toContain('"error_type":"application_error"');
+      expect(logged).not.toContain(sensitive);
+
+      errors.mockClear();
+      const invalid = await result.request("/emails", {
+        method: "POST",
+        body: "{}",
+      });
+      expect(invalid.status).toBe(422);
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 });

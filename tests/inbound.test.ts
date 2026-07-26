@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  handleInboundEvent,
   normalizeInboundEvent,
   processInboundEvent,
 } from "../src/aws/inbound.js";
@@ -85,5 +86,38 @@ describe("Mail Manager Lambda events", () => {
         receipt: { ...ses.receipt, recipients: [] },
       }),
     ).toThrow("does not contain any recipients");
+  });
+
+  it("retries with a sanitized error and logs only a safe category", async () => {
+    const sensitive =
+      "recipient@example.net private MIME re_secret_token inbound/raw/message";
+    const errors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const metrics = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        handleInboundEvent(ses, {
+          receivedEmailService: {
+            ingest: vi.fn(async () => {
+              throw new Error(sensitive);
+            }),
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: "HayaSendOperationalError",
+        message: "Inbound email processing failed (application_error).",
+      });
+
+      const logged = errors.mock.calls.flat().join(" ");
+      expect(logged).toContain('"error_type":"application_error"');
+      expect(logged).not.toContain(sensitive);
+      expect(metrics.mock.calls.flat().join(" ")).not.toContain(sensitive);
+    } finally {
+      errors.mockRestore();
+      metrics.mockRestore();
+    }
   });
 });

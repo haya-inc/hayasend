@@ -182,9 +182,8 @@ function apiKey(env: NodeJS.ProcessEnv) {
 async function readJsonResponse(response: Response) {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
-    const body = (await response.text()).slice(0, 200);
     throw new Error(
-      `Expected JSON from HayaSend but received ${contentType || "an unknown content type"}: ${body}`,
+      `Expected a JSON response from HayaSend (HTTP ${response.status}).`,
     );
   }
   return response.json() as Promise<unknown>;
