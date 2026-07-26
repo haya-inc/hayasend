@@ -397,6 +397,19 @@ and delivery semantics.
 
 Please report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
+## Public roadmap
+
+The [v0.1 beta milestone](https://github.com/haya-inc/hayasend/milestone/1)
+tracks the evidence required for the first non-critical evaluation release.
+Accepted follow-on work carries the
+[`roadmap` label](https://github.com/haya-inc/hayasend/issues?q=state%3Aopen%20label%3Aroadmap),
+and bounded starter tasks carry the
+[`good first issue` label](https://github.com/haya-inc/hayasend/issues?q=state%3Aopen%20label%3A%22good%20first%20issue%22).
+
+Roadmap issues describe accepted problems and safety constraints, not promised
+delivery dates. Security reports must use the private process in
+[SECURITY.md](SECURITY.md), never a public roadmap issue.
+
 ## Project and commercial support
 
 HayaSend is Apache-2.0 open source. Haya, Inc. intends to fund development

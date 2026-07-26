@@ -20,3 +20,5 @@ minor releases before v1.0.
   commercial-support boundaries, deployed through pinned GitHub Pages actions.
 - Add a pinned black-box compatibility gate for the official Resend Python SDK
   covering send, retrieve, list, and batch operations.
+- Publish an evidence-based v0.1 beta milestone and a labeled public roadmap
+  with a bounded first contribution.
