@@ -30,6 +30,8 @@ minor releases before v1.0.
   loopback-only property-based CI; malformed JSON and percent-encoded
   suppression paths now return public client errors instead of internal
   errors.
+- Make all list APIs use stable resource-ID cursors, matching the documented
+  `after` contract across local and DynamoDB-backed deployments.
 
 ## 0.1.0 - 2026-07-26
 

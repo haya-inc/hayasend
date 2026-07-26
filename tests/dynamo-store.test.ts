@@ -56,6 +56,201 @@ const webhookDelivery: WebhookDeliveryRecord = {
 };
 
 describe("DynamoStore", () => {
+  it("translates an entity ID cursor and returns a resource ID cursor", async () => {
+    const older = {
+      ...email,
+      id: "email_older",
+      created_at: "2026-07-25T00:00:00.000Z",
+    };
+    const oldest = {
+      ...email,
+      id: "email_oldest",
+      created_at: "2026-07-24T00:00:00.000Z",
+    };
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return command instanceof GetCommand
+          ? { Item: { entity: email } }
+          : { Items: [{ entity: older }, { entity: oldest }] };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await expect(store.listEmails(1, email.id)).resolves.toEqual({
+      data: [older],
+      has_more: true,
+      next_cursor: older.id,
+    });
+    expect(commands[0]).toBeInstanceOf(GetCommand);
+    expect(commands[1]).toBeInstanceOf(QueryCommand);
+    expect((commands[1] as QueryCommand).input).toMatchObject({
+      ExpressionAttributeValues: { ":partition": "EMAILS" },
+      ExclusiveStartKey: {
+        PK: "EMAIL#email_123",
+        SK: "EMAIL#email_123",
+        GSI1PK: "EMAILS",
+        GSI1SK: "2026-07-26T00:00:00.000Z#email_123",
+      },
+      ScanIndexForward: false,
+      Limit: 2,
+    });
+  });
+
+  it("rejects missing and cross-webhook resource ID cursors", async () => {
+    const commands: unknown[] = [];
+    const otherDelivery = {
+      ...webhookDelivery,
+      id: "msg_other",
+      webhook_id: "wh_other",
+    };
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        if (command instanceof GetCommand) {
+          return (command.input.Key as { PK?: string }).PK ===
+            "WEBHOOK_DELIVERY#msg_other"
+            ? { Item: { entity: otherDelivery } }
+            : {};
+        }
+        return {};
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await expect(store.listEmails(20, "email_missing")).rejects.toMatchObject({
+      name: "validation_error",
+      message: "The pagination cursor is invalid.",
+    });
+    await expect(
+      store.listWebhookDeliveries("wh_123", 20, otherDelivery.id),
+    ).rejects.toMatchObject({
+      name: "validation_error",
+      message: "The pagination cursor is invalid.",
+    });
+    expect(commands).toHaveLength(2);
+    expect(commands.every((command) => command instanceof GetCommand)).toBe(
+      true,
+    );
+  });
+
+  it("continues past filtered expired records when listing received email", async () => {
+    const active: ReceivedEmailRecord = {
+      id: "recv_active",
+      provider_message_id: "provider-active",
+      message_id: "<active@example.com>",
+      from: "sender@example.com",
+      to: ["recipient@example.net"],
+      received_for: ["recipient@example.net"],
+      bcc: [],
+      cc: [],
+      reply_to: [],
+      subject: "Active",
+      created_at: "2099-01-01T00:00:00.000Z",
+      raw_object_key: "inbound/raw/provider-active",
+      content_object_key: "inbound/content/recv_active.json",
+      attachments: [],
+      content_truncated: false,
+      expires_at: "2099-01-08T00:00:00.000Z",
+    };
+    const commands: unknown[] = [];
+    let queryCount = 0;
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        if (!(command instanceof QueryCommand)) {
+          return {};
+        }
+        queryCount += 1;
+        return queryCount === 1
+          ? {
+              Items: [],
+              LastEvaluatedKey: {
+                PK: "RECEIVED#recv_expired",
+                SK: "RECEIVED#recv_expired",
+                GSI1PK: "RECEIVED_EMAILS",
+                GSI1SK: "2020-01-01T00:00:00.000Z#recv_expired",
+              },
+            }
+          : { Items: [{ entity: active }] };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await expect(store.listReceivedEmails(1)).resolves.toEqual({
+      data: [active],
+      has_more: false,
+    });
+    expect(commands).toHaveLength(2);
+    expect((commands[0] as QueryCommand).input).toMatchObject({
+      FilterExpression: "#ttl > :now",
+      ExpressionAttributeNames: {
+        "#ttl": "ttl",
+      },
+      ExpressionAttributeValues: {
+        ":partition": "RECEIVED_EMAILS",
+        ":now": expect.any(Number),
+      },
+      Limit: 2,
+    });
+    expect((commands[1] as QueryCommand).input.ExclusiveStartKey).toMatchObject(
+      {
+        PK: "RECEIVED#recv_expired",
+        GSI1PK: "RECEIVED_EMAILS",
+      },
+    );
+  });
+
+  it("translates a webhook-delivery ID into its scoped GSI start key", async () => {
+    const older = {
+      ...webhookDelivery,
+      id: "msg_older",
+      created_at: "2029-12-31T23:59:00.000Z",
+    };
+    const oldest = {
+      ...webhookDelivery,
+      id: "msg_oldest",
+      created_at: "2029-12-31T23:58:00.000Z",
+    };
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return command instanceof GetCommand
+          ? { Item: { entity: webhookDelivery } }
+          : { Items: [{ entity: older }, { entity: oldest }] };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await expect(
+      store.listWebhookDeliveries(
+        webhookDelivery.webhook_id,
+        1,
+        webhookDelivery.id,
+      ),
+    ).resolves.toEqual({
+      data: [older],
+      has_more: true,
+      next_cursor: older.id,
+    });
+    expect(commands[1]).toBeInstanceOf(QueryCommand);
+    expect((commands[1] as QueryCommand).input).toMatchObject({
+      ExpressionAttributeValues: {
+        ":partition": "WEBHOOK_DELIVERIES#wh_123",
+        ":now": expect.any(Number),
+      },
+      ExclusiveStartKey: {
+        PK: "WEBHOOK_DELIVERY#msg_123",
+        SK: "WEBHOOK_DELIVERY#msg_123",
+        GSI1PK: "WEBHOOK_DELIVERIES#wh_123",
+        GSI1SK: "2030-01-01T00:00:00.000Z#msg_123",
+      },
+      Limit: 2,
+    });
+  });
+
   it("translates a template ID cursor into a DynamoDB GSI start key", async () => {
     const template: TemplateRecord = {
       id: "tmpl_cursor",
@@ -466,10 +661,6 @@ describe("DynamoStore", () => {
         if (command instanceof QueryCommand) {
           return {
             Items: [{ entity: webhookDelivery }],
-            LastEvaluatedKey: {
-              PK: "WEBHOOK_DELIVERY#msg_123",
-              SK: "WEBHOOK_DELIVERY#msg_123",
-            },
           };
         }
         return {};
@@ -496,7 +687,7 @@ describe("DynamoStore", () => {
       response_status: 204,
     });
     expect(page.data).toEqual([webhookDelivery]);
-    expect(page.has_more).toBe(true);
+    expect(page.has_more).toBe(false);
     expect(commands[0]).toBeInstanceOf(PutCommand);
     expect((commands[0] as PutCommand).input.Item).toMatchObject({
       PK: "WEBHOOK_DELIVERY#msg_123",
@@ -525,7 +716,7 @@ describe("DynamoStore", () => {
         "#ttl": "ttl",
       },
       ScanIndexForward: false,
-      Limit: 20,
+      Limit: 21,
     });
   });
 

@@ -348,6 +348,24 @@ describe("official Resend Node SDK compatibility", () => {
         },
       },
     });
+    const firstEmailPage = await resend.emails.list({ limit: 1 });
+    expect(firstEmailPage.error).toBeNull();
+    expect(firstEmailPage.data).toMatchObject({
+      object: "list",
+      has_more: true,
+      next_cursor: firstEmailPage.data?.data[0]?.id,
+    });
+    const emailCursor = firstEmailPage.data?.data[0]?.id;
+    if (!emailCursor) {
+      throw new Error("Expected an SDK email-list cursor.");
+    }
+    const secondEmailPage = await resend.emails.list({
+      limit: 1,
+      after: emailCursor,
+    });
+    expect(secondEmailPage.error).toBeNull();
+    expect(secondEmailPage.data?.data).toHaveLength(1);
+    expect(secondEmailPage.data?.data[0]?.id).not.toBe(emailCursor);
 
     inboundStorage.seedRaw(
       "inbound/raw/sdk-inbound-1",

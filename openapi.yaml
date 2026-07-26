@@ -1110,6 +1110,9 @@ components:
     After:
       name: after
       in: query
+      description: >-
+        ID of the final resource returned by the previous page. The resource
+        must still exist and, for nested collections, belong to the same parent.
       schema:
         type: string
         minLength: 1
@@ -2129,3 +2132,7 @@ components:
           type: boolean
         next_cursor:
           type: string
+          description: >-
+            ID of the page-boundary resource. Pass this value using the same
+            cursor direction as the request (`after`, or `before` for reverse
+            template traversal).
