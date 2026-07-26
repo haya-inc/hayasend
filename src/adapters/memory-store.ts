@@ -1,4 +1,14 @@
 import { ConflictError } from "../core/errors.js";
+import {
+  deliveryDiagnosticCategorySchema,
+  deliveryMessageRecordSchema,
+  outboxItemRecordSchema,
+  recipientRecordSchema,
+  type DeliveryDiagnosticCategory,
+  type DeliveryMessageRecord,
+  type OutboxItemRecord,
+  type RecipientRecord,
+} from "../core/delivery-model.js";
 import type {
   ApiKeyRecord,
   AttachmentUploadRecord,
@@ -15,10 +25,34 @@ import type {
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
+import type {
+  DeliveryCommit,
+  DeliveryCommitResult,
+  DeliveryOutboxStore,
+  LeaseDueOutboxInput,
+  OutboxMetrics,
+} from "../ports/delivery-outbox-store.js";
 import type { Store } from "../ports/store.js";
 
 interface IdempotencyEntry extends IdempotencyClaim {
   email_id: string;
+}
+
+export type MemoryDeliveryMutation =
+  | {
+      operation: "commit";
+      entity: "email" | "message" | "recipient" | "idempotency" | "outbox";
+      index?: number | undefined;
+    }
+  | {
+      operation: "commit_swap" | "lease" | "acknowledge" | "failure";
+      entity: "outbox";
+    };
+
+export interface MemoryStoreOptions {
+  afterDeliveryMutation?:
+    | ((mutation: MemoryDeliveryMutation) => void)
+    | undefined;
 }
 
 function pageFromMap<T extends { created_at: string }>(
@@ -46,15 +80,15 @@ function pageFromMap<T extends { created_at: string }>(
   return { data, has_more: false };
 }
 
-export class MemoryStore implements Store {
-  private readonly emails = new Map<string, EmailRecord>();
+export class MemoryStore implements Store, DeliveryOutboxStore {
+  private emails = new Map<string, EmailRecord>();
   private readonly attachmentUploads = new Map<
     string,
     AttachmentUploadRecord
   >();
   private readonly receivedEmails = new Map<string, ReceivedEmailRecord>();
   private readonly receivedClaims = new Map<string, number>();
-  private readonly idempotency = new Map<string, IdempotencyEntry>();
+  private idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
   private readonly webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
@@ -67,6 +101,13 @@ export class MemoryStore implements Store {
     string,
     Map<string, TemplatePublicationRecord>
   >();
+  private deliveryMessages = new Map<string, DeliveryMessageRecord>();
+  private deliveryRecipients = new Map<string, RecipientRecord>();
+  private outboxItems = new Map<string, OutboxItemRecord>();
+  private outboxByMessage = new Map<string, string>();
+  private outboxPublishFailures = 0;
+
+  constructor(private readonly options: MemoryStoreOptions = {}) {}
 
   async createEmail(
     record: EmailRecord,
@@ -619,5 +660,399 @@ export class MemoryStore implements Store {
     cursor?: string,
   ): Promise<Page<SuppressionRecord>> {
     return pageFromMap(this.suppressions.values(), limit, cursor);
+  }
+
+  async commitDelivery(
+    input: DeliveryCommit,
+    nowEpochSeconds: number,
+  ): Promise<DeliveryCommitResult> {
+    const message = deliveryMessageRecordSchema.parse(input.message);
+    const recipients = input.recipients.map((recipient) =>
+      recipientRecordSchema.parse(recipient),
+    );
+    const outbox = outboxItemRecordSchema.parse(input.outbox);
+    this.validateDeliveryCommit(
+      input.email,
+      message,
+      recipients,
+      outbox,
+      nowEpochSeconds,
+      input.idempotency,
+    );
+
+    if (input.idempotency) {
+      const existingClaim = this.idempotency.get(input.idempotency.key_hash);
+      if (
+        existingClaim &&
+        existingClaim.expires_at > nowEpochSeconds
+      ) {
+        if (existingClaim.request_hash !== input.idempotency.request_hash) {
+          throw new ConflictError(
+            "The Idempotency-Key has already been used with a different request.",
+          );
+        }
+        const replay = this.deliveryResult(existingClaim.email_id, true);
+        if (!replay) {
+          throw new ConflictError(
+            "The idempotent delivery exists but its atomic records are unavailable.",
+          );
+        }
+        return replay;
+      }
+    }
+    if (
+      this.emails.has(input.email.id) ||
+      this.deliveryMessages.has(message.id) ||
+      this.outboxItems.has(outbox.id)
+    ) {
+      throw new ConflictError("Delivery identity is already in use.");
+    }
+
+    const nextEmails = new Map(this.emails);
+    const nextIdempotency = new Map(this.idempotency);
+    const nextMessages = new Map(this.deliveryMessages);
+    const nextRecipients = new Map(this.deliveryRecipients);
+    const nextOutbox = new Map(this.outboxItems);
+    const nextOutboxByMessage = new Map(this.outboxByMessage);
+
+    nextEmails.set(input.email.id, structuredClone(input.email));
+    this.afterDeliveryMutation({ operation: "commit", entity: "email" });
+    nextMessages.set(message.id, structuredClone(message));
+    this.afterDeliveryMutation({ operation: "commit", entity: "message" });
+    recipients.forEach((recipient, index) => {
+      if (nextRecipients.has(recipient.id)) {
+        throw new ConflictError("Recipient identity is already in use.");
+      }
+      nextRecipients.set(recipient.id, structuredClone(recipient));
+      this.afterDeliveryMutation({
+        operation: "commit",
+        entity: "recipient",
+        index,
+      });
+    });
+    if (input.idempotency) {
+      nextIdempotency.set(input.idempotency.key_hash, {
+        ...structuredClone(input.idempotency),
+        email_id: input.email.id,
+      });
+      this.afterDeliveryMutation({
+        operation: "commit",
+        entity: "idempotency",
+      });
+    }
+    nextOutbox.set(outbox.id, structuredClone(outbox));
+    nextOutboxByMessage.set(message.id, outbox.id);
+    this.afterDeliveryMutation({ operation: "commit", entity: "outbox" });
+
+    // All staged writes become visible together. A fault before this point
+    // leaves the prior maps untouched.
+    this.emails = nextEmails;
+    this.idempotency = nextIdempotency;
+    this.deliveryMessages = nextMessages;
+    this.deliveryRecipients = nextRecipients;
+    this.outboxItems = nextOutbox;
+    this.outboxByMessage = nextOutboxByMessage;
+    this.afterDeliveryMutation({
+      operation: "commit_swap",
+      entity: "outbox",
+    });
+
+    return {
+      email: structuredClone(input.email),
+      message: structuredClone(message),
+      recipients: structuredClone(recipients),
+      outbox: structuredClone(outbox),
+      ...(input.idempotency
+        ? { idempotency: structuredClone(input.idempotency) }
+        : {}),
+      replayed: false,
+    };
+  }
+
+  async getDelivery(
+    messageId: string,
+  ): Promise<DeliveryCommitResult | undefined> {
+    return this.deliveryResult(messageId, false);
+  }
+
+  async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
+    const item = this.outboxItems.get(id);
+    return item ? structuredClone(item) : undefined;
+  }
+
+  async leaseDueOutbox(
+    input: LeaseDueOutboxInput,
+  ): Promise<OutboxItemRecord[]> {
+    if (!/^[^\s@]{1,512}$/.test(input.owner)) {
+      throw new Error("Outbox lease owner must be a privacy-safe opaque ID.");
+    }
+    if (
+      !Number.isInteger(input.lease_seconds) ||
+      input.lease_seconds <= 0
+    ) {
+      throw new Error("Outbox lease duration must be a positive integer.");
+    }
+    if (!Number.isInteger(input.limit) || input.limit <= 0) {
+      throw new Error("Outbox lease limit must be a positive integer.");
+    }
+    if (input.limit > 1_000) {
+      throw new Error("Outbox lease limit cannot exceed 1000.");
+    }
+    const nowEpochMilliseconds = input.now.getTime();
+    const nowIso = input.now.toISOString();
+    const leaseExpiresAt = new Date(
+      nowEpochMilliseconds + input.lease_seconds * 1_000,
+    ).toISOString();
+    const due = [...this.outboxItems.values()]
+      .filter(
+        (item) =>
+          item.dispatched_at === undefined &&
+          Date.parse(item.due_at) <= nowEpochMilliseconds &&
+          (item.lease_expires_at === undefined ||
+            Date.parse(item.lease_expires_at) <= nowEpochMilliseconds),
+      )
+      .sort(
+        (left, right) =>
+          left.due_at.localeCompare(right.due_at) ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, input.limit);
+    const leased: OutboxItemRecord[] = [];
+    for (const item of due) {
+      const updated = outboxItemRecordSchema.parse({
+        ...item,
+        attempts: item.attempts + 1,
+        lease_owner: input.owner,
+        lease_expires_at: leaseExpiresAt,
+        updated_at: nowIso,
+      });
+      this.outboxItems.set(item.id, updated);
+      leased.push(structuredClone(updated));
+      this.afterDeliveryMutation({ operation: "lease", entity: "outbox" });
+    }
+    return leased;
+  }
+
+  async acknowledgeOutbox(
+    id: string,
+    owner: string,
+    now: Date,
+  ): Promise<boolean> {
+    const item = this.outboxItems.get(id);
+    if (
+      !item ||
+      item.dispatched_at !== undefined ||
+      item.lease_owner !== owner
+    ) {
+      return false;
+    }
+    const updated = outboxItemRecordSchema.parse({
+      ...item,
+      lease_owner: undefined,
+      lease_expires_at: undefined,
+      dispatched_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    });
+    this.outboxItems.set(id, updated);
+    this.afterDeliveryMutation({
+      operation: "acknowledge",
+      entity: "outbox",
+    });
+    return true;
+  }
+
+  async recordOutboxFailure(
+    id: string,
+    owner: string,
+    category: DeliveryDiagnosticCategory,
+    now: Date,
+  ): Promise<boolean> {
+    const item = this.outboxItems.get(id);
+    if (
+      !item ||
+      item.dispatched_at !== undefined ||
+      item.lease_owner !== owner
+    ) {
+      return false;
+    }
+    const updated = outboxItemRecordSchema.parse({
+      ...item,
+      lease_owner: undefined,
+      lease_expires_at: undefined,
+      last_diagnostic_category:
+        deliveryDiagnosticCategorySchema.parse(category),
+      updated_at: now.toISOString(),
+    });
+    this.outboxItems.set(id, updated);
+    this.outboxPublishFailures += 1;
+    this.afterDeliveryMutation({ operation: "failure", entity: "outbox" });
+    return true;
+  }
+
+  async getOutboxMetrics(now: Date): Promise<OutboxMetrics> {
+    const nowEpochMilliseconds = now.getTime();
+    let due = 0;
+    let leased = 0;
+    let undispatched = 0;
+    let oldestDueAt: number | undefined;
+    for (const item of this.outboxItems.values()) {
+      if (item.dispatched_at !== undefined) {
+        continue;
+      }
+      undispatched += 1;
+      const dueAt = Date.parse(item.due_at);
+      if (dueAt > nowEpochMilliseconds) {
+        continue;
+      }
+      oldestDueAt =
+        oldestDueAt === undefined ? dueAt : Math.min(oldestDueAt, dueAt);
+      const activeLease =
+        item.lease_expires_at !== undefined &&
+        Date.parse(item.lease_expires_at) > nowEpochMilliseconds;
+      if (activeLease) {
+        leased += 1;
+      } else {
+        due += 1;
+      }
+    }
+    return {
+      due,
+      leased,
+      undispatched,
+      oldest_due_age_seconds:
+        oldestDueAt === undefined
+          ? 0
+          : Math.max(
+              0,
+              Math.floor((nowEpochMilliseconds - oldestDueAt) / 1_000),
+            ),
+      publish_failures_total: this.outboxPublishFailures,
+    };
+  }
+
+  private validateDeliveryCommit(
+    email: EmailRecord,
+    message: DeliveryMessageRecord,
+    recipients: RecipientRecord[],
+    outbox: OutboxItemRecord,
+    nowEpochSeconds: number,
+    idempotency?: IdempotencyClaim,
+  ): void {
+    if (
+      !Number.isInteger(nowEpochSeconds) ||
+      nowEpochSeconds < 0
+    ) {
+      throw new Error("Atomic delivery commit requires a valid current time.");
+    }
+    if (!["queued", "scheduled"].includes(email.status)) {
+      throw new Error("Atomic delivery commit requires a dispatchable email.");
+    }
+    if (
+      email.id !== message.id ||
+      email.request_hash !== message.intent_digest ||
+      email.created_at !== message.created_at ||
+      email.updated_at !== message.updated_at ||
+      email.status !== message.status ||
+      email.scheduled_at !== message.scheduled_at
+    ) {
+      throw new Error(
+        "Legacy email and provider-neutral message records do not match.",
+      );
+    }
+    if (
+      idempotency &&
+      (idempotency.request_hash !== email.request_hash ||
+        idempotency.expires_at <= nowEpochSeconds)
+    ) {
+      throw new Error("Idempotency claim does not match the delivery intent.");
+    }
+    const recipientIds = recipients.map((recipient) => recipient.id);
+    if (
+      recipients.length === 0 ||
+      new Set(recipientIds).size !== recipients.length ||
+      message.recipient_ids.length !== recipients.length ||
+      !message.recipient_ids.every((id) => recipientIds.includes(id)) ||
+      recipients.some(
+        (recipient) =>
+          recipient.message_id !== message.id ||
+          recipient.status !== "queued" ||
+          recipient.latest_attempt_id !== undefined ||
+          recipient.created_at !== message.created_at ||
+          recipient.updated_at !== message.updated_at,
+      )
+    ) {
+      throw new Error("Recipient records do not match the delivery message.");
+    }
+    const recipientAddresses = recipients.map((recipient) =>
+      recipient.address.toLowerCase(),
+    );
+    const recipientPositions = recipients.map(
+      (recipient) => `${recipient.role}:${recipient.ordinal}`,
+    );
+    if (
+      new Set(recipientAddresses).size !== recipientAddresses.length ||
+      new Set(recipientPositions).size !== recipientPositions.length
+    ) {
+      throw new Error(
+        "Delivery recipients must have unique addresses and envelope positions.",
+      );
+    }
+    const expectedDueAt = email.scheduled_at ?? email.created_at;
+    if (
+      outbox.message_id !== message.id ||
+      outbox.job_type !== "dispatch-message" ||
+      outbox.generation !== 0 ||
+      outbox.due_at !== expectedDueAt ||
+      outbox.attempts !== 0 ||
+      outbox.lease_owner !== undefined ||
+      outbox.lease_expires_at !== undefined ||
+      outbox.dispatched_at !== undefined ||
+      outbox.last_diagnostic_category !== undefined ||
+      outbox.created_at !== message.created_at ||
+      outbox.updated_at !== message.updated_at
+    ) {
+      throw new Error("Outbox item does not match the delivery intent.");
+    }
+  }
+
+  private deliveryResult(
+    messageId: string,
+    replayed: boolean,
+  ): DeliveryCommitResult | undefined {
+    const email = this.emails.get(messageId);
+    const message = this.deliveryMessages.get(messageId);
+    const outboxId = this.outboxByMessage.get(messageId);
+    const outbox = outboxId ? this.outboxItems.get(outboxId) : undefined;
+    if (!email || !message || !outbox) {
+      return undefined;
+    }
+    const recipients = message.recipient_ids.map((id) =>
+      this.deliveryRecipients.get(id),
+    );
+    if (recipients.some((recipient) => recipient === undefined)) {
+      return undefined;
+    }
+    const claimEntry = [...this.idempotency.values()].find(
+      (entry) => entry.email_id === messageId,
+    );
+    const idempotency = claimEntry
+      ? {
+          key_hash: claimEntry.key_hash,
+          request_hash: claimEntry.request_hash,
+          expires_at: claimEntry.expires_at,
+        }
+      : undefined;
+    return {
+      email: structuredClone(email),
+      message: structuredClone(message),
+      recipients: structuredClone(recipients as RecipientRecord[]),
+      outbox: structuredClone(outbox),
+      ...(idempotency ? { idempotency } : {}),
+      replayed,
+    };
+  }
+
+  private afterDeliveryMutation(mutation: MemoryDeliveryMutation): void {
+    this.options.afterDeliveryMutation?.(mutation);
   }
 }
