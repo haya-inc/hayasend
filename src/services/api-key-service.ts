@@ -10,6 +10,9 @@ import type {
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
 
+const SCOPED_API_KEY_PATTERN =
+  /^re_hs_(key_[a-f0-9]{32})\.[A-Za-z0-9_-]{43}$/;
+
 export function publicApiKey(record: ApiKeyRecord): PublicApiKey {
   const { key_hash: _keyHash, ...publicRecord } = record;
   return publicRecord;
@@ -31,9 +34,9 @@ export class ApiKeyService {
   }
 
   async authenticate(token: string): Promise<AuthenticatedPrincipal> {
-    const separator = token.indexOf(".");
-    if (token.startsWith("re_hs_") && separator >= 0) {
-      const id = token.slice("re_hs_".length, separator);
+    const scopedKey = SCOPED_API_KEY_PATTERN.exec(token);
+    if (scopedKey?.[1]) {
+      const id = scopedKey[1];
       const record = await this.store.getApiKey(id);
       if (
         !record ||
@@ -50,6 +53,9 @@ export class ApiKeyService {
         scopes: record.scopes,
         bootstrap: false,
       };
+    }
+    if (token.startsWith("re_hs_") && token.includes(".")) {
+      throw new UnauthorizedError();
     }
 
     if (secretsEqual(token, await this.bootstrapKeyProvider())) {
