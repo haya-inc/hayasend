@@ -10,6 +10,10 @@ HayaSend provides the developer experience of a modern email API while Amazon
 SES handles delivery. Email metadata and infrastructure stay under your AWS
 account, and HayaSend never logs message bodies.
 
+[Project site](https://haya-inc.github.io/hayasend/) ·
+[Compatibility](docs/compatibility.md) ·
+[Support](SUPPORT.md)
+
 ## What works today
 
 - `POST /emails` with HTML, text, CC, BCC, reply-to, headers, tags, and
@@ -382,7 +386,9 @@ deliverability reviews, operational support, and future managed services.
 Self-hosting and community use do not require a commercial agreement.
 
 See [SUPPORT.md](SUPPORT.md) and
-[the commercial boundary](docs/commercial.md).
+[the commercial boundary](docs/commercial.md). The
+[project site](https://haya-inc.github.io/hayasend/) provides a concise
+overview suitable for technical evaluators.
 
 ## Contributing
 

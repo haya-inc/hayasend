@@ -16,3 +16,5 @@ minor releases before v1.0.
   sends.
 - Add no-send draft rendering and optional version-bound publication so a
   concurrently changed draft cannot be promoted after review.
+- Add an accessible, dependency-free project site with clear self-hosting and
+  commercial-support boundaries, deployed through pinned GitHub Pages actions.
