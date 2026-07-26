@@ -11,8 +11,21 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
+  type TransactWriteCommandInput,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { validateDeliveryCommit } from "../core/delivery-commit.js";
+import {
+  createOutboxIdentity,
+  deliveryDiagnosticCategorySchema,
+  deliveryMessageRecordSchema,
+  outboxItemRecordSchema,
+  recipientRecordSchema,
+  type DeliveryDiagnosticCategory,
+  type DeliveryMessageRecord,
+  type OutboxItemRecord,
+  type RecipientRecord,
+} from "../core/delivery-model.js";
 import { ConflictError } from "../core/errors.js";
 import type {
   ApiKeyRecord,
@@ -30,6 +43,13 @@ import type {
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
+import type {
+  DeliveryCommit,
+  DeliveryCommitResult,
+  DeliveryOutboxStore,
+  LeaseDueOutboxInput,
+  OutboxMetrics,
+} from "../ports/delivery-outbox-store.js";
 import type { Store } from "../ports/store.js";
 
 type Entity =
@@ -41,7 +61,10 @@ type Entity =
   | ApiKeyRecord
   | SuppressionRecord
   | ReceivedEmailRecord
-  | TemplateRecord;
+  | TemplateRecord
+  | DeliveryMessageRecord
+  | RecipientRecord
+  | OutboxItemRecord;
 type EntityKind =
   | "EMAIL"
   | "ATTACHMENT"
@@ -92,6 +115,29 @@ interface StoredTemplatePublication {
   ttl: number;
 }
 
+interface StoredDeliveryRecord<T> {
+  PK: string;
+  SK: string;
+  entity: T;
+}
+
+interface StoredOutboxItem extends StoredDeliveryRecord<OutboxItemRecord> {
+  GSI1PK?: string | undefined;
+  GSI1SK?: string | undefined;
+}
+
+interface StoredOutboxMetrics {
+  PK: string;
+  SK: string;
+  undispatched?: number | undefined;
+  publish_failures_total?: number | undefined;
+  updated_at?: string | undefined;
+}
+
+const OUTBOX_DUE_PARTITION = "OUTBOX_DUE";
+const OUTBOX_LEASED_PARTITION = "OUTBOX_LEASED";
+const OUTBOX_METRIC_QUERY_LIMIT = 1_000;
+
 const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   EMAIL: "EMAILS",
   RECEIVED: "RECEIVED_EMAILS",
@@ -104,6 +150,41 @@ const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
 
 function entityKey(kind: EntityKind, id: string) {
   return { PK: `${kind}#${id}`, SK: `${kind}#${id}` };
+}
+
+function deliveryMessageKey(messageId: string) {
+  return {
+    PK: `EMAIL#${messageId}`,
+    SK: `DELIVERY_MESSAGE#${messageId}`,
+  };
+}
+
+function recipientKey(messageId: string, recipientId: string) {
+  return {
+    PK: `EMAIL#${messageId}`,
+    SK: `RECIPIENT#${recipientId}`,
+  };
+}
+
+function outboxKey(id: string) {
+  return { PK: `OUTBOX#${id}`, SK: `OUTBOX#${id}` };
+}
+
+function outboxMetricsKey() {
+  return { PK: "OUTBOX_METRICS", SK: "OUTBOX_METRICS" };
+}
+
+function outboxSort(availableAt: string, id: string) {
+  return `${availableAt}#${id}`;
+}
+
+function storedOutboxItem(record: OutboxItemRecord): StoredOutboxItem {
+  return {
+    ...outboxKey(record.id),
+    GSI1PK: OUTBOX_DUE_PARTITION,
+    GSI1SK: outboxSort(record.due_at, record.id),
+    entity: record,
+  };
 }
 
 function templateVersionKey(templateId: string, versionId: string) {
@@ -151,7 +232,7 @@ function decodeCursor(value: string | undefined) {
   >;
 }
 
-export class DynamoStore implements Store {
+export class DynamoStore implements Store, DeliveryOutboxStore {
   private readonly client: DynamoDBDocumentClient;
 
   constructor(
@@ -246,6 +327,475 @@ export class DynamoStore implements Store {
       );
     }
     return { record: existingEmail, replayed: true };
+  }
+
+  async commitDelivery(
+    input: DeliveryCommit,
+    nowEpochSeconds: number,
+  ): Promise<DeliveryCommitResult> {
+    const validated = validateDeliveryCommit(input, nowEpochSeconds);
+    const { email, message, recipients, outbox, idempotency } = validated;
+    const persistedEmail = await this.externalizeEmailPayload(email);
+    const transactItems: NonNullable<
+      TransactWriteCommandInput["TransactItems"]
+    > = [
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: storedEntity("EMAIL", persistedEmail),
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: {
+            ...deliveryMessageKey(message.id),
+            entity: message,
+          } satisfies StoredDeliveryRecord<DeliveryMessageRecord>,
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+      ...recipients.map((recipient) => ({
+        Put: {
+          TableName: this.tableName,
+          Item: {
+            ...recipientKey(message.id, recipient.id),
+            entity: recipient,
+          } satisfies StoredDeliveryRecord<RecipientRecord>,
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      })),
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: storedOutboxItem(outbox),
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+      ...(idempotency
+        ? [
+            {
+              Put: {
+                TableName: this.tableName,
+                Item: {
+                  PK: `IDEMPOTENCY#${idempotency.key_hash}`,
+                  SK: `IDEMPOTENCY#${idempotency.key_hash}`,
+                  email_id: email.id,
+                  request_hash: idempotency.request_hash,
+                  ttl: idempotency.expires_at,
+                },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ]
+        : []),
+      {
+        Update: {
+          TableName: this.tableName,
+          Key: outboxMetricsKey(),
+          UpdateExpression:
+            "SET updated_at = :updated ADD undispatched :one",
+          ExpressionAttributeValues: {
+            ":updated": email.created_at,
+            ":one": 1,
+          },
+        },
+      },
+    ];
+    let transactionError: unknown;
+    try {
+      await this.client.send(
+        new TransactWriteCommand({ TransactItems: transactItems }),
+      );
+      return { ...validated, replayed: false };
+    } catch (error) {
+      if (
+        (error as { name?: string }).name !==
+          "TransactionCanceledException" ||
+        !idempotency
+      ) {
+        throw error;
+      }
+      transactionError = error;
+    }
+
+    const idempotencyKey = {
+      PK: `IDEMPOTENCY#${idempotency.key_hash}`,
+      SK: `IDEMPOTENCY#${idempotency.key_hash}`,
+    };
+    const existingClaim = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: idempotencyKey,
+        ConsistentRead: true,
+      }),
+    );
+    const claim = existingClaim.Item as
+      | { email_id?: string; request_hash?: string }
+      | undefined;
+    if (!claim) {
+      throw transactionError;
+    }
+    if (claim.request_hash !== idempotency.request_hash) {
+      throw new ConflictError(
+        "The Idempotency-Key has already been used with a different request.",
+      );
+    }
+    if (!claim.email_id) {
+      throw new ConflictError(
+        "The idempotent delivery exists but its atomic records are unavailable.",
+      );
+    }
+    const replay = await this.getDelivery(claim.email_id);
+    if (!replay) {
+      throw new ConflictError(
+        "The idempotent delivery exists but its atomic records are unavailable.",
+      );
+    }
+    return {
+      ...replay,
+      idempotency: structuredClone(idempotency),
+      replayed: true,
+    };
+  }
+
+  async getDelivery(
+    messageId: string,
+  ): Promise<DeliveryCommitResult | undefined> {
+    const outboxId = createOutboxIdentity({
+      message_id: messageId,
+      job_type: "dispatch-message",
+      generation: 0,
+    });
+    const [email, messageResult, recipientsResult, outbox] =
+      await Promise.all([
+        this.getEmail(messageId),
+        this.client.send(
+          new GetCommand({
+            TableName: this.tableName,
+            Key: deliveryMessageKey(messageId),
+            ConsistentRead: true,
+          }),
+        ),
+        this.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            KeyConditionExpression:
+              "PK = :partition AND begins_with(SK, :recipient)",
+            ExpressionAttributeValues: {
+              ":partition": `EMAIL#${messageId}`,
+              ":recipient": "RECIPIENT#",
+            },
+            ConsistentRead: true,
+          }),
+        ),
+        this.getOutboxItem(outboxId),
+      ]);
+    const message = (
+      messageResult.Item as
+        | StoredDeliveryRecord<DeliveryMessageRecord>
+        | undefined
+    )?.entity;
+    const unorderedRecipients = (recipientsResult.Items ?? []).map(
+      (item) => (item as StoredDeliveryRecord<RecipientRecord>).entity,
+    );
+    if (
+      !email ||
+      !message ||
+      !outbox ||
+      unorderedRecipients.length === 0
+    ) {
+      return undefined;
+    }
+    const recipientById = new Map(
+      unorderedRecipients.map((recipient) => [recipient.id, recipient]),
+    );
+    const recipients = message.recipient_ids
+      .map((id) => recipientById.get(id))
+      .filter(
+        (recipient): recipient is RecipientRecord =>
+          recipient !== undefined,
+      );
+    if (recipients.length !== message.recipient_ids.length) {
+      return undefined;
+    }
+    return {
+      email,
+      message: deliveryMessageRecordSchema.parse(message),
+      recipients: recipients.map((recipient) =>
+        recipientRecordSchema.parse(recipient),
+      ),
+      outbox,
+      replayed: false,
+    };
+  }
+
+  async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: outboxKey(id),
+        ConsistentRead: true,
+      }),
+    );
+    const item = (result.Item as StoredOutboxItem | undefined)?.entity;
+    return item ? outboxItemRecordSchema.parse(item) : undefined;
+  }
+
+  async leaseDueOutbox(
+    input: LeaseDueOutboxInput,
+  ): Promise<OutboxItemRecord[]> {
+    if (!/^[^\s@]{1,512}$/.test(input.owner)) {
+      throw new Error("Outbox lease owner must be a privacy-safe opaque ID.");
+    }
+    if (
+      !Number.isInteger(input.lease_seconds) ||
+      input.lease_seconds <= 0
+    ) {
+      throw new Error("Outbox lease duration must be a positive integer.");
+    }
+    if (
+      !Number.isInteger(input.limit) ||
+      input.limit <= 0 ||
+      input.limit > 1_000
+    ) {
+      throw new Error("Outbox lease limit must be between 1 and 1000.");
+    }
+    const nowIso = input.now.toISOString();
+    const leaseExpiresAt = new Date(
+      input.now.getTime() + input.lease_seconds * 1_000,
+    ).toISOString();
+    const [pending, expired] = await Promise.all([
+      this.queryOutboxPartition(
+        OUTBOX_DUE_PARTITION,
+        `${nowIso}#\uffff`,
+        input.limit,
+      ),
+      this.queryOutboxPartition(
+        OUTBOX_LEASED_PARTITION,
+        `${nowIso}#\uffff`,
+        input.limit,
+      ),
+    ]);
+    const candidates = [
+      ...new Map(
+        [...pending.items, ...expired.items]
+          .sort(
+            (left, right) =>
+              left.entity.due_at.localeCompare(right.entity.due_at) ||
+              left.entity.id.localeCompare(right.entity.id),
+          )
+          .map((item) => [item.entity.id, item]),
+      ).values(),
+    ];
+    const leased: OutboxItemRecord[] = [];
+    for (const candidate of candidates) {
+      if (leased.length >= input.limit) {
+        break;
+      }
+      try {
+        const result = await this.client.send(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: outboxKey(candidate.entity.id),
+            UpdateExpression:
+              "SET entity.lease_owner = :owner, entity.lease_expires_at = :lease, entity.attempts = entity.attempts + :one, entity.updated_at = :now, GSI1PK = :leased_partition, GSI1SK = :lease_sort",
+            ConditionExpression:
+              "attribute_exists(PK) AND attribute_not_exists(entity.dispatched_at) AND entity.due_at <= :now AND (attribute_not_exists(entity.lease_expires_at) OR entity.lease_expires_at <= :now)",
+            ExpressionAttributeValues: {
+              ":owner": input.owner,
+              ":lease": leaseExpiresAt,
+              ":one": 1,
+              ":now": nowIso,
+              ":leased_partition": OUTBOX_LEASED_PARTITION,
+              ":lease_sort": outboxSort(
+                leaseExpiresAt,
+                candidate.entity.id,
+              ),
+            },
+            ReturnValues: "ALL_NEW",
+          }),
+        );
+        const item = (result.Attributes as StoredOutboxItem | undefined)
+          ?.entity;
+        if (item) {
+          leased.push(outboxItemRecordSchema.parse(item));
+        }
+      } catch (error) {
+        if (
+          (error as { name?: string }).name !==
+          "ConditionalCheckFailedException"
+        ) {
+          throw error;
+        }
+      }
+    }
+    return leased;
+  }
+
+  async acknowledgeOutbox(
+    id: string,
+    owner: string,
+    now: Date,
+  ): Promise<boolean> {
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxKey(id),
+                UpdateExpression:
+                  "SET entity.dispatched_at = :now, entity.updated_at = :now REMOVE entity.lease_owner, entity.lease_expires_at, GSI1PK, GSI1SK",
+                ConditionExpression:
+                  "entity.lease_owner = :owner AND attribute_not_exists(entity.dispatched_at)",
+                ExpressionAttributeValues: {
+                  ":owner": owner,
+                  ":now": now.toISOString(),
+                },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxMetricsKey(),
+                UpdateExpression:
+                  "SET updated_at = :now ADD undispatched :minus_one",
+                ExpressionAttributeValues: {
+                  ":now": now.toISOString(),
+                  ":minus_one": -1,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "TransactionCanceledException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async recordOutboxFailure(
+    id: string,
+    owner: string,
+    category: DeliveryDiagnosticCategory,
+    now: Date,
+  ): Promise<boolean> {
+    const parsedCategory =
+      deliveryDiagnosticCategorySchema.parse(category);
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxKey(id),
+                UpdateExpression:
+                  "SET entity.last_diagnostic_category = :category, entity.updated_at = :now, GSI1PK = :due_partition, GSI1SK = :due_sort REMOVE entity.lease_owner, entity.lease_expires_at",
+                ConditionExpression:
+                  "entity.lease_owner = :owner AND attribute_not_exists(entity.dispatched_at)",
+                ExpressionAttributeValues: {
+                  ":category": parsedCategory,
+                  ":owner": owner,
+                  ":now": now.toISOString(),
+                  ":due_partition": OUTBOX_DUE_PARTITION,
+                  ":due_sort": outboxSort(now.toISOString(), id),
+                },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxMetricsKey(),
+                UpdateExpression:
+                  "SET updated_at = :now ADD publish_failures_total :one",
+                ExpressionAttributeValues: {
+                  ":now": now.toISOString(),
+                  ":one": 1,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "TransactionCanceledException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async getOutboxMetrics(now: Date): Promise<OutboxMetrics> {
+    const [duePage, leasedPage, metricsResult] = await Promise.all([
+      this.queryOutboxPartition(
+        OUTBOX_DUE_PARTITION,
+        undefined,
+        OUTBOX_METRIC_QUERY_LIMIT,
+      ),
+      this.queryOutboxPartition(
+        OUTBOX_LEASED_PARTITION,
+        undefined,
+        OUTBOX_METRIC_QUERY_LIMIT,
+      ),
+      this.client.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: outboxMetricsKey(),
+          ConsistentRead: true,
+        }),
+      ),
+    ]);
+    const nowEpochMilliseconds = now.getTime();
+    const dueItems = duePage.items.filter(
+      (item) => Date.parse(item.entity.due_at) <= nowEpochMilliseconds,
+    );
+    const stuckItems = leasedPage.items.filter(
+      (item) =>
+        item.entity.lease_expires_at !== undefined &&
+        Date.parse(item.entity.lease_expires_at) <= nowEpochMilliseconds,
+    );
+    const activeLeases = leasedPage.items.length - stuckItems.length;
+    const oldestDueAt = [...dueItems, ...stuckItems].reduce<
+      number | undefined
+    >((oldest, item) => {
+      const dueAt = Date.parse(item.entity.due_at);
+      return oldest === undefined ? dueAt : Math.min(oldest, dueAt);
+    }, undefined);
+    const metrics = metricsResult.Item as
+      | StoredOutboxMetrics
+      | undefined;
+    return {
+      due: dueItems.length + stuckItems.length,
+      leased: activeLeases,
+      stuck_leases: stuckItems.length,
+      undispatched: metrics?.undispatched ?? 0,
+      oldest_due_age_seconds:
+        oldestDueAt === undefined
+          ? 0
+          : Math.max(
+              0,
+              Math.floor(
+                (nowEpochMilliseconds - oldestDueAt) / 1_000,
+              ),
+            ),
+      publish_failures_total: metrics?.publish_failures_total ?? 0,
+      truncated: duePage.truncated || leasedPage.truncated,
+    };
   }
 
   async getEmail(id: string): Promise<EmailRecord | undefined> {
@@ -361,6 +911,102 @@ export class DynamoStore implements Store {
       if (
         (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async rescheduleEmailAndOutbox(
+    id: string,
+    scheduledAt: string,
+    now: Date,
+  ): Promise<EmailRecord | undefined> {
+    const outboxId = createOutboxIdentity({
+      message_id: id,
+      job_type: "dispatch-message",
+      generation: 0,
+    });
+    const timestamp = now.toISOString();
+    try {
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: entityKey("EMAIL", id),
+                UpdateExpression:
+                  "SET entity.scheduled_at = :scheduled, entity.#status = :scheduled_status, entity.last_event = :event, entity.updated_at = :updated",
+                ConditionExpression:
+                  "entity.#status IN (:queued, :scheduled_status)",
+                ExpressionAttributeNames: {
+                  "#status": "status",
+                },
+                ExpressionAttributeValues: {
+                  ":scheduled": scheduledAt,
+                  ":scheduled_status": "scheduled",
+                  ":queued": "queued",
+                  ":event": "scheduled",
+                  ":updated": timestamp,
+                },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: deliveryMessageKey(id),
+                UpdateExpression:
+                  "SET entity.scheduled_at = :scheduled, entity.#status = :scheduled_status, entity.updated_at = :updated",
+                ConditionExpression: "attribute_exists(PK)",
+                ExpressionAttributeNames: {
+                  "#status": "status",
+                },
+                ExpressionAttributeValues: {
+                  ":scheduled": scheduledAt,
+                  ":scheduled_status": "scheduled",
+                  ":updated": timestamp,
+                },
+              },
+            },
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxKey(outboxId),
+                UpdateExpression:
+                  "SET entity.due_at = :scheduled, entity.updated_at = :updated, GSI1PK = :due_partition, GSI1SK = :due_sort",
+                ConditionExpression:
+                  "attribute_not_exists(entity.dispatched_at) AND attribute_not_exists(entity.lease_owner)",
+                ExpressionAttributeValues: {
+                  ":scheduled": scheduledAt,
+                  ":updated": timestamp,
+                  ":due_partition": OUTBOX_DUE_PARTITION,
+                  ":due_sort": outboxSort(scheduledAt, outboxId),
+                },
+              },
+            },
+          ],
+        }),
+      );
+      return this.getEmail(id);
+    } catch (error) {
+      if (
+        (error as { name?: string }).name ===
+        "TransactionCanceledException"
+      ) {
+        const [email, outbox] = await Promise.all([
+          this.getEmail(id),
+          this.getOutboxItem(outboxId),
+        ]);
+        if (
+          email &&
+          ["queued", "scheduled"].includes(email.status) &&
+          outbox &&
+          outbox.dispatched_at === undefined &&
+          outbox.lease_owner === undefined
+        ) {
+          throw error;
+        }
         return undefined;
       }
       throw error;
@@ -1349,6 +1995,32 @@ export class DynamoStore implements Store {
     return nextCursor
       ? { data, has_more: true, next_cursor: nextCursor }
       : { data, has_more: false };
+  }
+
+  private async queryOutboxPartition(
+    partition: typeof OUTBOX_DUE_PARTITION | typeof OUTBOX_LEASED_PARTITION,
+    upperSortKey: string | undefined,
+    limit: number,
+  ): Promise<{ items: StoredOutboxItem[]; truncated: boolean }> {
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: "GSI1",
+        KeyConditionExpression: upperSortKey
+          ? "GSI1PK = :partition AND GSI1SK <= :upper"
+          : "GSI1PK = :partition",
+        ExpressionAttributeValues: {
+          ":partition": partition,
+          ...(upperSortKey ? { ":upper": upperSortKey } : {}),
+        },
+        ScanIndexForward: true,
+        Limit: limit,
+      }),
+    );
+    return {
+      items: (result.Items ?? []) as StoredOutboxItem[],
+      truncated: result.LastEvaluatedKey !== undefined,
+    };
   }
 
   private async externalizeEmailPayload(

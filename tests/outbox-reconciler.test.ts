@@ -162,9 +162,11 @@ describe("memory transactional outbox", () => {
     await expect(store.getOutboxMetrics(NOW)).resolves.toEqual({
       due: 0,
       leased: 0,
+      stuck_leases: 0,
       undispatched: 0,
       oldest_due_age_seconds: 0,
       publish_failures_total: 0,
+      truncated: false,
     });
   });
 
@@ -318,9 +320,11 @@ describe("memory transactional outbox", () => {
     await expect(reconciler.metrics(NOW)).resolves.toEqual({
       due: 1,
       leased: 0,
+      stuck_leases: 0,
       undispatched: 1,
       oldest_due_age_seconds: 0,
       publish_failures_total: 1,
+      truncated: false,
     });
     await expect(store.getOutboxItem(value.outbox.id)).resolves.toMatchObject({
       attempts: 1,
@@ -385,9 +389,11 @@ describe("memory transactional outbox", () => {
     await expect(store.getOutboxMetrics(NOW)).resolves.toEqual({
       due: 1,
       leased: 0,
+      stuck_leases: 0,
       undispatched: 2,
       oldest_due_age_seconds: 0,
       publish_failures_total: 0,
+      truncated: false,
     });
     await store.leaseDueOutbox({
       owner: "reconciler-metrics",
@@ -400,16 +406,20 @@ describe("memory transactional outbox", () => {
     ).resolves.toEqual({
       due: 0,
       leased: 1,
+      stuck_leases: 0,
       undispatched: 2,
       oldest_due_age_seconds: 59,
       publish_failures_total: 0,
+      truncated: false,
     });
     await expect(store.getOutboxMetrics(future)).resolves.toEqual({
       due: 2,
       leased: 0,
+      stuck_leases: 1,
       undispatched: 2,
       oldest_due_age_seconds: 60,
       publish_failures_total: 0,
+      truncated: false,
     });
   });
 

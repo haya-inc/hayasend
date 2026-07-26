@@ -36,7 +36,7 @@ describe("AwsEmailScheduler", () => {
 
     expect(queue.jobs).toEqual([
       {
-        job: { type: "send_email", email_id: "email_short" },
+        job: { type: "reconcile_outbox" },
         delaySeconds: 900,
       },
     ]);
@@ -67,8 +67,7 @@ describe("AwsEmailScheduler", () => {
         Arn: options.queueArn,
         RoleArn: options.roleArn,
         Input: JSON.stringify({
-          type: "send_email",
-          email_id: "email_long",
+          type: "reconcile_outbox",
         }),
         DeadLetterConfig: {
           Arn: options.schedulerDeadLetterQueueArn,
@@ -107,9 +106,26 @@ describe("AwsEmailScheduler", () => {
 
     expect(send.mock.calls[0]?.[0]).toBeInstanceOf(DeleteScheduleCommand);
     expect(queue.jobs[0]).toEqual({
-      job: { type: "send_email", email_id: "email_near" },
+      job: { type: "reconcile_outbox" },
       delaySeconds: 600,
     });
+  });
+
+  it("uses a direct send job only to repair an already-dispatched early job", async () => {
+    const { queue, scheduler } = fixture();
+
+    await scheduler.rescheduleDelivery(
+      "email_early",
+      "2026-07-26T00:10:00.000Z",
+      now,
+    );
+
+    expect(queue.jobs).toEqual([
+      {
+        job: { type: "send_email", email_id: "email_early" },
+        delaySeconds: 600,
+      },
+    ]);
   });
 
   it("treats cancellation of a missing schedule as idempotent", async () => {

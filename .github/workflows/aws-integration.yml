@@ -137,6 +137,7 @@ jobs:
           bootstrap_secret_arn="$(stack_output BootstrapSecretArn)"
           payload_bucket="$(stack_output PayloadBucketName)"
           data_table="$(stack_output TableName)"
+          dispatcher_function="$(stack_output DispatcherFunctionName)"
           schedule_group="$(stack_output EmailScheduleGroupName)"
           for value in \
             "$api_base_url" \
@@ -144,6 +145,7 @@ jobs:
             "$bootstrap_secret_arn" \
             "$payload_bucket" \
             "$data_table" \
+            "$dispatcher_function" \
             "$schedule_group"; do
             if [[ -z "$value" || "$value" = "None" ]]; then
               echo "::error::A required CloudFormation output is missing."
@@ -156,6 +158,7 @@ jobs:
             echo "BOOTSTRAP_SECRET_ARN=$bootstrap_secret_arn"
             echo "PAYLOAD_BUCKET=$payload_bucket"
             echo "DATA_TABLE=$data_table"
+            echo "DISPATCHER_FUNCTION=$dispatcher_function"
             echo "SCHEDULE_GROUP=$schedule_group"
           } >> "$GITHUB_ENV"
 
@@ -173,7 +176,80 @@ jobs:
           HAYASEND_BASE_URL="$API_BASE_URL" \
           HAYASEND_EXPECTED_API_ID="$HTTP_API_ID" \
           HAYASEND_BOOTSTRAP_KEY="$bootstrap_key" \
-          node scripts/aws-integration.mjs
+          node scripts/aws-integration.mjs \
+            | tee "$RUNNER_TEMP/hayasend-aws-evidence.json"
+
+      - name: Prove durable outbox recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          email_id="$(
+            node -e \
+              'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).recovery_email_id)' \
+              "$RUNNER_TEMP/hayasend-aws-evidence.json"
+          )"
+          if [[ ! "$email_id" =~ ^email_[A-Za-z0-9_-]{16,128}$ ]]; then
+            echo "::error::The integration probe did not return a valid email ID."
+            exit 1
+          fi
+          outbox_id="outbox:v1:${email_id}:dispatch-message:0"
+          partition_key="OUTBOX#${outbox_id}"
+          now_iso="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+          key="$(
+            jq -cn \
+              --arg value "$partition_key" \
+              '{PK:{S:$value},SK:{S:$value}}'
+          )"
+          names='{"#entity":"entity","#due":"due_at","#updated":"updated_at","#lease_owner":"lease_owner","#lease_expires":"lease_expires_at","#dispatched":"dispatched_at"}'
+          values="$(
+            jq -cn \
+              --arg now "$now_iso" \
+              --arg partition "OUTBOX_DUE" \
+              --arg sort "${now_iso}#${outbox_id}" \
+              '{":now":{S:$now},":partition":{S:$partition},":sort":{S:$sort}}'
+          )"
+          aws dynamodb update-item \
+            --table-name "$DATA_TABLE" \
+            --region "$AWS_REGION" \
+            --key "$key" \
+            --condition-expression "attribute_exists(PK) AND attribute_not_exists(#entity.#dispatched)" \
+            --update-expression "SET #entity.#due = :now, #entity.#updated = :now, GSI1PK = :partition, GSI1SK = :sort REMOVE #entity.#lease_owner, #entity.#lease_expires" \
+            --expression-attribute-names "$names" \
+            --expression-attribute-values "$values"
+
+          item='{}'
+          for attempt in {1..12}; do
+            aws lambda invoke \
+              --function-name "$DISPATCHER_FUNCTION" \
+              --region "$AWS_REGION" \
+              --cli-binary-format raw-in-base64-out \
+              --payload '{}' \
+              "$RUNNER_TEMP/dispatcher-result-${attempt}.json" \
+              > "$RUNNER_TEMP/dispatcher-metadata-${attempt}.json"
+            node -e \
+              'const fs=require("node:fs"); const metadata=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (metadata.FunctionError) throw new Error("Dispatcher invocation failed.");' \
+              "$RUNNER_TEMP/dispatcher-metadata-${attempt}.json"
+            item="$(
+              aws dynamodb get-item \
+                --table-name "$DATA_TABLE" \
+                --region "$AWS_REGION" \
+                --key "$key" \
+                --consistent-read \
+                --query Item \
+                --output json
+            )"
+            if jq -e '.entity.M.dispatched_at.S' <<< "$item" >/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          jq -e \
+            '.entity.M.dispatched_at.S and
+             (.entity.M.lease_owner == null) and
+             (.entity.M.lease_expires_at == null) and
+             (.GSI1PK == null) and
+             (.GSI1SK == null)' \
+            <<< "$item" >/dev/null
 
       - name: Show CloudFormation failure events
         if: ${{ failure() && steps.aws-credentials.outcome == 'success' }}

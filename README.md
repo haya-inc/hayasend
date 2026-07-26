@@ -32,6 +32,9 @@ implemented provider today. HayaSend never logs message bodies.
 - automatic hard-bounce and complaint suppressions plus manual suppression API
 - ISO 8601 and relative scheduling such as `in 10 minutes`, with
   EventBridge Scheduler for delays beyond 15 minutes
+- DynamoDB transactional outbox recovery with deterministic jobs,
+  conditional leases, privacy-safe alarms, and no client-replay requirement
+  after a committed send
 - email retrieval, listing, cancellation, and rescheduling
 - SES domain creation, DKIM record discovery, refresh, and deletion
 - signed webhooks with SQS retry, retained delivery history, manual replay,
@@ -387,8 +390,12 @@ Application / Resend SDK
           |
       HTTP API
           |
-  DynamoDB + Scheduler/SQS ----> send worker ----> Amazon SES
-                              |
+  DynamoDB transactional outbox
+          |
+  bounded dispatcher <---- Scheduler/SQS wake-up
+          |
+      send worker ----> Amazon SES
+          |
 SES events ----> SNS ----> event normalizer
                               |
                          signed webhooks
@@ -400,10 +407,12 @@ Internet SMTP ----> Mail Manager ----> KMS-encrypted S3
                                email.received webhook
 ```
 
-SQS handles immediate and short-delay jobs. Longer reservations use
-self-deleting, one-time EventBridge Scheduler entries that target the same
-queue. Canceling or rescheduling an email deletes or replaces its deterministic
-schedule.
+The API commits delivery intent and its deterministic outbox row before
+publishing work. SQS wakes immediate and short-delay reconciliation. Longer
+reservations use self-deleting, one-time EventBridge Scheduler entries that
+wake the same reconciler. A one-minute bounded sweep recovers a missing wake;
+the scheduler is never delivery truth. Canceling or rescheduling an email
+deletes or replaces its deterministic wake-up schedule.
 
 Read [the architecture notes](docs/architecture.md) for security boundaries
 and delivery semantics.

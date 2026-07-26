@@ -1,18 +1,10 @@
 import type {
   DeliveryDiagnosticCategory,
-  DeliveryMessageRecord,
   OutboxItemRecord,
-  RecipientRecord,
 } from "../core/delivery-model.js";
-import type { EmailRecord, IdempotencyClaim } from "../core/types.js";
+import type { DeliveryCommit } from "../core/delivery-commit.js";
 
-export interface DeliveryCommit {
-  email: EmailRecord;
-  message: DeliveryMessageRecord;
-  recipients: RecipientRecord[];
-  outbox: OutboxItemRecord;
-  idempotency?: IdempotencyClaim | undefined;
-}
+export type { DeliveryCommit } from "../core/delivery-commit.js";
 
 export interface DeliveryCommitResult extends DeliveryCommit {
   replayed: boolean;
@@ -28,9 +20,11 @@ export interface LeaseDueOutboxInput {
 export interface OutboxMetrics {
   due: number;
   leased: number;
+  stuck_leases: number;
   undispatched: number;
   oldest_due_age_seconds: number;
   publish_failures_total: number;
+  truncated: boolean;
 }
 
 export interface DeliveryOutboxStore {

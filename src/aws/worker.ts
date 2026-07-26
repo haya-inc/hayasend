@@ -22,6 +22,7 @@ function parseJob(record: SQSRecord): Job {
   const parsed = JSON.parse(record.body) as Partial<Job>;
   if (
     parsed.type !== "send_email" &&
+    parsed.type !== "reconcile_outbox" &&
     parsed.type !== "publish_received_email" &&
     parsed.type !== "deliver_webhook"
   ) {

@@ -83,6 +83,9 @@ bypass that boundary by editing DynamoDB directly.
 | Scheduler invocation dropped | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions |
 | Inbound dead-letter queue contains an event | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event |
 | Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
+| Oldest outbox item exceeds five minutes | Check the dispatcher Lambda, its DynamoDB GSI query and transaction permissions, and SQS availability; do not delete the row |
+| Outbox lease expires | Inspect dispatcher timeout or process loss, then allow the next conditional sweep to reclaim it |
+| Outbox dispatch failure | Check SQS availability and the dispatcher role; the item has already been released for retry |
 | API internal error | Use the response's server-generated `x-request-id` to correlate API logs |
 | Email fails with `provider_rejected` on its first attempt | Inspect SES identity, account status, configuration set, and request validity; fix the permanent condition before creating a new send |
 | Send retries exhausted | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics |
@@ -142,18 +145,59 @@ If a received email is visible in S3 but absent from the API:
 Never paste the raw MIME into logs or issue trackers. Use object identifiers
 and request IDs during diagnosis.
 
-## Ambiguous send acceptance
+## Transactional outbox recovery
 
-If `POST /emails` or `POST /emails/batch` fails after the request reached
-HayaSend, retry the identical payload with the same idempotency key. HayaSend
-returns the original email ID and re-dispatches a stored `queued` or
-`scheduled` record, repairing a failure between persistence and SQS or
-Scheduler acceptance. A replay can create a duplicate SQS job, which the
-worker lease and final-state check normally collapse.
+`POST /emails` and each preflighted batch entry atomically commit the legacy
+email, provider-neutral message and recipients, idempotency claim, and
+deterministic outbox row before returning success. Failure of the immediate
+SQS or EventBridge Scheduler wake does not fail the request. The scheduled
+dispatcher recovers due work without client replay.
 
-Do not change the payload or generate a new key during this recovery. A
-different payload conflicts with the existing claim, while a new key creates
-a different email and can result in two deliveries.
+Use the dashboard's `OutboxUndispatched`, `OutboxDue`,
+`OutboxOldestDueAge`, `OutboxStuckLeases`, and
+`OutboxDispatchFailures` metrics. A nonzero `OutboxMetricsTruncated` means the
+bounded diagnostic query reached 1,000 rows; treat the visible counts as lower
+bounds and prioritize draining the backlog. Metrics intentionally expose no
+recipient, address, subject, body, payload reference, provider response, or
+queue endpoint.
+
+Never delete or hand-edit a stuck outbox row as the first response. Restore
+the dispatcher table/GSI and SQS permissions, verify the queue, and let the
+conditional lease recover it. An expired lease is reclaimable. Queue
+acceptance followed by acknowledgement loss can create another job with the
+same deterministic ID; the send lease prevents concurrent provider
+submission.
+
+Idempotency keys remain important for ambiguous HTTP results. Retry the
+identical payload with the same key when the caller did not receive a response.
+A changed payload conflicts, while a new key creates a distinct delivery
+intent.
+
+## Upgrade and rollback
+
+The transactional outbox deployment is additive to the v0.1 single-table
+layout and reuses the existing `GSI1`; CloudFormation must not replace the
+DynamoDB table. Existing v0.1 emails remain readable. Jobs and Scheduler
+entries that were accepted before upgrade continue to reload the legacy email
+record, while newly created dispatchable messages also receive delivery and
+outbox records.
+
+Before upgrading:
+
+1. retain the DynamoDB point-in-time recovery setting and record a recovery
+   timestamp;
+2. inspect the CloudFormation change set and reject any DynamoDB replacement;
+3. confirm the worker and dispatcher roles have only the checked-in table,
+   index, and queue permissions;
+4. deploy a canary and verify the dispatcher acknowledges its outbox row.
+
+Rollback is safe only after `OutboxUndispatched`, `OutboxDue`, and
+`OutboxLeased` are all zero for two consecutive one-minute samples and no
+stuck lease exists. Pause new API writes, drain the outbox, retain the table,
+then roll application functions back. Rolling back while an undispatched
+post-upgrade row exists strands that delivery because v0.1 has no dispatcher.
+If the drain cannot finish, roll forward with the corrected dispatcher instead
+of discarding committed intent.
 
 ## Dead-letter queue
 

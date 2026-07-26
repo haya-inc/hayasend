@@ -62,6 +62,7 @@ const created = {
   webhookId: undefined,
 };
 let applicationKey;
+let recoveryEmailId;
 
 try {
   const health = await api("GET", "/healthz", undefined);
@@ -128,6 +129,7 @@ try {
     attachments: [{ attachment_id: upload.id }],
   });
   created.emailId = scheduled.id;
+  recoveryEmailId = scheduled.id;
 
   const retrieved = await api(
     "GET",
@@ -231,6 +233,7 @@ try {
     JSON.stringify({
       ok: true,
       service: "hayasend",
+      recovery_email_id: recoveryEmailId,
       checks: [
         "health",
         "scoped_api_keys",

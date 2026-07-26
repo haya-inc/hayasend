@@ -10,6 +10,7 @@ import type {
 } from "../src/ports/mail-transport.js";
 import type { EmailScheduler } from "../src/ports/email-scheduler.js";
 import { EmailService } from "../src/services/email-service.js";
+import { OutboxReconciler } from "../src/services/outbox-reconciler.js";
 import { AttachmentService } from "../src/services/attachment-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
@@ -44,24 +45,35 @@ class RecordingEmailScheduler implements EmailScheduler {
     emailId: string,
     scheduledAt?: string,
     now?: Date,
+    jobId?: string,
   ): Promise<void> {
     if (this.scheduleFailures > 0) {
       this.scheduleFailures -= 1;
       throw new Error("temporary scheduler failure");
     }
-    await this.queueScheduler.schedule(emailId, scheduledAt, now);
+    await this.queueScheduler.schedule(emailId, scheduledAt, now, jobId);
   }
 
   async reschedule(
     emailId: string,
     scheduledAt: string,
     now?: Date,
+    jobId?: string,
   ): Promise<void> {
     this.rescheduled.push({ emailId, scheduledAt });
     if (this.rescheduled.length === 1 && this.onFirstReschedule) {
       await this.onFirstReschedule();
     }
-    await this.queueScheduler.reschedule(emailId, scheduledAt, now);
+    await this.queueScheduler.reschedule(emailId, scheduledAt, now, jobId);
+  }
+
+  async rescheduleDelivery(
+    emailId: string,
+    scheduledAt: string,
+    now?: Date,
+  ): Promise<void> {
+    this.rescheduled.push({ emailId, scheduledAt });
+    await this.queueScheduler.rescheduleDelivery(emailId, scheduledAt, now);
   }
 
   async cancel(emailId: string): Promise<void> {
@@ -129,6 +141,64 @@ describe("EmailService", () => {
     expect(queue.jobs).toHaveLength(0);
   });
 
+  it("atomically records one canonical recipient per envelope address", async () => {
+    const { service, store } = fixture();
+
+    const created = await service.create({
+      ...input,
+      to: ["Recipient <recipient@example.net>"],
+      cc: [
+        "RECIPIENT@example.net",
+        "Second <second-recipient@example.net>",
+      ],
+    });
+
+    const committed = await store.getDelivery(created.record.id);
+    expect(committed).toMatchObject({
+      message: {
+        id: created.record.id,
+        status: "queued",
+        recipient_ids: [
+          expect.stringMatching(/^rcpt_/),
+          expect.stringMatching(/^rcpt_/),
+        ],
+      },
+      recipients: [
+        {
+          role: "to",
+          ordinal: 0,
+          address: "recipient@example.net",
+        },
+        {
+          role: "cc",
+          ordinal: 0,
+          address: "second-recipient@example.net",
+        },
+      ],
+      outbox: {
+        id: `outbox:v1:${created.record.id}:dispatch-message:0`,
+      },
+    });
+    expect(committed?.outbox).not.toHaveProperty("dispatched_at");
+    expect(created.record.to).toEqual([
+      "Recipient <recipient@example.net>",
+    ]);
+    expect(created.record.cc).toEqual([
+      "Second <second-recipient@example.net>",
+    ]);
+  });
+
+  it("rejects an address that cannot enter the recipient ledger", async () => {
+    const { service } = fixture();
+
+    await expect(
+      service.create({
+        ...input,
+        to: ["double..dot@example.net"],
+      }),
+    ).rejects.toThrow("Invalid email address");
+  });
+
   it("keeps a template send idempotent across later publications", async () => {
     const { queue, service, templates, transport } = fixture();
     const template = await templates.create({
@@ -168,13 +238,12 @@ describe("EmailService", () => {
     expect(transport.sent).toHaveLength(1);
   });
 
-  it("repairs an immediate dispatch failure through idempotent replay", async () => {
+  it("recovers an immediate scheduler failure without a client replay", async () => {
     const { queue, scheduler, service, store } = fixture();
     scheduler.scheduleFailures = 1;
 
-    await expect(
-      service.create(input, "repair-immediate"),
-    ).rejects.toThrow("temporary scheduler failure");
+    const created = await service.create(input, "repair-immediate");
+    expect(created.replayed).toBe(false);
     const storedAfterFailure = await store.listEmails(100);
     expect(storedAfterFailure.data).toHaveLength(1);
     expect(storedAfterFailure.data[0]).toMatchObject({
@@ -183,20 +252,22 @@ describe("EmailService", () => {
     });
     expect(queue.jobs).toHaveLength(0);
 
-    const replay = await service.create(input, "repair-immediate");
-
-    expect(replay).toMatchObject({
-      replayed: true,
-      record: {
-        id: storedAfterFailure.data[0]?.id,
-        status: "queued",
-      },
+    const reconciler = new OutboxReconciler(store, queue, {
+      owner: "email-service-test",
+    });
+    await expect(reconciler.sweep(new Date())).resolves.toEqual({
+      leased: 1,
+      dispatched: 1,
+      failed: 0,
     });
     expect(queue.jobs).toEqual([
       {
         job: {
           type: "send_email",
           email_id: storedAfterFailure.data[0]?.id,
+          job_id: expect.stringMatching(
+            /^outbox:v1:email_[^:]+:dispatch-message:0$/,
+          ),
         },
         delaySeconds: 0,
       },
@@ -206,41 +277,43 @@ describe("EmailService", () => {
     });
   });
 
-  it("repairs a short scheduled dispatch with its stored delay", async () => {
+  it("recovers a scheduled dispatch at its durable due time", async () => {
     const { queue, scheduler, service, store } = fixture();
     const now = new Date("2026-07-26T00:00:00.000Z");
     const scheduledAt = "2026-07-26T00:10:00.000Z";
     const scheduledInput = { ...input, scheduled_at: scheduledAt };
     scheduler.scheduleFailures = 1;
 
-    await expect(
-      service.create(scheduledInput, "repair-short-schedule", now),
-    ).rejects.toThrow("temporary scheduler failure");
-    const storedAfterFailure = await store.listEmails(100);
-    expect(storedAfterFailure.data).toHaveLength(1);
-    expect(queue.jobs).toHaveLength(0);
-
-    const replay = await service.create(
+    const created = await service.create(
       scheduledInput,
       "repair-short-schedule",
       now,
     );
+    expect(created.replayed).toBe(false);
+    const storedAfterFailure = await store.listEmails(100);
+    expect(storedAfterFailure.data).toHaveLength(1);
+    expect(queue.jobs).toHaveLength(0);
 
-    expect(replay).toMatchObject({
-      replayed: true,
-      record: {
-        id: storedAfterFailure.data[0]?.id,
-        status: "scheduled",
-        scheduled_at: scheduledAt,
-      },
+    const reconciler = new OutboxReconciler(store, queue, {
+      owner: "scheduled-email-service-test",
+    });
+    await expect(
+      reconciler.sweep(new Date(scheduledAt)),
+    ).resolves.toEqual({
+      leased: 1,
+      dispatched: 1,
+      failed: 0,
     });
     expect(queue.jobs).toEqual([
       {
         job: {
           type: "send_email",
           email_id: storedAfterFailure.data[0]?.id,
+          job_id: expect.stringMatching(
+            /^outbox:v1:email_[^:]+:dispatch-message:0$/,
+          ),
         },
-        delaySeconds: 600,
+        delaySeconds: 0,
       },
     ]);
   });
@@ -446,6 +519,67 @@ describe("EmailService", () => {
       { emailId: created.record.id, scheduledAt },
     ]);
     expect(transport.sent).toHaveLength(0);
+  });
+
+  it("moves message and outbox due time in the same store operation", async () => {
+    const { service, store } = fixture();
+    const initial = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const earlier = new Date(Date.now() + 86_400_000).toISOString();
+    const created = await service.create({
+      ...input,
+      scheduled_at: initial,
+    });
+
+    await service.reschedule(created.record.id, earlier);
+
+    await expect(store.getDelivery(created.record.id)).resolves.toMatchObject({
+      email: {
+        scheduled_at: earlier,
+        status: "scheduled",
+      },
+      message: {
+        scheduled_at: earlier,
+        status: "scheduled",
+      },
+      outbox: {
+        due_at: earlier,
+      },
+    });
+  });
+
+  it("keeps v0.1 scheduled records recoverable during an upgrade", async () => {
+    const { queue, service, store } = fixture();
+    const timestamp = new Date().toISOString();
+    await store.createEmail({
+      ...input,
+      id: "email_00000000000000000000000000000009",
+      status: "queued",
+      last_event: "queued",
+      created_at: timestamp,
+      updated_at: timestamp,
+      request_hash: "9".repeat(64),
+      attempts: 0,
+    });
+    const scheduledAt = new Date(
+      Date.now() + 10 * 60 * 1_000,
+    ).toISOString();
+
+    await service.reschedule(
+      "email_00000000000000000000000000000009",
+      scheduledAt,
+    );
+
+    expect(queue.jobs).toEqual([
+      {
+        job: {
+          type: "send_email",
+          email_id: "email_00000000000000000000000000000009",
+        },
+        delaySeconds: expect.any(Number),
+      },
+    ]);
+    expect(queue.jobs[0]?.delaySeconds).toBeGreaterThanOrEqual(599);
+    expect(queue.jobs[0]?.delaySeconds).toBeLessThanOrEqual(600);
   });
 
   it("reconciles a concurrent reschedule to the stored source of truth", async () => {

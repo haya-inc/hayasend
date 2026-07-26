@@ -304,8 +304,8 @@ describe("official Resend Node SDK compatibility", () => {
     expect(error).toBeNull();
     expect(data?.id).toMatch(/^email_/);
     expect(queue.jobs.map(({ job }) => job)).toContainEqual({
-      type: "send_email",
-      email_id: data?.id,
+      type: "reconcile_outbox",
+      outbox_id: `outbox:v1:${data?.id}:dispatch-message:0`,
     });
 
     inboundStorage.seedRaw(
@@ -417,8 +417,8 @@ describe("official Resend Node SDK compatibility", () => {
       ],
     });
     expect(queue.jobs.at(-1)?.job).toEqual({
-      type: "send_email",
-      email_id: forwarded.data?.id,
+      type: "reconcile_outbox",
+      outbox_id: `outbox:v1:${forwarded.data?.id}:dispatch-message:0`,
     });
   });
 });
