@@ -37,6 +37,10 @@ jobs:
           cfn-lint template.yaml
       - name: Validate OpenAPI
         run: npm run lint:openapi
+      - name: Build and verify static site
+        run: |
+          npm run site:build
+          npm run site:verify
       - name: Build and load Lambda bundles
         run: |
           sam build

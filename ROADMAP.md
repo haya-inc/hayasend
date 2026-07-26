@@ -16,10 +16,10 @@ The evidence gates, adapter contract, and current draft disposition are in the
 - [x] suppression-list enforcement before enqueue
 - [x] EventBridge Scheduler for long schedules
 - [x] presigned S3 attachment uploads beyond the API Gateway payload limit
-- [ ] first successful deployment integration run in a dedicated AWS test
+- [x] first successful deployment integration run in a dedicated AWS test
       account (OIDC deploy/test/delete workflow is ready)
 - [x] bootstrap-key storage in Secrets Manager
-- [ ] protected-main merge, exact-main CodeQL, signed release, provenance, and
+- [x] protected-main merge, exact-main CodeQL, signed release, provenance, and
       live project site
 
 No post-v0.1 draft merges into the frozen release candidate.
@@ -34,6 +34,7 @@ No post-v0.1 draft merges into the frozen release candidate.
 - fault-injection and per-adapter conformance reports
 - safe deploy, doctor, upgrade, rollback, and recovery evidence
 - scoped credentials, cost/rate controls, and content-private operations
+- [x] searchable API reference generated from the versioned OpenAPI contract
 
 ## Next — Cloudflare and FolioMCP proof
 

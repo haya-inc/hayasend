@@ -26,6 +26,8 @@ describe("project site", () => {
     expect(html).toContain('<main id="main">');
     expect(html).toContain('aria-label="Primary navigation"');
     expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toContain('href="./api-reference.html"');
+    expect(html).toContain('href="./openapi.yaml"');
     expect(html).toContain(
       "https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md",
     );
@@ -46,8 +48,12 @@ describe("project site", () => {
     expect(notFound).toContain('href="/hayasend/"');
     expect(robots).toContain(`${siteUrl}sitemap.xml`);
     expect(sitemap).toContain(`<loc>${siteUrl}</loc>`);
-    expect(workflow).toContain("path: website");
+    expect(sitemap).toContain(`<loc>${siteUrl}api-reference.html</loc>`);
+    expect(workflow).toContain("npm run site:build");
+    expect(workflow).toContain("npm run site:verify");
+    expect(workflow).toContain("path: dist/site");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
+    expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/configure-pages@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-pages-artifact@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/deploy-pages@[0-9a-f]{40}/);

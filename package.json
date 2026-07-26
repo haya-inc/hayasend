@@ -32,6 +32,8 @@
     "doctor": "tsx src/cli.ts doctor",
     "generate:conformance": "tsx scripts/check-conformance.ts --write",
     "lint:openapi": "redocly lint openapi.yaml",
+    "site:build": "node scripts/build-site.mjs",
+    "site:verify": "node scripts/verify-site.mjs",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
