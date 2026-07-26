@@ -29,6 +29,31 @@ function event(body: string): SQSEvent {
 }
 
 describe("worker error telemetry", () => {
+  it("accepts a privacy-safe outbox wake job", async () => {
+    const processJob = vi.fn(async () => undefined);
+
+    await expect(
+      processWorkerEvent(
+        event(
+          JSON.stringify({
+            type: "reconcile_outbox",
+            outbox_id:
+              "outbox:v1:email_0000000000000000:dispatch-message:0",
+          }),
+        ),
+        { processJob },
+      ),
+    ).resolves.toEqual({ batchItemFailures: [] });
+    expect(processJob).toHaveBeenCalledWith(
+      {
+        type: "reconcile_outbox",
+        outbox_id:
+          "outbox:v1:email_0000000000000000:dispatch-message:0",
+      },
+      2,
+    );
+  });
+
   it("records a safe category without the thrown message", async () => {
     const errors = vi
       .spyOn(console, "error")

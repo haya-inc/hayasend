@@ -116,6 +116,9 @@ The live check covers health, scoped keys, checksum-bound attachment upload,
 schedule/reschedule/cancel, attachment privacy, suppressions, SES domain
 identity operations, public webhook endpoint validation, webhook updates,
 delivery-history queries, and webhook secret privacy.
+It then deliberately removes the canceled schedule from the delivery path,
+makes its durable outbox row due, invokes the deployed dispatcher, and proves
+the row is acknowledged without a client replay or SES send.
 
 After every run, confirm:
 

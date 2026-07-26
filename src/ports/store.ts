@@ -14,8 +14,9 @@ import type {
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
+import type { DeliveryOutboxStore } from "./delivery-outbox-store.js";
 
-export interface Store {
+export interface Store extends DeliveryOutboxStore {
   createEmail(
     record: EmailRecord,
     idempotency?: IdempotencyClaim,
@@ -30,6 +31,11 @@ export interface Store {
     id: string,
     updates: Partial<EmailRecord>,
     fromStatuses?: EmailStatus[],
+  ): Promise<EmailRecord | undefined>;
+  rescheduleEmailAndOutbox(
+    id: string,
+    scheduledAt: string,
+    now: Date,
   ): Promise<EmailRecord | undefined>;
   listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>>;
 

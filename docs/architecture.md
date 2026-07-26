@@ -18,11 +18,14 @@ revocation.
 1. The HTTP API authenticates and validates a Resend-shaped request. Larger
    attachments first use a 15-minute, SHA-256-bound presigned S3 PUT and are
    then referenced by opaque attachment ID.
-2. DynamoDB claims the idempotency key and stores the email in one transaction.
-3. The suppression list is checked before SQS accepts an immediate or
-   short-delay job. Delays beyond 15 minutes use a self-deleting EventBridge
-   Scheduler entry that targets the same queue.
-4. The worker reloads current state, rechecks suppressions, and verifies
+2. After suppression preflight, DynamoDB atomically stores the email,
+   provider-neutral message, unique envelope recipients, optional idempotency
+   claim, deterministic outbox item, and backlog counter.
+3. A bounded dispatcher conditionally leases due outbox rows and publishes a
+   deterministic send job. Immediate SQS and self-deleting EventBridge
+   Scheduler resources only wake reconciliation; a failed wake is recovered by
+   the one-minute sweep.
+4. The send worker reloads current state, rechecks suppressions, and verifies
    attachment size and SHA-256 immediately before calling SES v2, so a newly
    suppressed recipient or corrupted attachment cannot be delivered.
 5. Permanent SES request rejections fail immediately. Throttling, provider
@@ -32,20 +35,23 @@ revocation.
 7. Matching webhook deliveries return to SQS, so webhook failure cannot cause
    the email to be sent twice.
 
-SQS and Lambda are at-least-once systems. HayaSend therefore treats the email
-record as the source of truth and refuses to process a job after the record
-reaches a final state. An atomic send lease prevents concurrent workers from
-sending the same queued record.
+SQS and Lambda are at-least-once systems. HayaSend therefore treats the
+DynamoDB delivery records and outbox as the source of truth and refuses to
+process a job after the email reaches a final state. A conditional outbox lease
+coordinates publishers, and an atomic send lease prevents concurrent workers
+from submitting the same queued record.
 
 Scheduler names are derived from email IDs. Rescheduling replaces the same
-one-time schedule, cancellation deletes it, and stale SQS deliveries reload
-the current DynamoDB record before doing any work.
+one-time schedule and atomically moves the pending outbox due time,
+cancellation deletes the wake-up schedule, and stale SQS deliveries reload the
+current DynamoDB record before doing any work.
 
-If persistence succeeds but SQS or Scheduler dispatch fails, an identical
-request with the same idempotency key re-dispatches the stored non-final email
-using its stored schedule. This can create a duplicate SQS job when the first
-dispatch actually succeeded but its response was lost. The worker lease and
-final-state check are designed for that at-least-once condition.
+If persistence succeeds but an SQS or Scheduler wake fails, the API still
+returns the committed message and increments `OutboxWakeFailures`. The periodic
+dispatcher recovers the due row without a client replay. Queue acceptance
+followed by dispatcher process loss may publish the deterministic job again
+after lease expiry; the send lease and final-state check collapse concurrent
+copies.
 
 There is still an unavoidable narrow failure window if SES accepts a message
 and the worker stops before recording the provider ID. A later retry can
@@ -58,6 +64,10 @@ idempotency that SES does not currently expose.
 A single DynamoDB table stores typed entities:
 
 - `EMAIL#<id>`
+- `EMAIL#<id>` / `DELIVERY_MESSAGE#<id>`
+- `EMAIL#<id>` / `RECIPIENT#<recipient-id>`
+- `OUTBOX#<deterministic-id>`
+- `OUTBOX_METRICS`
 - `ATTACHMENT#<id>`
 - `RECEIVED#<id>`
 - `RECEIVED_CLAIM#<id>`

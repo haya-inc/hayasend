@@ -461,6 +461,10 @@ export type Job =
       job_id?: string | undefined;
     }
   | {
+      type: "reconcile_outbox";
+      outbox_id?: string | undefined;
+    }
+  | {
       type: "publish_received_email";
       email_id: string;
     }

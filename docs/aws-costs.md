@@ -24,15 +24,16 @@ consumed by other workloads, so list price is the safer budget ceiling.
 
 | Workload | Region | Infrastructure list price | Persistent-free infrastructure | SES à la carte | Total, à la carte | SES Essentials | Total, Essentials |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 10,000 messages | `us-east-1` | $4.05 | $0.19 | $1.00 | $1.19 | $1.60 | $1.79 |
-| 10,000 messages | `ap-northeast-1` | $4.10 | $0.21 | $1.00 | $1.21 | $1.60 | $1.81 |
-| 1,000,000 messages | `us-east-1` | $47.49 | $30.71 | $100.00 | $130.71 | $160.00 | $190.71 |
-| 1,000,000 messages | `ap-northeast-1` | $53.55 | $34.61 | $100.00 | $134.61 | $160.00 | $194.61 |
+| 10,000 messages | `us-east-1` | $4.57 | $0.32 | $1.00 | $1.32 | $1.60 | $1.92 |
+| 10,000 messages | `ap-northeast-1` | $4.65 | $0.34 | $1.00 | $1.34 | $1.60 | $1.94 |
+| 1,000,000 messages | `us-east-1` | $52.71 | $35.27 | $100.00 | $135.27 | $160.00 | $195.27 |
+| 1,000,000 messages | `ap-northeast-1` | $59.58 | $39.99 | $100.00 | $139.99 | $160.00 | $199.99 |
 
-The no-traffic list-price floor is primarily one $3 CloudWatch dashboard and
-seven $0.10 standard-resolution alarm metrics. The recurring CloudWatch free
-tier covers this checked-in configuration, but the model exposes list price so
-an operator does not accidentally count the same account-wide allowance twice.
+The no-traffic list-price floor is primarily one $3 CloudWatch dashboard,
+eleven $0.10 standard-resolution alarm metrics, and 43,200 short dispatcher
+invocations per 30-day month. The account-wide CloudWatch allowance covers
+only ten alarm metrics, so the persistent-free estimate retains one billable
+metric.
 
 Amazon SES changed its entry pricing on 2026-07-21. New and long-inactive
 accounts begin on Essentials, currently $0.16 per 1,000 messages for the first
@@ -54,6 +55,8 @@ not subtracted here.
 | Sends scheduled beyond 15 minutes | 1% | 5% |
 | Lambda memory outside inbound processing | 256 MiB | 256 MiB |
 | API / send worker / SES event / webhook duration | 100 / 300 / 100 / 200 ms | same |
+| Outbox wake or scheduled sweep duration | 100 ms | 100 ms |
+| Scheduled outbox sweeps | 43,200 per 30-day month | same |
 | Application log output | 2 KiB per Lambda invocation | same |
 | Modeled CloudWatch log retention | 30 days | 30 days |
 | S3 payload retention | 45 days | 45 days |
@@ -128,15 +131,16 @@ For `M` messages, `E=2` SES notifications per message, and webhook coverage
 - HTTP API requests: `M`;
 - webhook deliveries: `M × E × W`;
 - Lambda invocations:
-  `M API + M send workers + M × E SES handlers + webhook deliveries`;
+  `M API + M outbox wakes + M send workers + 43,200 dispatcher sweeps +
+  M × E SES handlers + webhook deliveries`;
 - Lambda GiB-seconds: each invocation's assumed duration multiplied by
   0.25 GiB;
 - DynamoDB write units:
-  `6M + M × E + 3 × webhook deliveries`;
+  `9M + M × E + 3 × webhook deliveries`;
 - DynamoDB read units:
-  `5M + M × E + 3 × webhook deliveries`;
-- SQS requests: three request units per send or webhook job, representing
-  send, receive, and delete;
+  `6M + 43,200 + M × E + 3 × webhook deliveries`;
+- SQS requests: three request units per outbox wake, send, or webhook job,
+  representing send, receive, and delete;
 - Scheduler invocations: `M × scheduled fraction`;
 - SNS requests: `M × E`; delivery from SNS to Lambda has no per-notification
   delivery charge;

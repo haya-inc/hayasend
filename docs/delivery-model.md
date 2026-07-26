@@ -1,9 +1,10 @@
 # Provider-neutral delivery model
 
 HayaSend separates provider-neutral delivery truth from the existing
-Resend-compatible message response. The first version is a contract only: it
-does not change the public API, current stores, or current AWS runtime behavior.
-Subsequent Gate 1 work will persist and operate on these records.
+Resend-compatible message response. Dispatchable messages now persist this
+contract in both the memory and DynamoDB stores without changing the public
+API. Recipient-attempt and provider-event mutation follows in the next Gate 1
+changes.
 
 The source contract is
 [`src/core/delivery-model.ts`](../src/core/delivery-model.ts), and
@@ -54,7 +55,7 @@ Timestamps are offset-aware ISO 8601 values. Record schema version, provider
 name, provider adapter version, and capability document version are explicit
 so migrations and conformance evidence can reject silent drift.
 
-## Memory outbox reference
+## Transactional outbox implementations
 
 `MemoryStore.commitDelivery` is the executable reference for the atomic
 boundary. It copy-on-write stages the existing sendable email, provider-neutral
@@ -72,8 +73,32 @@ messages remain undispatched until `due_at`; the same sweep handles the exact
 clock boundary.
 
 The privacy-safe metrics are available due count, active lease count, total
-undispatched count, oldest due age, and cumulative publication failures. They
-contain no address, subject, body, provider response, or queue endpoint.
+undispatched count, expired-lease count, oldest due age, cumulative publication
+failures, and a truncation flag for bounded diagnostic queries. They contain no
+address, subject, body, provider response, or queue endpoint.
+
+`DynamoStore.commitDelivery` writes the existing email metadata, provider-neutral
+message, every unique envelope recipient, optional idempotency claim,
+generation-zero outbox item, and durable backlog counter in one
+`TransactWriteItems` call. The public 50-recipient limit keeps the transaction
+below DynamoDB's 100-action limit.
+
+Pending and leased items use sparse `GSI1` partitions ordered by due time or
+lease expiry. GSI reads identify candidates; a conditional update against the
+base table is the concurrency authority because GSI reads are eventually
+consistent. A successful queue publish and backlog decrement are acknowledged
+in one transaction. A failed publish releases the lease, restores the due
+index, and increments a privacy-safe counter in one transaction.
+
+Rescheduling a pending delivery updates the legacy email, provider-neutral
+message, outbox due time, and sparse-index sort key in one transaction. If an
+old send job was already dispatched, the worker reloads the current schedule
+and creates a corrective direct job instead of reviving an acknowledged
+outbox row.
+
+The one-minute dispatcher provides bounded recovery. API-created SQS and
+EventBridge Scheduler work only wakes reconciliation; it never replaces the
+outbox record or directly represents provider submission.
 
 ## Privacy boundary
 

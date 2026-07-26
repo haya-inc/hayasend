@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { normalizeApiGatewayBaseUrl } from "./aws-integration-safety.mjs";
 
 function requiredEnvironment(name) {
@@ -62,6 +63,7 @@ const created = {
   webhookId: undefined,
 };
 let applicationKey;
+let recoveryEmailId;
 
 try {
   const health = await api("GET", "/healthz", undefined);
@@ -128,6 +130,7 @@ try {
     attachments: [{ attachment_id: upload.id }],
   });
   created.emailId = scheduled.id;
+  recoveryEmailId = scheduled.id;
 
   const retrieved = await api(
     "GET",
@@ -246,6 +249,15 @@ try {
       ],
     }),
   );
+  if (process.env.HAYASEND_EVIDENCE_FILE) {
+    writeFileSync(
+      process.env.HAYASEND_EVIDENCE_FILE,
+      `${JSON.stringify({
+        recovery_email_id: recoveryEmailId,
+      })}\n`,
+      { mode: 0o600 },
+    );
+  }
 } finally {
   if (applicationKey && created.emailId) {
     await bestEffort("scheduled email", () =>

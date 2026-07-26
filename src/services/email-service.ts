@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createId, requestHash, sha256 } from "../core/crypto.js";
 import {
   InvalidStateError,
@@ -8,6 +9,12 @@ import {
   safeFailureMessage,
   shouldRetryOperationalError,
 } from "../core/error-telemetry.js";
+import {
+  createOutboxIdentity,
+  type EnvelopeRole,
+  type ProviderReference,
+  type RecipientRecord,
+} from "../core/delivery-model.js";
 import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
 import { emitCountMetric } from "../core/metrics.js";
 import type {
@@ -27,6 +34,7 @@ import type { AttachmentService } from "./attachment-service.js";
 import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
 import type { TemplateService } from "./template-service.js";
+import { normalizeMailbox } from "./suppression-service.js";
 
 const FINAL_STATUSES = new Set<EmailStatus>([
   "sent",
@@ -40,6 +48,53 @@ const FINAL_STATUSES = new Set<EmailStatus>([
   "canceled",
   "suppressed",
 ]);
+
+const DEFAULT_PROVIDER: ProviderReference = {
+  name: "aws-ses",
+  adapter_version: "0.1.0",
+  capability_version: "1.0.0",
+};
+
+export interface EmailServiceOptions {
+  provider?: ProviderReference | undefined;
+}
+
+interface NormalizedRecipients {
+  to: string[];
+  cc?: string[] | undefined;
+  bcc?: string[] | undefined;
+}
+
+const envelopeAddressSchema = z.email().max(320);
+
+function normalizeEnvelopeAddress(value: string): string {
+  const normalized = normalizeMailbox(value);
+  if (!envelopeAddressSchema.safeParse(normalized).success) {
+    throw new ValidationError(`Invalid email address: ${value}`);
+  }
+  return normalized;
+}
+
+function normalizeRecipients(input: SendEmailInput): NormalizedRecipients {
+  const seen = new Set<string>();
+  const collect = (values: string[] | undefined) =>
+    (values ?? []).filter((value) => {
+      const address = normalizeEnvelopeAddress(value);
+      if (seen.has(address)) {
+        return false;
+      }
+      seen.add(address);
+      return true;
+    });
+  const to = collect(input.to);
+  const cc = collect(input.cc);
+  const bcc = collect(input.bcc);
+  return {
+    to,
+    ...(cc.length > 0 ? { cc } : {}),
+    ...(bcc.length > 0 ? { bcc } : {}),
+  };
+}
 
 function ensureSafeHeaderValue(label: string, value: string) {
   if (/[\r\n]/.test(value)) {
@@ -103,6 +158,7 @@ export class EmailService {
     private readonly suppressions: SuppressionService,
     private readonly attachments: AttachmentService,
     private readonly templates?: TemplateService,
+    private readonly options: EmailServiceOptions = {},
   ) {}
 
   async create(
@@ -170,12 +226,11 @@ export class EmailService {
       ...(input.cc ?? []),
       ...(input.bcc ?? []),
     ]);
+    const recipients = normalizeRecipients(input);
     const { attachments: _inputAttachments, ...emailInput } = input;
     const normalized = {
       ...emailInput,
-      to: [...new Set(input.to)],
-      ...(input.cc ? { cc: [...new Set(input.cc)] } : {}),
-      ...(input.bcc ? { bcc: [...new Set(input.bcc)] } : {}),
+      ...recipients,
       ...(input.reply_to ? { reply_to: [...new Set(input.reply_to)] } : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
@@ -226,33 +281,115 @@ export class EmailService {
     }: PreparedEmail,
     now: Date,
   ): Promise<CreateEmailResult> {
-    const created = await this.store.createEmail(record, idempotency);
-    if (!created.replayed) {
-      if (suppressedRecipients.length > 0) {
+    if (suppressedRecipients.length > 0) {
+      const created = await this.store.createEmail(record, idempotency);
+      if (!created.replayed) {
         emitCountMetric("SuppressedEmails");
         await this.webhooks.publish("email.suppressed", record, {
           suppressed_recipients: suppressedRecipients.map(
             (suppression) => suppression.email,
           ),
         });
-      } else {
-        await this.scheduler.schedule(record.id, scheduledAt, now);
       }
-      if (scheduledAt && suppressedRecipients.length === 0) {
+      return created;
+    }
+
+    const timestamp = record.created_at;
+    const recipientInputs: Array<{
+      role: EnvelopeRole;
+      ordinal: number;
+      address: string;
+    }> = [];
+    for (const role of ["to", "cc", "bcc"] as const) {
+      for (const [ordinal, address] of (record[role] ?? []).entries()) {
+        recipientInputs.push({
+          role,
+          ordinal,
+          address: normalizeEnvelopeAddress(address),
+        });
+      }
+    }
+    const recipients: RecipientRecord[] = recipientInputs.map((recipient) => ({
+      schema_version: "1.0.0",
+      record_type: "recipient",
+      id: createId("rcpt"),
+      message_id: record.id,
+      ...recipient,
+      status: "queued",
+      created_at: timestamp,
+      updated_at: timestamp,
+    }));
+    const outboxId = createOutboxIdentity({
+      message_id: record.id,
+      job_type: "dispatch-message",
+      generation: 0,
+    });
+    const created = await this.store.commitDelivery(
+      {
+        email: record,
+        message: {
+          schema_version: "1.0.0",
+          record_type: "message",
+          id: record.id,
+          provider: this.options.provider ?? DEFAULT_PROVIDER,
+          intent_digest: record.request_hash,
+          recipient_ids: recipients.map((recipient) => recipient.id),
+          status: record.status === "scheduled" ? "scheduled" : "queued",
+          created_at: timestamp,
+          updated_at: timestamp,
+          ...(record.scheduled_at
+            ? { scheduled_at: record.scheduled_at }
+            : {}),
+        },
+        recipients,
+        outbox: {
+          schema_version: "1.0.0",
+          record_type: "outbox_item",
+          id: outboxId,
+          message_id: record.id,
+          job_type: "dispatch-message",
+          generation: 0,
+          due_at: record.scheduled_at ?? timestamp,
+          attempts: 0,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+        ...(idempotency ? { idempotency } : {}),
+      },
+      Math.floor(now.getTime() / 1_000),
+    );
+    if (!created.replayed) {
+      try {
+        await this.scheduler.schedule(
+          record.id,
+          scheduledAt,
+          now,
+          created.outbox.id,
+        );
+      } catch {
+        emitCountMetric("OutboxWakeFailures");
+      }
+      if (scheduledAt) {
         await this.webhooks.publish("email.scheduled", record);
       }
     } else if (
-      created.record.status === "queued" ||
-      (created.record.status === "scheduled" &&
-        created.record.scheduled_at !== undefined)
+      created.outbox.dispatched_at === undefined &&
+      (created.email.status === "queued" ||
+        (created.email.status === "scheduled" &&
+          created.email.scheduled_at !== undefined))
     ) {
-      await this.scheduler.schedule(
-        created.record.id,
-        created.record.scheduled_at,
-        now,
-      );
+      try {
+        await this.scheduler.schedule(
+          created.email.id,
+          created.email.scheduled_at,
+          now,
+          created.outbox.id,
+        );
+      } catch {
+        emitCountMetric("OutboxWakeFailures");
+      }
     }
-    return created;
+    return { record: created.email, replayed: created.replayed };
   }
 
   async get(id: string): Promise<EmailRecord> {
@@ -301,27 +438,69 @@ export class EmailService {
     if (!parsed) {
       throw new ValidationError("scheduled_at is required.");
     }
-    const updated = await this.store.updateEmail(
+    const now = new Date();
+    const atomicUpdate = await this.store.rescheduleEmailAndOutbox(
       id,
-      {
-        scheduled_at: parsed,
-        status: "scheduled",
-        last_event: "scheduled",
-        updated_at: new Date().toISOString(),
-      },
-      ["queued", "scheduled"],
+      parsed,
+      now,
     );
+    const updated =
+      atomicUpdate ??
+      (await this.store.updateEmail(
+        id,
+        {
+          scheduled_at: parsed,
+          status: "scheduled",
+          last_event: "scheduled",
+          updated_at: now.toISOString(),
+        },
+        ["queued", "scheduled"],
+      ));
     if (!updated) {
       throw new NotFoundError("Email");
     }
-    await this.scheduler.reschedule(id, parsed);
+    const outboxId = createOutboxIdentity({
+      message_id: id,
+      job_type: "dispatch-message",
+      generation: 0,
+    });
+    if (atomicUpdate) {
+      try {
+        await this.scheduler.reschedule(
+          id,
+          parsed,
+          now,
+          outboxId,
+        );
+      } catch {
+        emitCountMetric("OutboxWakeFailures");
+      }
+    } else {
+      await this.scheduler.rescheduleDelivery(id, parsed, now);
+    }
     const current = await this.store.getEmail(id);
     if (
       current?.status === "scheduled" &&
       current.scheduled_at &&
       current.scheduled_at !== parsed
     ) {
-      await this.scheduler.reschedule(id, current.scheduled_at);
+      if (atomicUpdate) {
+        try {
+          await this.scheduler.reschedule(
+            id,
+            current.scheduled_at,
+            undefined,
+            outboxId,
+          );
+        } catch {
+          emitCountMetric("OutboxWakeFailures");
+        }
+      } else {
+        await this.scheduler.rescheduleDelivery(
+          id,
+          current.scheduled_at,
+        );
+      }
     }
     return updated;
   }
@@ -333,7 +512,7 @@ export class EmailService {
     }
     const delay = secondsUntil(record.scheduled_at);
     if (record.scheduled_at && delay > 0) {
-      await this.scheduler.reschedule(id, record.scheduled_at);
+      await this.scheduler.rescheduleDelivery(id, record.scheduled_at);
       return;
     }
 

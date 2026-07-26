@@ -16,6 +16,10 @@ minor releases before v1.0.
   and outbox records with privacy-safe diagnostics and deterministic identities.
 - Add an atomic memory-store delivery commit and continuously recoverable
   deterministic outbox reconciler with lease and failure metrics.
+- Add a DynamoDB transactional outbox, sparse due/lease index, bounded
+  dispatcher, deterministic queue jobs, privacy-safe alarms, and live
+  deploy/recover/delete proof. SQS and EventBridge Scheduler are now wake-up
+  optimizations rather than delivery truth.
 
 ## 0.1.0 - 2026-07-26
 

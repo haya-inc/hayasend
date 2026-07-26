@@ -74,17 +74,20 @@ const DEFAULT_ASSUMPTIONS = {
   idempotencyMetadataKiB: 1,
   lambdaMemoryGiB: 0.25,
   lambdaApiSeconds: 0.1,
+  lambdaOutboxSeconds: 0.1,
   lambdaSendWorkerSeconds: 0.3,
   lambdaSesEventSeconds: 0.1,
   lambdaWebhookSeconds: 0.2,
-  dynamodbBaseWriteUnitsPerMessage: 6,
-  dynamodbBaseReadUnitsPerMessage: 5,
+  dispatcherSweepsPerMonth: 60 * 24 * 30,
+  dynamodbDispatcherReadUnitsPerSweep: 1,
+  dynamodbBaseWriteUnitsPerMessage: 9,
+  dynamodbBaseReadUnitsPerMessage: 6,
   dynamodbWriteUnitsPerProviderEvent: 1,
   dynamodbReadUnitsPerProviderEvent: 1,
   dynamodbWriteUnitsPerWebhook: 3,
   dynamodbReadUnitsPerWebhook: 3,
   sqsRequestsPerJob: 3,
-  standardAlarmMetrics: 7,
+  standardAlarmMetrics: 11,
   dashboards: 1,
   attachmentShare: 0,
   attachmentMiB: 1,
@@ -206,10 +209,15 @@ export function estimateAwsCosts({
     BYTES_PER_DECIMAL_GB;
 
   const lambdaInvocations =
-    messages * 2 + providerEvents + webhookDeliveries;
+    messages * 3 +
+    assumptions.dispatcherSweepsPerMonth +
+    providerEvents +
+    webhookDeliveries;
   const lambdaGbSeconds =
     assumptions.lambdaMemoryGiB *
     (messages * assumptions.lambdaApiSeconds +
+      (messages + assumptions.dispatcherSweepsPerMonth) *
+        assumptions.lambdaOutboxSeconds +
       messages * assumptions.lambdaSendWorkerSeconds +
       providerEvents * assumptions.lambdaSesEventSeconds +
       webhookDeliveries * assumptions.lambdaWebhookSeconds);
@@ -220,6 +228,8 @@ export function estimateAwsCosts({
     webhookDeliveries * assumptions.dynamodbWriteUnitsPerWebhook;
   const dynamodbReadUnits =
     messages * assumptions.dynamodbBaseReadUnitsPerMessage +
+    assumptions.dispatcherSweepsPerMonth *
+      assumptions.dynamodbDispatcherReadUnitsPerSweep +
     providerEvents * assumptions.dynamodbReadUnitsPerProviderEvent +
     webhookDeliveries * assumptions.dynamodbReadUnitsPerWebhook;
   const durableEmailMetadataGiB =
@@ -241,7 +251,8 @@ export function estimateAwsCosts({
     idempotencyMetadataGiB;
 
   const sqsRequests =
-    (messages + webhookDeliveries) * assumptions.sqsRequestsPerJob;
+    (messages * 2 + webhookDeliveries) *
+    assumptions.sqsRequestsPerJob;
   const schedulerInvocations = messages * assumptions.scheduledFraction;
   const payloadStorageGiB =
     ((messages * assumptions.messageKiB) / KIB_PER_GIB +
@@ -373,6 +384,8 @@ export function estimateAwsCosts({
         api: "One HTTP API request per accepted outbound message.",
         events:
           "Two SES notifications per message; successful webhook fan-out is controlled by webhookCoverage.",
+        outbox:
+          "One wake and one send job per message plus 43,200 scheduled dispatcher sweeps per 30-day month.",
         storage:
           "DynamoDB shows the retained-month checkpoint; S3 shows steady-state 45-day payload retention.",
         logs:
@@ -382,6 +395,7 @@ export function estimateAwsCosts({
     quantities: {
       provider_events: round(providerEvents),
       webhook_deliveries: round(webhookDeliveries),
+      dispatcher_sweeps: round(assumptions.dispatcherSweepsPerMonth),
       lambda_invocations: round(lambdaInvocations),
       lambda_gib_seconds: round(lambdaGbSeconds),
       dynamodb_write_request_units: round(dynamodbWriteUnits),

@@ -41,12 +41,13 @@ describe("AWS cost model", () => {
 
     expect(result.pricing_last_verified).toBe("2026-07-26");
     expect(result.quantities.webhook_deliveries).toBe(5_000);
-    expect(result.quantities.lambda_invocations).toBe(45_000);
+    expect(result.quantities.dispatcher_sweeps).toBe(43_200);
+    expect(result.quantities.lambda_invocations).toBe(98_200);
     expect(result.costs.lambda.monthly_usd).toBe(0);
-    expect(result.costs.cloudwatch.monthly_usd).toBe(0);
+    expect(result.costs.cloudwatch.monthly_usd).toBe(0.1);
     expect(result.costs.ses.monthly_usd).toBe(1);
-    expect(result.costs.infrastructure_total_usd).toBeCloseTo(0.1908, 4);
-    expect(result.costs.estimated_total_usd).toBeCloseTo(1.1908, 4);
+    expect(result.costs.infrastructure_total_usd).toBeCloseTo(0.316214, 6);
+    expect(result.costs.estimated_total_usd).toBeCloseTo(1.316214, 6);
   });
 
   it("reproduces the representative Tokyo list-price profile", async () => {
@@ -62,13 +63,13 @@ describe("AWS cost model", () => {
     );
 
     expect(result.quantities.webhook_deliveries).toBe(2_000_000);
-    expect(result.quantities.lambda_invocations).toBe(6_000_000);
+    expect(result.quantities.lambda_invocations).toBe(7_043_200);
     expect(result.quantities.dynamodb_write_request_units).toBe(
-      14_000_000,
+      17_000_000,
     );
     expect(result.costs.ses.monthly_usd).toBe(160);
-    expect(result.costs.infrastructure_total_usd).toBe(53.55249);
-    expect(result.costs.estimated_total_usd).toBe(213.55249);
+    expect(result.costs.infrastructure_total_usd).toBe(59.58039);
+    expect(result.costs.estimated_total_usd).toBe(219.58039);
   });
 
   it("models attachment storage and SES data separately", async () => {

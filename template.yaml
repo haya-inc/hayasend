@@ -254,6 +254,45 @@ Resources:
             ScalingConfig:
               MaximumConcurrency: 10
 
+  DispatcherFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/dispatcher.ts
+        Format: cjs
+        Minify: true
+        OutExtension:
+          - .js=.cjs
+        Sourcemap: true
+        Target: node24
+        UseNpmCi: true
+    Properties:
+      CodeUri: .
+      Handler: src/aws/dispatcher.handler
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:TransactWriteItems
+                - dynamodb:UpdateItem
+              Resource: !GetAtt DataTable.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource: !Sub ${DataTable.Arn}/index/GSI1
+      Events:
+        ReconcileOutbox:
+          Type: Schedule
+          Properties:
+            Description: Recover committed delivery intents and publish due jobs.
+            Enabled: true
+            Schedule: rate(1 minute)
+
   SesEventsFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -800,6 +839,78 @@ Resources:
       AlarmActions:
         - !Ref AlarmTopic
 
+  OutboxOldestDueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend has a due outbox item older than five minutes.
+      Namespace: HayaSend
+      MetricName: OutboxOldestDueAge
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  OutboxStuckLeaseAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend has an expired outbox dispatch lease.
+      Namespace: HayaSend
+      MetricName: OutboxStuckLeases
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  OutboxDispatchFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend failed to publish a leased outbox item.
+      Namespace: HayaSend
+      MetricName: OutboxDispatchFailures
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  DispatcherFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The HayaSend outbox dispatcher invocation failed.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DispatcherFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
   ComplaintAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -864,6 +975,26 @@ Resources:
                   ["AWS/Scheduler", "InvocationDroppedCount", "ScheduleGroup", "${EmailScheduleGroup}"]
                 ]
               }
+            },
+            {
+              "type": "metric",
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Transactional outbox health",
+                "region": "${AWS::Region}",
+                "stat": "Maximum",
+                "period": 60,
+                "metrics": [
+                  ["HayaSend", "OutboxDue", "Service", "HayaSend"],
+                  [".", "OutboxLeased", ".", "."],
+                  [".", "OutboxStuckLeases", ".", "."],
+                  [".", "OutboxUndispatched", ".", "."],
+                  [".", "OutboxOldestDueAge", ".", "."],
+                  [".", "OutboxDispatchFailures", ".", "."],
+                  [".", "OutboxMetricsTruncated", ".", "."]
+                ]
+              }
             }
           ]
         }
@@ -924,6 +1055,8 @@ Outputs:
     Value: !Ref SchedulerDeadLetterQueue
   TableName:
     Value: !Ref DataTable
+  DispatcherFunctionName:
+    Value: !Ref DispatcherFunction
   PayloadBucketName:
     Value: !Ref PayloadBucket
   InboundBucketName:

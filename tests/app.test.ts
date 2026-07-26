@@ -441,7 +441,10 @@ describe("HTTP API", () => {
     expect(body.id).toMatch(/^email_/);
     expect(queue.jobs).toEqual([
       {
-        job: { type: "send_email", email_id: body.id },
+        job: {
+          type: "reconcile_outbox",
+          outbox_id: `outbox:v1:${body.id}:dispatch-message:0`,
+        },
         delaySeconds: 0,
       },
     ]);

@@ -38,12 +38,16 @@ export class QueueEmailScheduler implements EmailScheduler {
   constructor(private readonly queue: JobQueue) {}
 
   async schedule(
-    emailId: string,
+    _emailId: string,
     scheduledAt?: string,
     now = new Date(),
+    jobId?: string,
   ): Promise<void> {
     await this.queue.enqueue(
-      { type: "send_email", email_id: emailId },
+      {
+        type: "reconcile_outbox",
+        ...(jobId ? { outbox_id: jobId } : {}),
+      },
       delaySecondsUntil(scheduledAt, now),
     );
   }
@@ -52,8 +56,20 @@ export class QueueEmailScheduler implements EmailScheduler {
     emailId: string,
     scheduledAt: string,
     now = new Date(),
+    jobId?: string,
   ): Promise<void> {
-    await this.schedule(emailId, scheduledAt, now);
+    await this.schedule(emailId, scheduledAt, now, jobId);
+  }
+
+  async rescheduleDelivery(
+    emailId: string,
+    scheduledAt: string,
+    now = new Date(),
+  ): Promise<void> {
+    await this.queue.enqueue(
+      { type: "send_email", email_id: emailId },
+      delaySecondsUntil(scheduledAt, now),
+    );
   }
 
   async cancel(_emailId: string): Promise<void> {}
@@ -70,21 +86,51 @@ export class AwsEmailScheduler implements EmailScheduler {
     emailId: string,
     scheduledAt?: string,
     now = new Date(),
+    jobId?: string,
   ): Promise<void> {
     if (
       !scheduledAt ||
       secondsUntil(scheduledAt, now) <= MAX_SQS_DELAY_SECONDS
     ) {
       await this.queue.enqueue(
-        { type: "send_email", email_id: emailId },
+        {
+          type: "reconcile_outbox",
+          ...(jobId ? { outbox_id: jobId } : {}),
+        },
         delaySecondsUntil(scheduledAt, now),
       );
       return;
     }
-    await this.upsert(emailId, scheduledAt);
+    await this.upsert(emailId, scheduledAt, {
+      type: "reconcile_outbox",
+      ...(jobId ? { outbox_id: jobId } : {}),
+    });
   }
 
   async reschedule(
+    emailId: string,
+    scheduledAt: string,
+    now = new Date(),
+    jobId?: string,
+  ): Promise<void> {
+    if (secondsUntil(scheduledAt, now) <= MAX_SQS_DELAY_SECONDS) {
+      await this.cancel(emailId);
+      await this.queue.enqueue(
+        {
+          type: "reconcile_outbox",
+          ...(jobId ? { outbox_id: jobId } : {}),
+        },
+        delaySecondsUntil(scheduledAt, now),
+      );
+      return;
+    }
+    await this.upsert(emailId, scheduledAt, {
+      type: "reconcile_outbox",
+      ...(jobId ? { outbox_id: jobId } : {}),
+    });
+  }
+
+  async rescheduleDelivery(
     emailId: string,
     scheduledAt: string,
     now = new Date(),
@@ -97,7 +143,10 @@ export class AwsEmailScheduler implements EmailScheduler {
       );
       return;
     }
-    await this.upsert(emailId, scheduledAt);
+    await this.upsert(emailId, scheduledAt, {
+      type: "send_email",
+      email_id: emailId,
+    });
   }
 
   async cancel(emailId: string): Promise<void> {
@@ -118,11 +167,12 @@ export class AwsEmailScheduler implements EmailScheduler {
   private input(
     emailId: string,
     scheduledAt: string,
+    job: Parameters<JobQueue["enqueue"]>[0],
   ): CreateScheduleCommandInput {
     return {
       Name: scheduleName(emailId),
       GroupName: this.options.groupName,
-      Description: `HayaSend delivery for ${emailId}`,
+      Description: `HayaSend outbox wake-up for ${emailId}`,
       ScheduleExpression: atExpression(scheduledAt),
       ScheduleExpressionTimezone: "UTC",
       FlexibleTimeWindow: { Mode: "OFF" },
@@ -131,10 +181,7 @@ export class AwsEmailScheduler implements EmailScheduler {
       Target: {
         Arn: this.options.queueArn,
         RoleArn: this.options.roleArn,
-        Input: JSON.stringify({
-          type: "send_email",
-          email_id: emailId,
-        }),
+        Input: JSON.stringify(job),
         DeadLetterConfig: {
           Arn: this.options.schedulerDeadLetterQueueArn,
         },
@@ -149,8 +196,9 @@ export class AwsEmailScheduler implements EmailScheduler {
   private async upsert(
     emailId: string,
     scheduledAt: string,
+    job: Parameters<JobQueue["enqueue"]>[0],
   ): Promise<void> {
-    const input = this.input(emailId, scheduledAt);
+    const input = this.input(emailId, scheduledAt, job);
     try {
       await this.client.send(new CreateScheduleCommand(input));
     } catch (error) {

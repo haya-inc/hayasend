@@ -13,6 +13,7 @@ import {
   AwsEmailScheduler,
   QueueEmailScheduler,
 } from "./adapters/email-scheduler.js";
+import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { MemoryStore } from "./adapters/memory-store.js";
 import {
   LocalDomainProvider,
@@ -24,7 +25,9 @@ import {
 } from "./adapters/ses-transport.js";
 import { LocalJobQueue, SqsJobQueue } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
+import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
+import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
 import {
   ApiKeyService,
   type BootstrapKeyProvider,
@@ -32,6 +35,10 @@ import {
 import { AttachmentService } from "./services/attachment-service.js";
 import { DomainService } from "./services/domain-service.js";
 import { EmailService } from "./services/email-service.js";
+import {
+  OutboxReconciler,
+  type OutboxSweepResult,
+} from "./services/outbox-reconciler.js";
 import { ReceivedEmailService } from "./services/received-email-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
 import { WebhookService } from "./services/webhook-service.js";
@@ -39,6 +46,8 @@ import { TemplateService } from "./services/template-service.js";
 
 export interface Runtime extends AppServices {
   processJob(job: Job, attempt?: number): Promise<void>;
+  dispatchOutbox(now?: Date): Promise<OutboxSweepResult>;
+  getOutboxMetrics(now?: Date): Promise<OutboxMetrics>;
 }
 
 export function createLocalRuntime(config = loadConfig()): Runtime {
@@ -79,6 +88,13 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     suppressions,
     attachmentService,
     templateService,
+    {
+      provider: {
+        name: "local-console",
+        adapter_version: "0.1.0",
+        capability_version: "1.0.0",
+      },
+    },
   );
   const domainService = new DomainService(
     store,
@@ -91,6 +107,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
       await emailService.processSend(job.email_id, attempt);
       return;
     }
+    if (job.type === "reconcile_outbox") {
+      await outbox.sweep();
+      return;
+    }
     if (job.type === "publish_received_email") {
       await receivedEmails.publishWebhook(job.email_id);
       return;
@@ -98,6 +118,9 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     await webhooks.deliver(job.webhook_id, job.event, job.delivery_id, attempt);
   };
   queue.setHandler(processJob);
+  const outbox = new OutboxReconciler(store, queue, {
+    owner: createId("dispatcher"),
+  });
 
   return {
     apiKeyService: apiKeys,
@@ -109,6 +132,8 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     suppressionService: suppressions,
     webhookService: webhooks,
     processJob,
+    dispatchOutbox: (now) => outbox.sweep(now),
+    getOutboxMetrics: (now) => outbox.metrics(now),
   };
 }
 
@@ -173,12 +198,22 @@ export function createAwsRuntime(
     suppressions,
     attachmentService,
     templateService,
+    {
+      provider: {
+        name: AWS_SES_CAPABILITIES.provider,
+        adapter_version: AWS_SES_CAPABILITIES.adapter_version,
+        capability_version: AWS_SES_CAPABILITIES.schema_version,
+      },
+    },
   );
   const domainService = new DomainService(
     store,
     new SesDomainProvider(),
     config.region,
   );
+  const outbox = new OutboxReconciler(store, queue, {
+    owner: createId("dispatcher"),
+  });
 
   return {
     apiKeyService: apiKeys,
@@ -189,9 +224,15 @@ export function createAwsRuntime(
     receivedEmailService: receivedEmails,
     suppressionService: suppressions,
     webhookService: webhooks,
+    dispatchOutbox: (now) => outbox.sweep(now),
+    getOutboxMetrics: (now) => outbox.metrics(now),
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {
         await emailService.processSend(job.email_id, attempt);
+        return;
+      }
+      if (job.type === "reconcile_outbox") {
+        await outbox.sweep();
         return;
       }
       if (job.type === "publish_received_email") {
