@@ -1082,7 +1082,9 @@ export class DynamoStore implements Store {
   ): Promise<WebhookDeliveryRecord | undefined> {
     const setExpressions: string[] = [];
     const removeExpressions: string[] = [];
-    const names: Record<string, string> = {};
+    const names: Record<string, string> = {
+      "#ttl": "ttl",
+    };
     const values: Record<string, unknown> = {
       ":now": Math.floor(Date.now() / 1_000),
     };
@@ -1114,7 +1116,7 @@ export class DynamoStore implements Store {
           TableName: this.tableName,
           Key: entityKey("WEBHOOK_DELIVERY", id),
           UpdateExpression: updateExpression,
-          ConditionExpression: "attribute_exists(PK) AND ttl > :now",
+          ConditionExpression: "attribute_exists(PK) AND #ttl > :now",
           ExpressionAttributeNames: names,
           ExpressionAttributeValues: values,
           ReturnValues: "ALL_NEW",
@@ -1143,7 +1145,10 @@ export class DynamoStore implements Store {
         TableName: this.tableName,
         IndexName: "GSI1",
         KeyConditionExpression: "GSI1PK = :partition",
-        FilterExpression: "ttl > :now",
+        FilterExpression: "#ttl > :now",
+        ExpressionAttributeNames: {
+          "#ttl": "ttl",
+        },
         ExpressionAttributeValues: {
           ":partition": `WEBHOOK_DELIVERIES#${webhookId}`,
           ":now": Math.floor(Date.now() / 1_000),

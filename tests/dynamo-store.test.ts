@@ -507,7 +507,10 @@ describe("DynamoStore", () => {
     });
     expect(commands[1]).toBeInstanceOf(UpdateCommand);
     expect((commands[1] as UpdateCommand).input).toMatchObject({
-      ConditionExpression: "attribute_exists(PK) AND ttl > :now",
+      ConditionExpression: "attribute_exists(PK) AND #ttl > :now",
+      ExpressionAttributeNames: {
+        "#ttl": "ttl",
+      },
       ReturnValues: "ALL_NEW",
     });
     expect((commands[1] as UpdateCommand).input.UpdateExpression).toContain(
@@ -517,7 +520,10 @@ describe("DynamoStore", () => {
     expect((commands[2] as QueryCommand).input).toMatchObject({
       IndexName: "GSI1",
       KeyConditionExpression: "GSI1PK = :partition",
-      FilterExpression: "ttl > :now",
+      FilterExpression: "#ttl > :now",
+      ExpressionAttributeNames: {
+        "#ttl": "ttl",
+      },
       ScanIndexForward: false,
       Limit: 20,
     });
