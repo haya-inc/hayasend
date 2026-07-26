@@ -201,6 +201,63 @@ describe("EmailService", () => {
     });
   });
 
+  it("fails a permanent provider rejection on the first queue delivery", async () => {
+    const { queue, service, store, transport, webhooks } = fixture();
+    const sensitive =
+      "recipient@example.net private body re_secret_token https://example.com/hook";
+    vi.spyOn(transport, "send").mockRejectedValue(
+      Object.assign(new Error(sensitive), {
+        name: "MessageRejected",
+        $metadata: { httpStatusCode: 400 },
+      }),
+    );
+    await webhooks.create({
+      endpoint: "https://example.com/hook",
+      events: ["email.failed"],
+    });
+    const created = await service.create(input);
+
+    await expect(service.processSend(created.record.id, 1)).resolves.toBe(
+      undefined,
+    );
+
+    await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+      status: "failed",
+      last_event: "failed",
+      attempts: 1,
+      error: "Email delivery failed (provider_rejected).",
+    });
+    const serializedJobs = JSON.stringify(queue.jobs);
+    expect(serializedJobs).toContain('"type":"deliver_webhook"');
+    expect(serializedJobs).toContain(
+      "Email delivery failed (provider_rejected).",
+    );
+    expect(serializedJobs).not.toContain(sensitive);
+  });
+
+  it("retries a named provider throttle even when it uses HTTP 400", async () => {
+    const { service, store, transport } = fixture();
+    vi.spyOn(transport, "send").mockRejectedValue(
+      Object.assign(new Error("provider throttle"), {
+        name: "LimitExceededException",
+        $metadata: { httpStatusCode: 400 },
+      }),
+    );
+    const created = await service.create(input);
+
+    await expect(
+      service.processSend(created.record.id, 1),
+    ).rejects.toMatchObject({
+      name: "LimitExceededException",
+    });
+    await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+      status: "queued",
+      last_event: "retrying",
+      attempts: 1,
+      error: "Email delivery failed (provider_throttled).",
+    });
+  });
+
   it("does not persist or publish sensitive provider error text", async () => {
     const { queue, service, store, transport, webhooks } = fixture();
     const sensitive =

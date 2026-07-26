@@ -4,7 +4,10 @@ import {
   NotFoundError,
   ValidationError,
 } from "../core/errors.js";
-import { safeFailureMessage } from "../core/error-telemetry.js";
+import {
+  safeFailureMessage,
+  shouldRetryOperationalError,
+} from "../core/error-telemetry.js";
 import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
 import { emitCountMetric } from "../core/metrics.js";
 import type {
@@ -408,7 +411,8 @@ export class EmailService {
       }
     } catch (error) {
       const message = safeFailureMessage("Email delivery failed", error);
-      const finalAttempt = attempt >= 3;
+      const finalAttempt =
+        attempt >= 3 || !shouldRetryOperationalError(error);
       const failed = await this.store.updateEmail(
         id,
         {

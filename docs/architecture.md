@@ -25,8 +25,11 @@ revocation.
 4. The worker reloads current state, rechecks suppressions, and verifies
    attachment size and SHA-256 immediately before calling SES v2, so a newly
    suppressed recipient or corrupted attachment cannot be delivered.
-5. SES events arrive through SNS and update the record.
-6. Matching webhook deliveries return to SQS, so webhook failure cannot cause
+5. Permanent SES request rejections fail immediately. Throttling, provider
+   availability, network, timeout, and unknown application failures return to
+   SQS for no more than three delivery attempts.
+6. SES events arrive through SNS and update the record.
+7. Matching webhook deliveries return to SQS, so webhook failure cannot cause
    the email to be sent twice.
 
 SQS and Lambda are at-least-once systems. HayaSend therefore treats the email

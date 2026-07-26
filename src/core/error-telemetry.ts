@@ -28,6 +28,23 @@ const NETWORK_ERROR_CATEGORIES = new Map<string, SafeErrorCategory>([
   ["ETIMEDOUT", "timeout"],
 ]);
 
+const PROVIDER_THROTTLING_ERROR_NAMES = new Set([
+  "BandwidthLimitExceeded",
+  "EC2ThrottledException",
+  "LimitExceededException",
+  "PriorRequestNotComplete",
+  "ProvisionedThroughputExceededException",
+  "RequestLimitExceeded",
+  "RequestThrottled",
+  "RequestThrottledException",
+  "SlowDown",
+  "ThrottledException",
+  "Throttling",
+  "ThrottlingException",
+  "TooManyRequestsException",
+  "TransactionInProgressException",
+]);
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
@@ -54,9 +71,16 @@ function networkCategory(
 }
 
 function providerCategory(error: unknown): SafeErrorCategory | undefined {
-  const metadata = record(record(error)?.$metadata);
+  const candidate = record(error);
+  const metadata = record(candidate?.$metadata);
   if (!metadata) {
     return undefined;
+  }
+  if (
+    typeof candidate?.name === "string" &&
+    PROVIDER_THROTTLING_ERROR_NAMES.has(candidate.name)
+  ) {
+    return "provider_throttled";
   }
   const status =
     typeof metadata.httpStatusCode === "number"
@@ -110,6 +134,21 @@ export function safeErrorCategory(error: unknown): SafeErrorCategory | string {
     return classifyError(error);
   } catch {
     return "application_error";
+  }
+}
+
+export function shouldRetryOperationalError(error: unknown): boolean {
+  try {
+    if (error instanceof AppError) {
+      return (
+        [408, 425, 429].includes(error.status) || error.status >= 500
+      );
+    }
+    return !["invalid_data", "provider_rejected"].includes(
+      classifyError(error),
+    );
+  } catch {
+    return true;
   }
 }
 

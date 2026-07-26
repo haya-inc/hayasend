@@ -6,7 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
-No unreleased changes.
+- Stop retrying permanent SES request rejections while preserving retries for
+  throttling, provider availability, network, timeout, and unknown failures.
 
 ## 0.1.0 - 2026-07-26
 

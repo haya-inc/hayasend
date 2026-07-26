@@ -5,6 +5,7 @@ import {
   safeErrorCategory,
   safeFailureMessage,
   safeRuntimeError,
+  shouldRetryOperationalError,
 } from "../src/core/error-telemetry.js";
 import { ValidationError } from "../src/core/errors.js";
 import type { EmailRecord } from "../src/core/types.js";
@@ -60,10 +61,45 @@ describe("safe error telemetry", () => {
     [{ name: "AbortError", message: SENSITIVE }, "timeout"],
     [new SyntaxError(SENSITIVE), "invalid_data"],
     [{ $metadata: { httpStatusCode: 429 }, message: SENSITIVE }, "provider_throttled"],
+    [
+      {
+        name: "LimitExceededException",
+        $metadata: { httpStatusCode: 400 },
+        message: SENSITIVE,
+      },
+      "provider_throttled",
+    ],
     [{ $metadata: { httpStatusCode: 503 }, message: SENSITIVE }, "provider_unavailable"],
     [{ $metadata: {}, message: SENSITIVE }, "provider_error"],
   ])("classifies bounded operational signals", (error, expected) => {
     expect(safeErrorCategory(error)).toBe(expected);
+  });
+
+  it.each([
+    [
+      {
+        name: "MessageRejected",
+        $metadata: { httpStatusCode: 400 },
+        message: SENSITIVE,
+      },
+      false,
+    ],
+    [new ValidationError(SENSITIVE), false],
+    [new SyntaxError(SENSITIVE), false],
+    [
+      {
+        name: "LimitExceededException",
+        $metadata: { httpStatusCode: 400 },
+        message: SENSITIVE,
+      },
+      true,
+    ],
+    [{ $metadata: { httpStatusCode: 429 }, message: SENSITIVE }, true],
+    [{ $metadata: { httpStatusCode: 503 }, message: SENSITIVE }, true],
+    [{ code: "ECONNRESET", message: SENSITIVE }, true],
+    [new Error(SENSITIVE), true],
+  ])("makes a privacy-safe retry decision", (error, expected) => {
+    expect(shouldRetryOperationalError(error)).toBe(expected);
   });
 
   it("fails closed for hostile thrown values", () => {
@@ -76,6 +112,7 @@ describe("safe error telemetry", () => {
       },
     );
     expect(safeErrorCategory(hostile)).toBe("application_error");
+    expect(shouldRetryOperationalError(hostile)).toBe(true);
     const message = safeFailureMessage("Email delivery failed", hostile);
     expect(message).toBe("Email delivery failed (application_error).");
     expect(message).not.toContain(SENSITIVE);
