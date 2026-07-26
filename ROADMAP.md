@@ -39,7 +39,8 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] `hayasend init`, `doctor`, and end-to-end `test`
 - `hayasend deploy` and migration commands
 - OpenTelemetry exports and operational dashboard
-- Python, Go, and direct HTTP contract tests
+- [x] Python and Go official SDK contract tests
+- direct HTTP contract tests
 
 ## v1 — Supported operations
 
