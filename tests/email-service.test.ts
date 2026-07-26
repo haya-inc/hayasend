@@ -3,7 +3,11 @@ import { MemoryStore } from "../src/adapters/memory-store.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
-import type { EmailRecord } from "../src/core/types.js";
+import type {
+  EmailRecord,
+  EmailStatus,
+  WebhookEventType,
+} from "../src/core/types.js";
 import type {
   MailTransport,
   MailTransportResult,
@@ -325,5 +329,128 @@ describe("EmailService", () => {
       status: "suppressed",
       last_event: "suppressed",
     });
+  });
+
+  it.each<{
+    first: WebhookEventType;
+    second: WebhookEventType;
+    expected: EmailStatus;
+  }>([
+    {
+      first: "email.delivery_delayed",
+      second: "email.delivered",
+      expected: "delivered",
+    },
+    {
+      first: "email.delivered",
+      second: "email.delivery_delayed",
+      expected: "delivered",
+    },
+    {
+      first: "email.opened",
+      second: "email.delivered",
+      expected: "opened",
+    },
+    {
+      first: "email.clicked",
+      second: "email.opened",
+      expected: "clicked",
+    },
+    {
+      first: "email.bounced",
+      second: "email.delivered",
+      expected: "bounced",
+    },
+    {
+      first: "email.complained",
+      second: "email.clicked",
+      expected: "complained",
+    },
+    {
+      first: "email.failed",
+      second: "email.delivered",
+      expected: "failed",
+    },
+  ])(
+    "keeps provider status monotonic for $first followed by $second",
+    async ({ first, second, expected }) => {
+      const { service, store } = fixture();
+      const created = await service.create(input);
+      await service.processSend(created.record.id);
+
+      await service.applyProviderEvent(created.record.id, first);
+      await service.applyProviderEvent(created.record.id, second);
+
+      await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+        status: expected,
+        last_event: expected,
+      });
+    },
+  );
+
+  it.each<EmailStatus>(["canceled", "suppressed"])(
+    "does not change a %s record after a provider event",
+    async (status) => {
+      const { service, store } = fixture();
+      const created = await service.create(input);
+      await store.updateEmail(created.record.id, {
+        status,
+        last_event: status,
+      });
+
+      await service.applyProviderEvent(
+        created.record.id,
+        "email.delivered",
+      );
+
+      await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+        status,
+        last_event: status,
+      });
+    },
+  );
+
+  it("converges concurrent provider events on the furthest status", async () => {
+    const { service, store } = fixture();
+    const created = await service.create(input);
+    await service.processSend(created.record.id);
+
+    await Promise.all([
+      service.applyProviderEvent(
+        created.record.id,
+        "email.delivery_delayed",
+      ),
+      service.applyProviderEvent(created.record.id, "email.clicked"),
+      service.applyProviderEvent(created.record.id, "email.opened"),
+    ]);
+
+    await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+      status: "clicked",
+      last_event: "clicked",
+    });
+  });
+
+  it("publishes an out-of-order event without regressing stored status", async () => {
+    const { queue, service, store, webhooks } = fixture();
+    await webhooks.create({
+      endpoint: "https://example.com/webhooks",
+      events: ["email.bounced", "email.delivered"],
+    });
+    const created = await service.create(input);
+    await service.processSend(created.record.id);
+    queue.jobs.length = 0;
+
+    await service.applyProviderEvent(created.record.id, "email.bounced");
+    await service.applyProviderEvent(created.record.id, "email.delivered");
+
+    await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
+      status: "bounced",
+      last_event: "bounced",
+    });
+    expect(
+      queue.jobs.flatMap(({ job }) =>
+        job.type === "deliver_webhook" ? [job.event.type] : [],
+      ),
+    ).toEqual(["email.bounced", "email.delivered"]);
   });
 });

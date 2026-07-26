@@ -6,7 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
-No unreleased changes.
+- Prevent out-of-order or concurrent SES events from regressing the stored
+  aggregate delivery status.
 
 ## 0.1.0 - 2026-07-26
 

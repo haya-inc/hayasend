@@ -29,6 +29,14 @@ revocation.
 6. Matching webhook deliveries return to SQS, so webhook failure cannot cause
    the email to be sent twice.
 
+The SES event topic uses standard SNS delivery, so notifications can arrive
+more than once or out of order. Provider-derived aggregate status advances
+monotonically from delay through delivery and engagement. Negative outcomes
+(`failed`, `bounced`, or `complained`) and local terminal states remain sticky.
+Conditional DynamoDB updates make the same rule hold for concurrent handlers.
+Every recognized event is still forwarded to subscribed webhooks even when it
+does not change the aggregate status.
+
 SQS and Lambda are at-least-once systems. HayaSend therefore treats the email
 record as the source of truth and refuses to process a job after the record
 reaches a final state. An atomic send lease prevents concurrent workers from
@@ -161,5 +169,6 @@ A manual replay creates a new delivery record and message ID, links it through
 - one bootstrap administrator key per deployment;
 - payload retention is fixed at 45 days;
 - template publication history is bounded to 1–50 versions and 1–365 days;
+- delivery status is an aggregate per send rather than a per-recipient ledger;
 - inbound forwarding, alias routing, and ARC preservation are not implemented;
 - no deployment test has run in a dedicated AWS account.

@@ -38,6 +38,75 @@ const FINAL_STATUSES = new Set<EmailStatus>([
   "suppressed",
 ]);
 
+type ProviderEventStatus =
+  | "delivery_delayed"
+  | "delivered"
+  | "opened"
+  | "clicked"
+  | "bounced"
+  | "complained"
+  | "failed"
+  | "suppressed";
+
+const STATUS_BY_PROVIDER_EVENT: Partial<
+  Record<WebhookEventType, ProviderEventStatus>
+> = {
+  "email.delivered": "delivered",
+  "email.delivery_delayed": "delivery_delayed",
+  "email.opened": "opened",
+  "email.clicked": "clicked",
+  "email.bounced": "bounced",
+  "email.complained": "complained",
+  "email.failed": "failed",
+  "email.suppressed": "suppressed",
+};
+
+const ACTIVE_PROVIDER_STATUSES: EmailStatus[] = [
+  "queued",
+  "scheduled",
+  "sending",
+  "sent",
+  "delivery_delayed",
+  "delivered",
+  "opened",
+  "clicked",
+];
+
+const PROVIDER_TRANSITION_SOURCES: Record<
+  ProviderEventStatus,
+  EmailStatus[]
+> = {
+  delivery_delayed: ["queued", "scheduled", "sending", "sent"],
+  delivered: [
+    "queued",
+    "scheduled",
+    "sending",
+    "sent",
+    "delivery_delayed",
+  ],
+  opened: [
+    "queued",
+    "scheduled",
+    "sending",
+    "sent",
+    "delivery_delayed",
+    "delivered",
+  ],
+  clicked: [
+    "queued",
+    "scheduled",
+    "sending",
+    "sent",
+    "delivery_delayed",
+    "delivered",
+    "opened",
+  ],
+  bounced: ACTIVE_PROVIDER_STATUSES,
+  complained: ACTIVE_PROVIDER_STATUSES,
+  failed: ACTIVE_PROVIDER_STATUSES,
+  suppressed: ACTIVE_PROVIDER_STATUSES,
+};
+
 function ensureSafeHeaderValue(label: string, value: string) {
   if (/[\r\n]/.test(value)) {
     throw new ValidationError(`${label} must not contain line breaks.`);
@@ -438,27 +507,22 @@ export class EmailService {
     type: WebhookEventType,
     extra: Record<string, unknown> = {},
   ): Promise<void> {
-    const statusByEvent: Partial<Record<WebhookEventType, EmailStatus>> = {
-      "email.delivered": "delivered",
-      "email.delivery_delayed": "delivery_delayed",
-      "email.opened": "opened",
-      "email.clicked": "clicked",
-      "email.bounced": "bounced",
-      "email.complained": "complained",
-      "email.failed": "failed",
-      "email.suppressed": "suppressed",
-    };
-    const status = statusByEvent[type];
+    const status = STATUS_BY_PROVIDER_EVENT[type];
     if (!status) {
       return;
     }
-    const updated = await this.store.updateEmail(id, {
-      status,
-      last_event: type.slice("email.".length),
-      updated_at: new Date().toISOString(),
-    });
-    if (updated) {
-      await this.webhooks.publish(type, updated, extra);
+    const updated = await this.store.updateEmail(
+      id,
+      {
+        status,
+        last_event: type.slice("email.".length),
+        updated_at: new Date().toISOString(),
+      },
+      PROVIDER_TRANSITION_SOURCES[status],
+    );
+    const current = updated ?? (await this.store.getEmail(id));
+    if (current) {
+      await this.webhooks.publish(type, current, extra);
     }
   }
 }

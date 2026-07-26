@@ -87,6 +87,22 @@ bypass that boundary by editing DynamoDB directly.
 | Send retries exhausted | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics |
 | Complaint received | Confirm suppression creation and review the originating traffic |
 
+## SES delivery state
+
+The SES event topic is a standard SNS topic, so duplicate and out-of-order
+notifications are expected. HayaSend keeps the aggregate email status
+monotonic: delay, delivery, open, and click can only advance it, while
+`failed`, `bounced`, `complained`, `canceled`, and `suppressed` remain sticky.
+Subscribed webhooks still receive every recognized event even when an older
+event does not change the aggregate status.
+
+For a send with multiple recipients, the API status describes the whole send,
+not an independently tracked state for each address. Any negative outcome is
+preserved instead of being hidden by a later positive event for another
+recipient. Use retained webhook event data under controlled access when
+investigating a specific recipient; do not export recipient details to logs or
+public tickets.
+
 ## Attachment uploads
 
 Direct-upload URLs expire after 15 minutes. A caller can reference a verified
