@@ -141,6 +141,7 @@ describe("plan-first AWS deployment CLI", () => {
         InboundRecipientSuffixes: "@example.invalid",
         TemplateHistoryRetentionDays: "90",
         TemplateHistoryLimit: "50",
+        WorkerReservedConcurrency: "10",
       },
       tags: {
         Project: "HayaSend",
@@ -362,6 +363,8 @@ describe("plan-first AWS deployment CLI", () => {
         "ap-northeast-1",
         "--stack",
         "hayasend",
+        "--worker-reserved-concurrency",
+        "0",
         "--apply",
         "--tag",
         "Purpose=IntegrationTest",
@@ -427,6 +430,7 @@ describe("plan-first AWS deployment CLI", () => {
         "--no-confirm-changeset",
         "--no-fail-on-empty-changeset",
         "EnableInbound=false",
+        "WorkerReservedConcurrency=0",
         "Purpose=IntegrationTest",
       ]),
     );
@@ -1006,6 +1010,23 @@ describe("plan-first AWS deployment CLI", () => {
         dependencies,
       ),
     ).rejects.toThrow("--template-history-limit must be between 1 and 50");
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--worker-reserved-concurrency",
+          "1001",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--worker-reserved-concurrency must be between 0 and 1000",
+    );
     expect(runner.mock.calls).toHaveLength(
       callsBeforeTemplateHistoryValidation,
     );

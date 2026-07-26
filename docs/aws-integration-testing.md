@@ -11,6 +11,10 @@ tags with explicit `--apply`. This proves account pinning, SES and stack
 preflight, clean SAM validation/build, creation of an unexecuted change set,
 change-set inspection, and execution by the retrieved change-set ARN.
 
+The workflow sets `WorkerReservedConcurrency=0` so a newly created account can
+use its unreserved Lambda concurrency pool without weakening the production
+default of 10 reserved worker executions.
+
 ## Safety boundary
 
 Use an AWS account that contains no production resources or data. Enable an

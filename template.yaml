@@ -58,10 +58,18 @@ Parameters:
     MinValue: 1
     MaxValue: 50
     Description: Maximum retained published versions per template.
+  WorkerReservedConcurrency:
+    Type: Number
+    Default: 10
+    MinValue: 0
+    MaxValue: 1000
+    Description: Reserved worker concurrency. Set to 0 to use the account's unreserved pool.
 
 Conditions:
   CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
   InboundEnabled: !Equals [!Ref EnableInbound, "true"]
+  ReserveWorkerConcurrency: !Not
+    - !Equals [!Ref WorkerReservedConcurrency, 0]
 
 Globals:
   Function:
@@ -204,7 +212,10 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/worker.handler
-      ReservedConcurrentExecutions: 10
+      ReservedConcurrentExecutions: !If
+        - ReserveWorkerConcurrency
+        - !Ref WorkerReservedConcurrency
+        - !Ref AWS::NoValue
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DataTable

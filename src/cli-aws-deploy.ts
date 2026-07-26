@@ -20,6 +20,7 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   WebhookDeliveryRetentionDays: "7",
   TemplateHistoryRetentionDays: "90",
   TemplateHistoryLimit: "50",
+  WorkerReservedConcurrency: "10",
 };
 
 const OUTPUT_KEYS = [
@@ -71,6 +72,7 @@ export interface AwsDeployOptions {
   webhookRetentionDays?: string;
   templateHistoryRetentionDays?: string;
   templateHistoryLimit?: string;
+  workerReservedConcurrency?: string;
   tags: string[];
 }
 
@@ -343,6 +345,16 @@ function normalizeOptions(
   );
   if (templateHistoryLimit) {
     explicitParameters.TemplateHistoryLimit = templateHistoryLimit;
+  }
+  const workerReservedConcurrency = requireInteger(
+    options.workerReservedConcurrency,
+    "--worker-reserved-concurrency",
+    0,
+    1000,
+  );
+  if (workerReservedConcurrency !== undefined) {
+    explicitParameters.WorkerReservedConcurrency =
+      workerReservedConcurrency;
   }
 
   return {
@@ -652,6 +664,8 @@ function applyCommand(
     parameters.TemplateHistoryRetentionDays ?? "90",
     "--template-history-limit",
     parameters.TemplateHistoryLimit ?? "50",
+    "--worker-reserved-concurrency",
+    parameters.WorkerReservedConcurrency ?? "10",
     ...(parameters.BootstrapSecretArn
       ? ["--bootstrap-secret-arn", parameters.BootstrapSecretArn]
       : []),
