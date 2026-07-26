@@ -12,6 +12,8 @@ minor releases before v1.0.
   replay finds a stored queued or scheduled email.
 - Publish a versioned AWS SES capability document, provider-neutral
   conformance cases, and generated schemas that CI checks for drift.
+- Define versioned provider-neutral message, recipient, attempt, provider-event,
+  and outbox records with privacy-safe diagnostics and deterministic identities.
 
 ## 0.1.0 - 2026-07-26
 
