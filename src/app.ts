@@ -6,6 +6,7 @@ import { PREVIEW_CSS, PREVIEW_HTML, PREVIEW_JS } from "./preview.js";
 import {
   AppError,
   ForbiddenError,
+  PreconditionFailedError,
   UnauthorizedError,
   ValidationError,
 } from "./core/errors.js";
@@ -100,6 +101,15 @@ function parseTemplateVersionMatch(value: string | undefined) {
     );
   }
   return match[1];
+}
+
+function templateVersionId(value: string) {
+  if (!/^tmplv_[a-f0-9]{32}$/.test(value)) {
+    throw new ValidationError(
+      "Template version ID must contain a HayaSend template version ID.",
+    );
+  }
+  return value;
 }
 
 function publicEmail(record: EmailRecord) {
@@ -437,6 +447,80 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         await services.templateService.publish(
           context.req.param("identifier"),
           new Date(),
+          expectedVersion,
+          {
+            actor: {
+              id: context.get("principal").id,
+              name: context.get("principal").name,
+            },
+            source:
+              context.req.header("x-hayasend-source") === "cli"
+                ? "cli"
+                : "api",
+          },
+        ),
+      );
+    },
+  );
+
+  app.get(
+    "/templates/:identifier/versions",
+    requireScope("templates:read"),
+    zValidator("query", paginationSchema, validationCallback),
+    async (context) => {
+      const { limit, after } = context.req.valid("query");
+      const page = await services.templateService.listVersions(
+        context.req.param("identifier"),
+        limit,
+        after,
+      );
+      return context.json({ object: "list", ...page });
+    },
+  );
+
+  app.get(
+    "/templates/:identifier/versions/:versionId",
+    requireScope("templates:read"),
+    async (context) =>
+      context.json(
+        await services.templateService.getVersion(
+          context.req.param("identifier"),
+          templateVersionId(context.req.param("versionId")),
+        ),
+      ),
+  );
+
+  app.post(
+    "/templates/:identifier/versions/:versionId/render",
+    requireScope("templates:read"),
+    zValidator("json", renderTemplateSchema, validationCallback),
+    async (context) => {
+      const rendered = await services.templateService.renderVersion(
+        context.req.param("identifier"),
+        templateVersionId(context.req.param("versionId")),
+        context.req.valid("json"),
+      );
+      context.header("etag", `"${rendered.version_id}"`);
+      return context.json(rendered);
+    },
+  );
+
+  app.post(
+    "/templates/:identifier/versions/:versionId/restore",
+    requireScope("templates:write"),
+    async (context) => {
+      const expectedVersion = parseTemplateVersionMatch(
+        context.req.header("if-match"),
+      );
+      if (!expectedVersion) {
+        throw new PreconditionFailedError(
+          "If-Match with the current draft version ID is required for restore.",
+        );
+      }
+      return context.json(
+        await services.templateService.restoreVersion(
+          context.req.param("identifier"),
+          templateVersionId(context.req.param("versionId")),
           expectedVersion,
         ),
       );

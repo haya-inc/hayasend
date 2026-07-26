@@ -12,10 +12,17 @@ the immutable published snapshot, so an incomplete edit cannot leak into
 production traffic. Publishing atomically promotes the current draft. The get
 response reports `current_version_id` and `has_unpublished_versions`.
 
-Each template version is limited to 128 KiB. A DynamoDB record retains the
-current draft and published snapshot, leaving headroom below DynamoDB's 400 KiB
-item limit. Full historical rollback beyond those two snapshots is planned
-before v1.
+Each template version is limited to 128 KiB. The template record retains the
+current draft and published snapshot, while each successful publication also
+creates a separate immutable history record. This keeps each item below
+DynamoDB's 400 KiB limit.
+
+History defaults to the latest 50 publications for 90 days. Deployments can
+set `HAYASEND_TEMPLATE_HISTORY_LIMIT` from 1 to 50 and
+`HAYASEND_TEMPLATE_HISTORY_RETENTION_DAYS` from 1 to 365, or use the matching
+SAM parameters. Count pruning is synchronous. DynamoDB TTL deletion is
+asynchronous, but the API treats a record as expired as soon as its
+`expires_at` is reached.
 
 After variable expansion, combined HTML and text are limited to 1 MiB.
 HTML-to-text conversion also caps DOM depth and child-node processing, so a
@@ -139,3 +146,43 @@ conditional publication automatically.
 
 See the [CLI guide](cli.md#manage-templates-as-code) for the manifest format,
 JSON Schema, CI behavior, and path-safety rules.
+
+## Inspect and restore publication history
+
+History listing returns metadata only: publication ID, template ID, draft
+version ID, time, expiry, authenticated actor, client channel, and an optional
+source version. It does not return HTML, text, secrets, or rendered recipient
+data. Inspecting or rendering one retained version is an explicit separate
+request:
+
+```bash
+npm run cli -- templates versions order-confirmation --limit 20
+npm run cli -- templates inspect-version order-confirmation \
+  tmplv_0123456789abcdef0123456789abcdef
+npm run cli -- templates render-version order-confirmation \
+  tmplv_0123456789abcdef0123456789abcdef \
+  --var ORDER_ID=42 \
+  --var PRODUCT=Laptop
+```
+
+Restore never mutates an immutable publication and never republishes it. It
+copies the selected historical content into a new draft and requires the
+current draft version through `If-Match`, so a concurrent edit is rejected:
+
+```bash
+npm run cli -- templates restore-version order-confirmation \
+  tmplv_0123456789abcdef0123456789abcdef
+npm run cli -- templates render order-confirmation \
+  --var ORDER_ID=42 \
+  --var PRODUCT=Laptop
+npm run cli -- templates publish order-confirmation \
+  --version tmplv_abcdef0123456789abcdef0123456789
+```
+
+Production sends continue resolving the previous published alias and snapshot
+until the new draft is reviewed and explicitly published. Missing, expired,
+pruned, or other-template version IDs return not found. A list cursor must
+still identify a retained version of that same template.
+
+History endpoints require `templates:read`; restore requires
+`templates:write`. A template deletion removes its retained history.

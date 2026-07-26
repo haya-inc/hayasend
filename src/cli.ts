@@ -351,7 +351,10 @@ async function pushTemplates(args: string[], dependencies: CliDependencies) {
           dependencies,
           {
             method: "POST",
-            headers: versionId ? { "if-match": `"${versionId}"` } : {},
+            headers: {
+              "x-hayasend-source": "cli",
+              ...(versionId ? { "if-match": `"${versionId}"` } : {}),
+            },
           },
         ),
       );
@@ -459,7 +462,10 @@ async function templateCommand(args: string[], dependencies: CliDependencies) {
               dependencies,
               {
                 method: "POST",
-                headers: version ? { "if-match": `"${version}"` } : {},
+                headers: {
+                  "x-hayasend-source": "cli",
+                  ...(version ? { "if-match": `"${version}"` } : {}),
+                },
               },
             ),
             null,
@@ -491,6 +497,127 @@ async function templateCommand(args: string[], dependencies: CliDependencies) {
                 ...(from ? { from } : {}),
                 ...(subject ? { subject } : {}),
               }),
+            },
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "versions": {
+      validateOptions(args, {
+        values: ["limit", "after", "endpoint"],
+        positionals: 1,
+      });
+      const parameters = new URLSearchParams();
+      for (const name of ["limit", "after"]) {
+        const value = flag(args, name);
+        if (value) {
+          parameters.set(name, value);
+        }
+      }
+      const query = parameters.size > 0 ? `?${parameters}` : "";
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            `${templatePath(
+              positional(args, 1, "Template ID or alias"),
+            )}/versions${query}`,
+            args,
+            dependencies,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "inspect-version": {
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 2,
+      });
+      const version = positional(args, 2, "Template version ID");
+      if (!/^tmplv_[a-f0-9]{32}$/.test(version)) {
+        throw new Error("Template version ID is invalid.");
+      }
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            `${templatePath(
+              positional(args, 1, "Template ID or alias"),
+            )}/versions/${encodeURIComponent(version)}`,
+            args,
+            dependencies,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "render-version": {
+      validateOptions(args, {
+        values: ["from", "subject", "endpoint"],
+        repeatable: ["var"],
+        positionals: 2,
+      });
+      const version = positional(args, 2, "Template version ID");
+      if (!/^tmplv_[a-f0-9]{32}$/.test(version)) {
+        throw new Error("Template version ID is invalid.");
+      }
+      const from = flag(args, "from");
+      const subject = flag(args, "subject");
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            `${templatePath(
+              positional(args, 1, "Template ID or alias"),
+            )}/versions/${encodeURIComponent(version)}/render`,
+            args,
+            dependencies,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                variables: parseTemplateVariables(flags(args, "var")),
+                ...(from ? { from } : {}),
+                ...(subject ? { subject } : {}),
+              }),
+            },
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "restore-version": {
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 2,
+      });
+      const identifier = positional(args, 1, "Template ID or alias");
+      const version = positional(args, 2, "Template version ID");
+      if (!/^tmplv_[a-f0-9]{32}$/.test(version)) {
+        throw new Error("Template version ID is invalid.");
+      }
+      const current = parseRemoteTemplate(
+        await request(templatePath(identifier), args, dependencies),
+      );
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            `${templatePath(
+              identifier,
+            )}/versions/${encodeURIComponent(version)}/restore`,
+            args,
+            dependencies,
+            {
+              method: "POST",
+              headers: {
+                "if-match": `"${current.current_version_id}"`,
+              },
             },
           ),
           null,
@@ -795,6 +922,8 @@ async function deployCommand(
       "inbound-recipient-suffixes",
       "inbound-tls-policy",
       "webhook-retention-days",
+      "template-history-retention-days",
+      "template-history-limit",
     ],
     booleans: [
       "apply",
@@ -827,6 +956,11 @@ async function deployCommand(
   );
   const inboundTlsPolicy = flag(args, "inbound-tls-policy");
   const webhookRetentionDays = flag(args, "webhook-retention-days");
+  const templateHistoryRetentionDays = flag(
+    args,
+    "template-history-retention-days",
+  );
+  const templateHistoryLimit = flag(args, "template-history-limit");
   await deployAws(
     {
       account,
@@ -846,6 +980,10 @@ async function deployCommand(
       ...(inboundRecipientSuffixes ? { inboundRecipientSuffixes } : {}),
       ...(inboundTlsPolicy ? { inboundTlsPolicy } : {}),
       ...(webhookRetentionDays ? { webhookRetentionDays } : {}),
+      ...(templateHistoryRetentionDays
+        ? { templateHistoryRetentionDays }
+        : {}),
+      ...(templateHistoryLimit ? { templateHistoryLimit } : {}),
       tags: flags(args, "tag"),
     },
     {
@@ -896,6 +1034,13 @@ Commands:
   templates render ID_OR_ALIAS [--var KEY=VALUE] [--from ADDRESS] [--subject TEXT]
   templates publish ID_OR_ALIAS [--version VERSION_ID] [--endpoint URL]
       Inspect, render a draft without sending, or explicitly publish templates.
+
+  templates versions ID_OR_ALIAS [--limit NUMBER] [--after VERSION_ID]
+  templates inspect-version ID_OR_ALIAS VERSION_ID
+  templates render-version ID_OR_ALIAS VERSION_ID [--var KEY=VALUE]
+  templates restore-version ID_OR_ALIAS VERSION_ID
+      Inspect immutable publication history, render it without sending, or
+      restore one version into a new unpublished draft.
 
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787

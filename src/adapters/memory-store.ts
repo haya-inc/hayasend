@@ -10,6 +10,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplatePublicationRecord,
   TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
@@ -61,6 +62,11 @@ export class MemoryStore implements Store {
   private readonly suppressions = new Map<string, SuppressionRecord>();
   private readonly templates = new Map<string, TemplateRecord>();
   private readonly templateAliases = new Map<string, string>();
+  private readonly publishedTemplateAliases = new Map<string, string>();
+  private readonly templateVersions = new Map<
+    string,
+    Map<string, TemplatePublicationRecord>
+  >();
 
   async createEmail(
     record: EmailRecord,
@@ -174,6 +180,29 @@ export class MemoryStore implements Store {
     return record ? structuredClone(record) : undefined;
   }
 
+  async getPublishedTemplate(
+    identifier: string,
+  ): Promise<TemplateRecord | undefined> {
+    const id = this.templates.has(identifier)
+      ? identifier
+      : this.publishedTemplateAliases.get(identifier);
+    const draftAliasRecord = this.templateAliases.get(identifier);
+    const draftCandidate = draftAliasRecord
+      ? this.templates.get(draftAliasRecord)
+      : undefined;
+    const record =
+      (id ? this.templates.get(id) : undefined) ??
+      (draftCandidate &&
+      (!draftCandidate.published ||
+        draftCandidate.published.alias === identifier)
+        ? draftCandidate
+        : undefined) ??
+      [...this.templates.values()].find(
+        (candidate) => candidate.published?.alias === identifier,
+      );
+    return record ? structuredClone(record) : undefined;
+  }
+
   async replaceTemplate(
     record: TemplateRecord,
     previousAlias: string | undefined,
@@ -199,6 +228,104 @@ export class MemoryStore implements Store {
     return true;
   }
 
+  async publishTemplate(
+    record: TemplateRecord,
+    publication: TemplatePublicationRecord,
+    previousPublishedAlias: string | undefined,
+    expectedRevision: number,
+    historyLimit: number,
+  ): Promise<boolean> {
+    const current = this.templates.get(record.id);
+    if (
+      !current ||
+      current.revision !== expectedRevision ||
+      publication.template_id !== record.id ||
+      publication.id !== publication.version.id
+    ) {
+      return false;
+    }
+    const versions =
+      this.templateVersions.get(record.id) ??
+      new Map<string, TemplatePublicationRecord>();
+    if (versions.has(publication.id)) {
+      return false;
+    }
+    const nextPublishedAlias = record.published?.alias;
+    const aliasOwner =
+      nextPublishedAlias === undefined
+        ? undefined
+        : this.publishedTemplateAliases.get(nextPublishedAlias);
+    if (aliasOwner !== undefined && aliasOwner !== record.id) {
+      throw new ConflictError("Template alias is already in use.");
+    }
+
+    const retained = [...versions.values(), structuredClone(publication)]
+      .sort(
+        (left, right) =>
+          right.published_at.localeCompare(left.published_at) ||
+          right.id.localeCompare(left.id),
+      )
+      .slice(0, historyLimit);
+    versions.clear();
+    for (const version of retained) {
+      versions.set(version.id, version);
+    }
+    this.templateVersions.set(record.id, versions);
+    if (
+      previousPublishedAlias !== undefined &&
+      previousPublishedAlias !== nextPublishedAlias
+    ) {
+      this.publishedTemplateAliases.delete(previousPublishedAlias);
+    }
+    if (nextPublishedAlias !== undefined) {
+      this.publishedTemplateAliases.set(nextPublishedAlias, record.id);
+    }
+    this.templates.set(record.id, structuredClone(record));
+    return true;
+  }
+
+  async getTemplateVersion(
+    templateId: string,
+    versionId: string,
+  ): Promise<TemplatePublicationRecord | undefined> {
+    const record = this.templateVersions.get(templateId)?.get(versionId);
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async listTemplateVersions(
+    templateId: string,
+    limit: number,
+    cursor: TemplatePublicationRecord | undefined,
+    nowEpochSeconds: number,
+  ): Promise<Page<TemplatePublicationRecord>> {
+    const versions = [
+      ...(this.templateVersions.get(templateId)?.values() ?? []),
+    ].sort(
+      (left, right) =>
+        right.published_at.localeCompare(left.published_at) ||
+        right.id.localeCompare(left.id),
+    );
+    const cursorIndex = cursor
+      ? versions.findIndex((version) => version.id === cursor.id)
+      : -1;
+    const eligible = versions
+      .slice(cursorIndex >= 0 ? cursorIndex + 1 : 0)
+      .filter(
+        (version) =>
+          Math.floor(Date.parse(version.expires_at) / 1_000) > nowEpochSeconds,
+      );
+    const data = eligible
+      .slice(0, limit)
+      .map((version) => structuredClone(version));
+    return eligible.length > limit && data.length > 0
+      ? {
+          data,
+          has_more: true,
+          next_cursor: data.at(-1)?.id,
+        }
+      : { data, has_more: false };
+  }
+
   async deleteTemplate(
     record: TemplateRecord,
     expectedRevision: number,
@@ -211,6 +338,10 @@ export class MemoryStore implements Store {
     if (current.draft.alias !== undefined) {
       this.templateAliases.delete(current.draft.alias);
     }
+    if (current.published?.alias !== undefined) {
+      this.publishedTemplateAliases.delete(current.published.alias);
+    }
+    this.templateVersions.delete(record.id);
     return true;
   }
 

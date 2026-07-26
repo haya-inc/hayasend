@@ -263,6 +263,25 @@ export interface TemplateVersion {
   reply_to?: string[] | undefined;
   variables: TemplateVariable[];
   created_at: string;
+  source_version_id?: string | undefined;
+}
+
+export type TemplatePublicationSource = "api" | "cli";
+
+export interface TemplatePublicationActor {
+  id: string;
+  name: string;
+}
+
+export interface TemplatePublicationRecord {
+  id: string;
+  template_id: string;
+  version: TemplateVersion;
+  published_at: string;
+  expires_at: string;
+  actor: TemplatePublicationActor;
+  source: TemplatePublicationSource;
+  source_version_id?: string | undefined;
 }
 
 export interface TemplateRecord {
@@ -315,6 +334,35 @@ export type TemplateListItem = Pick<
   | "updated_at"
   | "alias"
 >;
+
+export interface TemplateVersionListItem {
+  object: "template_version";
+  id: string;
+  template_id: string;
+  published_at: string;
+  expires_at: string;
+  actor: TemplatePublicationActor;
+  source: TemplatePublicationSource;
+  source_version_id: string | null;
+}
+
+export interface PublicTemplateVersion extends TemplateVersionListItem {
+  name: string;
+  alias: string | null;
+  from: string | null;
+  subject: string | null;
+  reply_to: string[] | null;
+  html: string;
+  text: string | null;
+  variables: TemplateVariable[] | null;
+}
+
+export interface TemplateRestoreResult {
+  object: "template_restore";
+  template_id: string;
+  source_version_id: string;
+  current_version_id: string;
+}
 
 export interface IdempotencyClaim {
   key_hash: string;

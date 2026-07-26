@@ -25,6 +25,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplatePublicationRecord,
   TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
@@ -52,10 +53,15 @@ type EntityKind =
   | "APIKEY"
   | "SUPPRESSION"
   | "TEMPLATE"
-  | "TEMPLATE_ALIAS";
+  | "TEMPLATE_ALIAS"
+  | "TEMPLATE_PUBLISHED_ALIAS";
 type IndexedEntityKind = Exclude<
   EntityKind,
-  "ATTACHMENT" | "RECEIVED_CLAIM" | "WEBHOOK_DELIVERY" | "TEMPLATE_ALIAS"
+  | "ATTACHMENT"
+  | "RECEIVED_CLAIM"
+  | "WEBHOOK_DELIVERY"
+  | "TEMPLATE_ALIAS"
+  | "TEMPLATE_PUBLISHED_ALIAS"
 >;
 type IndexPartition =
   | "EMAILS"
@@ -77,6 +83,15 @@ interface StoredEntity {
   request_hash?: string;
 }
 
+interface StoredTemplatePublication {
+  PK: string;
+  SK: string;
+  GSI1PK: string;
+  GSI1SK: string;
+  entity: TemplatePublicationRecord;
+  ttl: number;
+}
+
 const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   EMAIL: "EMAILS",
   RECEIVED: "RECEIVED_EMAILS",
@@ -89,6 +104,25 @@ const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
 
 function entityKey(kind: EntityKind, id: string) {
   return { PK: `${kind}#${id}`, SK: `${kind}#${id}` };
+}
+
+function templateVersionKey(templateId: string, versionId: string) {
+  return {
+    PK: `TEMPLATE_VERSION#${templateId}`,
+    SK: `TEMPLATE_VERSION#${versionId}`,
+  };
+}
+
+function storedTemplatePublication(
+  record: TemplatePublicationRecord,
+): StoredTemplatePublication {
+  return {
+    ...templateVersionKey(record.template_id, record.id),
+    GSI1PK: `TEMPLATE_VERSIONS#${record.template_id}`,
+    GSI1SK: `${record.published_at}#${record.id}`,
+    entity: record,
+    ttl: Math.floor(Date.parse(record.expires_at) / 1_000),
+  };
 }
 
 function storedEntity(kind: IndexedEntityKind, record: Entity): StoredEntity {
@@ -400,6 +434,33 @@ export class DynamoStore implements Store {
       : undefined;
   }
 
+  async getPublishedTemplate(
+    identifier: string,
+  ): Promise<TemplateRecord | undefined> {
+    const direct = await this.getEntity<TemplateRecord>("TEMPLATE", identifier);
+    if (direct) {
+      return direct;
+    }
+    const alias = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: entityKey("TEMPLATE_PUBLISHED_ALIAS", identifier),
+        ConsistentRead: true,
+      }),
+    );
+    const templateId = (alias.Item as { template_id?: string } | undefined)
+      ?.template_id;
+    if (templateId) {
+      return this.getEntity<TemplateRecord>("TEMPLATE", templateId);
+    }
+
+    const legacy = await this.getTemplate(identifier);
+    return legacy &&
+      (!legacy.published || legacy.published.alias === identifier)
+      ? legacy
+      : undefined;
+  }
+
   async replaceTemplate(
     record: TemplateRecord,
     previousAlias: string | undefined,
@@ -463,10 +524,179 @@ export class DynamoStore implements Store {
     }
   }
 
+  async publishTemplate(
+    record: TemplateRecord,
+    publication: TemplatePublicationRecord,
+    previousPublishedAlias: string | undefined,
+    expectedRevision: number,
+    historyLimit: number,
+  ): Promise<boolean> {
+    const existing = await this.listTemplateVersionKeys(record.id);
+    const prune = existing
+      .sort((left, right) => right.GSI1SK.localeCompare(left.GSI1SK))
+      .slice(Math.max(0, historyLimit - 1));
+    const nextPublishedAlias = record.published?.alias;
+    const items: NonNullable<
+      ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
+    > = [
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: storedEntity("TEMPLATE", record),
+          ConditionExpression:
+            "attribute_exists(PK) AND entity.#revision = :expected_revision",
+          ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: {
+            ":expected_revision": expectedRevision,
+          },
+        },
+      },
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: storedTemplatePublication(publication),
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      },
+      ...prune.map((item) => ({
+        Delete: {
+          TableName: this.tableName,
+          Key: { PK: item.PK, SK: item.SK },
+        },
+      })),
+    ];
+    if (
+      previousPublishedAlias !== undefined &&
+      previousPublishedAlias !== nextPublishedAlias
+    ) {
+      items.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: entityKey(
+            "TEMPLATE_PUBLISHED_ALIAS",
+            previousPublishedAlias,
+          ),
+          ConditionExpression:
+            "attribute_not_exists(PK) OR template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    if (nextPublishedAlias !== undefined) {
+      items.push({
+        Put: {
+          TableName: this.tableName,
+          Item: {
+            ...entityKey(
+              "TEMPLATE_PUBLISHED_ALIAS",
+              nextPublishedAlias,
+            ),
+            template_id: record.id,
+          },
+          ConditionExpression:
+            "attribute_not_exists(PK) OR template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    if (items.length > 100) {
+      throw new ConflictError(
+        "Template history exceeds the configured retention limit.",
+      );
+    }
+    try {
+      await this.client.send(
+        new TransactWriteCommand({ TransactItems: items }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name === "TransactionCanceledException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async getTemplateVersion(
+    templateId: string,
+    versionId: string,
+  ): Promise<TemplatePublicationRecord | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: templateVersionKey(templateId, versionId),
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as StoredTemplatePublication | undefined)?.entity;
+  }
+
+  async listTemplateVersions(
+    templateId: string,
+    limit: number,
+    cursor: TemplatePublicationRecord | undefined,
+    nowEpochSeconds: number,
+  ): Promise<Page<TemplatePublicationRecord>> {
+    const data: TemplatePublicationRecord[] = [];
+    let exclusiveStartKey = cursor
+      ? storedTemplatePublication(cursor)
+      : undefined;
+    while (data.length <= limit) {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :partition",
+          ExpressionAttributeValues: {
+            ":partition": `TEMPLATE_VERSIONS#${templateId}`,
+          },
+          ...(exclusiveStartKey
+            ? {
+                ExclusiveStartKey: {
+                  PK: exclusiveStartKey.PK,
+                  SK: exclusiveStartKey.SK,
+                  GSI1PK: exclusiveStartKey.GSI1PK,
+                  GSI1SK: exclusiveStartKey.GSI1SK,
+                },
+              }
+            : {}),
+          ScanIndexForward: false,
+          Limit: Math.min(100, limit + 1),
+        }),
+      );
+      for (const item of result.Items ?? []) {
+        const publication = (item as StoredTemplatePublication).entity;
+        if (
+          Math.floor(Date.parse(publication.expires_at) / 1_000) >
+          nowEpochSeconds
+        ) {
+          data.push(publication);
+        }
+      }
+      exclusiveStartKey = result.LastEvaluatedKey
+        ? (result.LastEvaluatedKey as StoredTemplatePublication)
+        : undefined;
+      if (!exclusiveStartKey || data.length > limit) {
+        break;
+      }
+    }
+    const page = data.slice(0, limit);
+    return data.length > limit && page.length > 0
+      ? {
+          data: page,
+          has_more: true,
+          next_cursor: page.at(-1)?.id,
+        }
+      : { data: page, has_more: false };
+  }
+
   async deleteTemplate(
     record: TemplateRecord,
     expectedRevision: number,
   ): Promise<boolean> {
+    const versions = await this.listTemplateVersionKeys(record.id);
     const items: NonNullable<
       ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
     > = [
@@ -492,6 +722,33 @@ export class DynamoStore implements Store {
           ExpressionAttributeValues: { ":template_id": record.id },
         },
       });
+    }
+    if (record.published?.alias !== undefined) {
+      items.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: entityKey(
+            "TEMPLATE_PUBLISHED_ALIAS",
+            record.published.alias,
+          ),
+          ConditionExpression:
+            "attribute_not_exists(PK) OR template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    for (const version of versions) {
+      items.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: { PK: version.PK, SK: version.SK },
+        },
+      });
+    }
+    if (items.length > 100) {
+      throw new ConflictError(
+        "Template history exceeds the configured deletion limit.",
+      );
     }
     try {
       await this.client.send(
@@ -1019,6 +1276,47 @@ export class DynamoStore implements Store {
       }),
     );
     return result.Attributes !== undefined;
+  }
+
+  private async listTemplateVersionKeys(templateId: string): Promise<
+    Array<Pick<StoredTemplatePublication, "PK" | "SK" | "GSI1SK">>
+  > {
+    const versions: Array<
+      Pick<StoredTemplatePublication, "PK" | "SK" | "GSI1SK">
+    > = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "PK = :partition",
+          ExpressionAttributeValues: {
+            ":partition": `TEMPLATE_VERSION#${templateId}`,
+          },
+          ProjectionExpression: "PK, SK, GSI1SK",
+          ...(exclusiveStartKey
+            ? { ExclusiveStartKey: exclusiveStartKey }
+            : {}),
+        }),
+      );
+      for (const item of result.Items ?? []) {
+        if (
+          typeof item.PK === "string" &&
+          typeof item.SK === "string" &&
+          typeof item.GSI1SK === "string"
+        ) {
+          versions.push({
+            PK: item.PK,
+            SK: item.SK,
+            GSI1SK: item.GSI1SK,
+          });
+        }
+      }
+      exclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (exclusiveStartKey);
+    return versions;
   }
 
   private async listEntities<T extends Entity>(

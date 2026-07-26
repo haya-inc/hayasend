@@ -22,7 +22,8 @@ account, and HayaSend never logs message bodies.
 - `POST /emails/batch` for up to 100 messages
 - hosted templates with unique aliases, typed variables, isolated
   draft/published versions, official SDK/React Email support, and
-  repository-to-draft CLI reconciliation with no-send draft rendering
+  repository-to-draft CLI reconciliation with no-send rendering, immutable
+  publication history, and restore-to-draft recovery
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
 - automatic hard-bounce and complaint suppressions plus manual suppression API

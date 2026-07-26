@@ -51,6 +51,26 @@ If inbound receiving is enabled, complete the separate pre-MX checklist in
 webhook, send a canary to the receiving subdomain, retrieve its raw MIME and
 attachment through the API, and only then move important mail flow.
 
+## Template publication history
+
+Choose retention as part of the deployment review. The defaults keep the
+latest 50 publications for 90 days; the supported ranges are 1–50 versions
+and 1–365 days. Increasing either raises DynamoDB storage and backup size.
+Count pruning happens in the publication transaction. TTL cleanup can lag, but
+expired versions are refused by the API immediately.
+
+History-list responses contain operational metadata but no template body.
+Individual inspection and rendering return retained content, so restrict
+`templates:read` to trusted deployment and support principals. Restore also
+requires `templates:write` and an exact current-draft `If-Match`; it creates a
+new draft and leaves the active published snapshot untouched. Render and
+review that draft before conditionally publishing it.
+
+For incident recovery, record the historical version ID and current draft
+version before restore. A not-found response can mean the version was pruned,
+expired, deleted with its template, or belongs to another template; do not
+bypass that boundary by editing DynamoDB directly.
+
 ## Alarms
 
 | Alarm | Immediate response |

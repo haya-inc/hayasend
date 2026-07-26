@@ -364,4 +364,258 @@ describe("TemplateService", () => {
       has_more: false,
     });
   });
+
+  it("retains immutable publications and restores one only as a new draft", async () => {
+    const store = new MemoryStore();
+    const service = new TemplateService(store, {
+      retentionDays: 30,
+      limit: 5,
+    });
+    const created = await service.create(
+      {
+        name: "Version one",
+        alias: "stable-v1",
+        html: "<p>One</p>",
+      },
+      new Date("2030-01-01T00:00:00.000Z"),
+    );
+    const firstDraft = await service.get(created.id);
+    await service.publish(
+      created.id,
+      new Date("2030-01-01T00:01:00.000Z"),
+      firstDraft.current_version_id,
+      {
+        actor: { id: "key_release", name: "Release automation" },
+        source: "cli",
+      },
+    );
+    await service.update(
+      created.id,
+      {
+        name: "Version two",
+        alias: "stable-v2",
+        html: "<p>Two</p>",
+      },
+      new Date("2030-01-01T00:02:00.000Z"),
+    );
+    const secondDraft = await service.get(created.id);
+
+    await expect(
+      service.resolveForSend({
+        from: "sender@example.com",
+        subject: "Before second publication",
+        to: ["recipient@example.net"],
+        template: { id: "stable-v1" },
+      }),
+    ).resolves.toMatchObject({ html: "<p>One</p>" });
+
+    await service.publish(
+      created.id,
+      new Date("2030-01-01T00:03:00.000Z"),
+      secondDraft.current_version_id,
+    );
+    await service.update(
+      created.id,
+      { alias: "draft-only", html: "<p>Unpublished</p>" },
+      new Date("2030-01-01T00:04:00.000Z"),
+    );
+    const beforeRestore = await service.get(created.id);
+    await expect(
+      service.resolveForSend({
+        from: "sender@example.com",
+        subject: "Published alias",
+        to: ["recipient@example.net"],
+        template: { id: "stable-v2" },
+      }),
+    ).resolves.toMatchObject({ html: "<p>Two</p>" });
+    await expect(
+      service.resolveForSend({
+        from: "sender@example.com",
+        subject: "Draft alias",
+        to: ["recipient@example.net"],
+        template: { id: "draft-only" },
+      }),
+    ).rejects.toThrow("was not found");
+
+    const firstPublication = await service.getVersion(
+      created.id,
+      firstDraft.current_version_id,
+      new Date("2030-01-01T00:05:00.000Z"),
+    );
+    expect(firstPublication).toMatchObject({
+      object: "template_version",
+      id: firstDraft.current_version_id,
+      template_id: created.id,
+      html: "<p>One</p>",
+      actor: { id: "key_release", name: "Release automation" },
+      source: "cli",
+      source_version_id: null,
+    });
+    await expect(
+      service.renderVersion(
+        created.id,
+        firstDraft.current_version_id,
+        {},
+        new Date("2030-01-01T00:05:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      object: "template_render",
+      version_id: firstDraft.current_version_id,
+      html: "<p>One</p>",
+    });
+
+    const versions = await service.listVersions(
+      created.id,
+      10,
+      undefined,
+      new Date("2030-01-01T00:05:00.000Z"),
+    );
+    expect(versions.data.map((version) => version.id)).toEqual([
+      secondDraft.current_version_id,
+      firstDraft.current_version_id,
+    ]);
+    expect(Object.hasOwn(versions.data[0] ?? {}, "html")).toBe(false);
+
+    const restored = await service.restoreVersion(
+      created.id,
+      firstDraft.current_version_id,
+      beforeRestore.current_version_id,
+      new Date("2030-01-01T00:06:00.000Z"),
+    );
+    expect(restored).toMatchObject({
+      object: "template_restore",
+      template_id: created.id,
+      source_version_id: firstDraft.current_version_id,
+    });
+    expect(restored.current_version_id).not.toBe(firstDraft.current_version_id);
+    await expect(service.get(created.id)).resolves.toMatchObject({
+      current_version_id: restored.current_version_id,
+      alias: "stable-v1",
+      html: "<p>One</p>",
+      has_unpublished_versions: true,
+    });
+    await expect(
+      service.resolveForSend({
+        from: "sender@example.com",
+        subject: "Still version two",
+        to: ["recipient@example.net"],
+        template: { id: "stable-v2" },
+      }),
+    ).resolves.toMatchObject({ html: "<p>Two</p>" });
+    await expect(
+      service.publish(
+        created.id,
+        new Date("2030-01-01T00:07:00.000Z"),
+        beforeRestore.current_version_id,
+      ),
+    ).rejects.toThrow("changed after it was reviewed");
+
+    await service.publish(
+      created.id,
+      new Date("2030-01-01T00:08:00.000Z"),
+      restored.current_version_id,
+    );
+    const restoredPublication = await service.getVersion(
+      created.id,
+      restored.current_version_id,
+      new Date("2030-01-01T00:09:00.000Z"),
+    );
+    expect(restoredPublication.source_version_id).toBe(
+      firstDraft.current_version_id,
+    );
+    expect(
+      (
+        await service.getVersion(
+          created.id,
+          firstDraft.current_version_id,
+          new Date("2030-01-01T00:09:00.000Z"),
+        )
+      ).html,
+    ).toBe("<p>One</p>");
+  });
+
+  it("bounds history by count and time while keeping version cursors stable", async () => {
+    const store = new MemoryStore();
+    const service = new TemplateService(store, {
+      retentionDays: 1,
+      limit: 3,
+    });
+    const created = await service.create(
+      { name: "V1", html: "<p>1</p>" },
+      new Date("2030-01-01T00:00:00.000Z"),
+    );
+    const versionIds: string[] = [];
+    for (let index = 1; index <= 3; index += 1) {
+      const draft = await service.get(created.id);
+      versionIds.push(draft.current_version_id);
+      await service.publish(
+        created.id,
+        new Date(`2030-01-01T00:0${index}:00.000Z`),
+        draft.current_version_id,
+      );
+      if (index < 3) {
+        await service.update(
+          created.id,
+          { name: `V${index + 1}`, html: `<p>${index + 1}</p>` },
+          new Date(`2030-01-01T00:0${index}:30.000Z`),
+        );
+      }
+    }
+
+    const firstPage = await service.listVersions(
+      created.id,
+      1,
+      undefined,
+      new Date("2030-01-01T00:04:00.000Z"),
+    );
+    expect(firstPage).toMatchObject({
+      data: [{ id: versionIds[2] }],
+      has_more: true,
+      next_cursor: versionIds[2],
+    });
+    await service.update(
+      created.id,
+      { name: "V4", html: "<p>4</p>" },
+      new Date("2030-01-01T00:04:30.000Z"),
+    );
+    const fourth = await service.get(created.id);
+    await service.publish(
+      created.id,
+      new Date("2030-01-01T00:05:00.000Z"),
+      fourth.current_version_id,
+    );
+
+    await expect(
+      service.listVersions(
+        created.id,
+        1,
+        firstPage.next_cursor,
+        new Date("2030-01-01T00:06:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      data: [{ id: versionIds[1] }],
+    });
+    await expect(
+      service.getVersion(
+        created.id,
+        versionIds[0] as string,
+        new Date("2030-01-01T00:06:00.000Z"),
+      ),
+    ).rejects.toThrow("Template version was not found");
+    await expect(
+      service.getVersion(
+        created.id,
+        fourth.current_version_id,
+        new Date("2030-01-03T00:06:00.000Z"),
+      ),
+    ).rejects.toThrow("Template version was not found");
+    await expect(
+      service.restoreVersion(
+        created.id,
+        versionIds[1] as string,
+        "tmplv_00000000000000000000000000000000",
+        new Date("2030-01-01T00:06:00.000Z"),
+      ),
+    ).rejects.toThrow("changed after restore was requested");
+  });
 });

@@ -31,7 +31,7 @@ migration path. It does not claim full Resend API coverage.
 | Templates           | CLI list/get/publish/send                       |        Implemented | Resend-shaped commands and repeatable `--var` values               |
 | Templates           | manifest reconciliation                         | HayaSend extension | dry-run, drifted drafts only, and explicit publication             |
 | Templates           | draft render/conditional publish                | HayaSend extension | no-send preview and version-bound promotion                        |
-| Templates           | full historical rollback                        |            Planned | current draft and published snapshots are retained today           |
+| Templates           | publication history/restore                     | HayaSend extension | bounded immutable history; restore creates an unpublished draft    |
 | Contacts/broadcasts | marketing APIs                                  | Not planned for v1 | compliance work required                                           |
 
 The CI suite constructs the official `resend` Node SDK with a custom `baseUrl`

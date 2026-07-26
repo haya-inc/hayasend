@@ -67,7 +67,10 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
   );
   const scheduler = new QueueEmailScheduler(queue);
   const apiKeys = new ApiKeyService(store, config.apiKey ?? "re_hayasend_dev");
-  const templateService = new TemplateService(store);
+  const templateService = new TemplateService(store, {
+    retentionDays: config.templateHistoryRetentionDays,
+    limit: config.templateHistoryLimit,
+  });
   const emailService = new EmailService(
     store,
     scheduler,
@@ -158,7 +161,10 @@ export function createAwsRuntime(
     schedulerDeadLetterQueueArn: config.schedulerDeadLetterQueueArn,
   });
   const apiKeys = new ApiKeyService(store, bootstrapKey);
-  const templateService = new TemplateService(store);
+  const templateService = new TemplateService(store, {
+    retentionDays: config.templateHistoryRetentionDays,
+    limit: config.templateHistoryLimit,
+  });
   const emailService = new EmailService(
     store,
     scheduler,

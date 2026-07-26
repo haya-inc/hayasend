@@ -18,6 +18,8 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   InboundRecipientSuffixes: "@example.invalid",
   InboundTlsPolicy: "OPTIONAL",
   WebhookDeliveryRetentionDays: "7",
+  TemplateHistoryRetentionDays: "90",
+  TemplateHistoryLimit: "50",
 };
 
 const OUTPUT_KEYS = [
@@ -67,6 +69,8 @@ export interface AwsDeployOptions {
   inboundRecipientSuffixes?: string;
   inboundTlsPolicy?: string;
   webhookRetentionDays?: string;
+  templateHistoryRetentionDays?: string;
+  templateHistoryLimit?: string;
   tags: string[];
 }
 
@@ -320,6 +324,25 @@ function normalizeOptions(
   );
   if (webhookRetention) {
     explicitParameters.WebhookDeliveryRetentionDays = webhookRetention;
+  }
+  const templateHistoryRetention = requireInteger(
+    options.templateHistoryRetentionDays,
+    "--template-history-retention-days",
+    1,
+    365,
+  );
+  if (templateHistoryRetention) {
+    explicitParameters.TemplateHistoryRetentionDays =
+      templateHistoryRetention;
+  }
+  const templateHistoryLimit = requireInteger(
+    options.templateHistoryLimit,
+    "--template-history-limit",
+    1,
+    50,
+  );
+  if (templateHistoryLimit) {
+    explicitParameters.TemplateHistoryLimit = templateHistoryLimit;
   }
 
   return {
@@ -625,6 +648,10 @@ function applyCommand(
     parameters.InboundTlsPolicy ?? "OPTIONAL",
     "--webhook-retention-days",
     parameters.WebhookDeliveryRetentionDays ?? "7",
+    "--template-history-retention-days",
+    parameters.TemplateHistoryRetentionDays ?? "90",
+    "--template-history-limit",
+    parameters.TemplateHistoryLimit ?? "50",
     ...(parameters.BootstrapSecretArn
       ? ["--bootstrap-secret-arn", parameters.BootstrapSecretArn]
       : []),

@@ -25,3 +25,6 @@ minor releases before v1.0.
 - Add a plan-first AWS deployment CLI that pins the target account, reports
   SES readiness, creates an inspectable CloudFormation change set only with
   `--apply`, and refuses destructive changes without a second acknowledgement.
+- Retain immutable hosted-template publications with bounded count and TTL,
+  metadata-only history lists, historical inspection and rendering, and
+  concurrency-safe restore to a new draft without changing production sends.

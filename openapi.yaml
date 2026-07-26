@@ -218,6 +218,108 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    get:
+      summary: List retained immutable publications
+      description: Requires templates:read. Message bodies are omitted from list metadata.
+      operationId: listTemplateVersions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Published template version page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TemplateVersionMetadata"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+    get:
+      summary: Retrieve an immutable published template version
+      description: Requires templates:read.
+      operationId: getTemplateVersion
+      responses:
+        "200":
+          description: Retained published template content and provenance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}/render:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+    post:
+      summary: Render an immutable published template version without sending
+      description: Requires templates:read.
+      operationId: renderTemplateVersion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenderTemplateInput"
+      responses:
+        "200":
+          description: Rendered historical version
+          headers:
+            ETag:
+              description: Quoted rendered historical version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderedTemplate"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}/restore:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+      - $ref: "#/components/parameters/CurrentDraftMatch"
+    post:
+      summary: Copy an immutable publication into a new unpublished draft
+      description: Requires templates:write. This never publishes or changes the active sending version.
+      operationId: restoreTemplateVersion
+      responses:
+        "200":
+          description: Newly created draft identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateRestore"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "412":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
   /templates/{identifier}/render:
     parameters:
       - $ref: "#/components/parameters/TemplateIdentifier"
@@ -865,6 +967,21 @@ components:
       schema:
         type: string
         maxLength: 256
+    TemplateVersionId:
+      name: versionId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^tmplv_[a-f0-9]{32}$
+    CurrentDraftMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Restore only if this is still the current draft version ID.
+      schema:
+        type: string
+        pattern: '^"tmplv_[a-f0-9]{32}"$'
     Before:
       name: before
       in: query
@@ -1189,6 +1306,100 @@ components:
                 $ref: "#/components/schemas/TemplateVariable"
             has_unpublished_versions:
               type: boolean
+    TemplateVersionMetadata:
+      type: object
+      required:
+        - object
+        - id
+        - template_id
+        - published_at
+        - expires_at
+        - actor
+        - source
+        - source_version_id
+      properties:
+        object:
+          const: template_version
+        id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
+        template_id:
+          type: string
+          pattern: ^tmpl_[a-f0-9]{32}$
+        published_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        actor:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        source:
+          enum: [api, cli]
+        source_version_id:
+          type: [string, "null"]
+          pattern: ^tmplv_[a-f0-9]{32}$
+    TemplateVersion:
+      unevaluatedProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TemplateVersionMetadata"
+        - type: object
+          required:
+            - name
+            - alias
+            - from
+            - subject
+            - reply_to
+            - html
+            - text
+            - variables
+          properties:
+            name:
+              type: string
+            alias:
+              type: [string, "null"]
+            from:
+              type: [string, "null"]
+            subject:
+              type: [string, "null"]
+            reply_to:
+              oneOf:
+                - $ref: "#/components/schemas/AddressList"
+                - type: "null"
+            html:
+              type: string
+            text:
+              type: [string, "null"]
+            variables:
+              type:
+                - array
+                - "null"
+              items:
+                $ref: "#/components/schemas/TemplateVariable"
+    TemplateRestore:
+      type: object
+      additionalProperties: false
+      required:
+        [object, template_id, source_version_id, current_version_id]
+      properties:
+        object:
+          const: template_restore
+        template_id:
+          type: string
+          pattern: ^tmpl_[a-f0-9]{32}$
+        source_version_id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
+        current_version_id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
     RenderTemplateInput:
       type: object
       additionalProperties: false

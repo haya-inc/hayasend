@@ -46,6 +46,18 @@ Parameters:
     MinValue: 1
     MaxValue: 30
     Description: Days to retain webhook event metadata and delivery attempts for inspection and replay.
+  TemplateHistoryRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to retain immutable published template versions before they expire.
+  TemplateHistoryLimit:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    MaxValue: 50
+    Description: Maximum retained published versions per template.
 
 Conditions:
   CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
@@ -78,6 +90,8 @@ Globals:
         HAYASEND_INBOUND_RETENTION_DAYS: !Ref InboundRetentionDays
         HAYASEND_INBOUND_MAX_MESSAGE_BYTES: !Ref InboundMaxMessageSizeBytes
         HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS: !Ref WebhookDeliveryRetentionDays
+        HAYASEND_TEMPLATE_HISTORY_RETENTION_DAYS: !Ref TemplateHistoryRetentionDays
+        HAYASEND_TEMPLATE_HISTORY_LIMIT: !Ref TemplateHistoryLimit
         NODE_OPTIONS: --enable-source-maps
 
 Resources:

@@ -166,6 +166,27 @@ values.
 The deployment key needs `templates:read` and `templates:write`. Keep those
 scopes out of the application runtime key.
 
+Inspect retained publications and recover one into a new draft:
+
+```bash
+npm run cli -- templates versions welcome --limit 20
+npm run cli -- templates inspect-version welcome \
+  tmplv_0123456789abcdef0123456789abcdef
+npm run cli -- templates render-version welcome \
+  tmplv_0123456789abcdef0123456789abcdef \
+  --var NAME=Ada
+npm run cli -- templates restore-version welcome \
+  tmplv_0123456789abcdef0123456789abcdef
+```
+
+`versions` is newest-first and accepts `--after VERSION_ID`. Its output omits
+template bodies. `inspect-version` returns the immutable retained content and
+`render-version` applies the normal bounded rendering rules without sending.
+`restore-version` first reads the current draft, then conditionally creates a
+new draft from history. It neither changes the active published alias nor
+publishes the restored content. Review with `templates render`, then use
+`templates publish --version` when ready.
+
 ## Plan and deploy to AWS
 
 Run the AWS workflow from a HayaSend checkout. The first invocation is a
@@ -236,6 +257,8 @@ template are not replayed. Supported overrides are:
 - `--inbound-max-message-bytes 1..41943040`;
 - `--inbound-tls-policy OPTIONAL|REQUIRED|FIPS`;
 - `--webhook-retention-days 1..30`;
+- `--template-history-retention-days 1..365`;
+- `--template-history-limit 1..50`;
 - repeatable `--tag KEY=VALUE`.
 
 Enabling inbound receiving requires explicit non-`.invalid` recipient

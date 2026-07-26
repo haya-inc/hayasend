@@ -632,6 +632,9 @@ describe("HayaSend CLI", () => {
         expect(new Headers(init?.headers).get("if-match")).toBe(
           '"tmplv_1234567890abcdef1234567890abcdef"',
         );
+        expect(new Headers(init?.headers).get("x-hayasend-source")).toBe(
+          "cli",
+        );
       }
       return jsonResponse(
         init?.method === "POST"
@@ -693,5 +696,84 @@ describe("HayaSend CLI", () => {
         { fetch: fetchMock, io: capture.io },
       ),
     ).rejects.toThrow("cannot be combined");
+  });
+
+  it("lists, inspects, renders, and safely restores historical template versions", async () => {
+    const capture = capturingIo();
+    const requests: string[] = [];
+    const version = "tmplv_abcdefabcdefabcdefabcdefabcdefab";
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      requests.push(`${init?.method ?? "GET"} ${url}`);
+      if (url === "http://localhost:8787/templates/welcome") {
+        return jsonResponse(remoteTemplate());
+      }
+      if (url.endsWith("/restore")) {
+        expect(new Headers(init?.headers).get("if-match")).toBe(
+          '"tmplv_1234567890abcdef1234567890abcdef"',
+        );
+        return jsonResponse({
+          object: "template_restore",
+          template_id: "tmpl_1234567890abcdef1234567890abcdef",
+          source_version_id: version,
+          current_version_id: "tmplv_11111111111111111111111111111111",
+        });
+      }
+      if (url.endsWith("/render")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          variables: { NAME: "Ada" },
+        });
+        return jsonResponse({
+          object: "template_render",
+          template_id: "tmpl_1234567890abcdef1234567890abcdef",
+          version_id: version,
+          html: "<p>Ada</p>",
+          text: "Ada",
+        });
+      }
+      return jsonResponse(
+        url.includes("?limit=")
+          ? { object: "list", data: [], has_more: false }
+          : { object: "template_version", id: version },
+      );
+    });
+
+    await runCli(
+      ["templates", "versions", "welcome", "--limit", "10", "--after", version],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["templates", "inspect-version", "welcome", version], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(
+      [
+        "templates",
+        "render-version",
+        "welcome",
+        version,
+        "--var",
+        "NAME=Ada",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["templates", "restore-version", "welcome", version], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    expect(requests).toEqual([
+      `GET http://localhost:8787/templates/welcome/versions?limit=10&after=${version}`,
+      `GET http://localhost:8787/templates/welcome/versions/${version}`,
+      `POST http://localhost:8787/templates/welcome/versions/${version}/render`,
+      "GET http://localhost:8787/templates/welcome",
+      `POST http://localhost:8787/templates/welcome/versions/${version}/restore`,
+    ]);
+    await expect(
+      runCli(
+        ["templates", "restore-version", "welcome", "not-a-version"],
+        { fetch: fetchMock, io: capture.io },
+      ),
+    ).rejects.toThrow("version ID is invalid");
   });
 });

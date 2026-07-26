@@ -139,6 +139,8 @@ describe("plan-first AWS deployment CLI", () => {
       parameters: {
         EnableInbound: "false",
         InboundRecipientSuffixes: "@example.invalid",
+        TemplateHistoryRetentionDays: "90",
+        TemplateHistoryLimit: "50",
       },
       tags: {
         Project: "HayaSend",
@@ -971,6 +973,42 @@ describe("plan-first AWS deployment CLI", () => {
         dependencies,
       ),
     ).rejects.toThrow("non-.invalid recipient suffixes");
+    const callsBeforeTemplateHistoryValidation = runner.mock.calls.length;
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--template-history-retention-days",
+          "366",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--template-history-retention-days must be between 1 and 365",
+    );
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--template-history-limit",
+          "51",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("--template-history-limit must be between 1 and 50");
+    expect(runner.mock.calls).toHaveLength(
+      callsBeforeTemplateHistoryValidation,
+    );
   });
 
   it("redacts secrets in external command failures", async () => {

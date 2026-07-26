@@ -13,6 +13,7 @@ import type {
   AttachmentUploadRecord,
   EmailRecord,
   ReceivedEmailRecord,
+  TemplatePublicationRecord,
   TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
@@ -151,7 +152,7 @@ describe("DynamoStore", () => {
     await store.replaceTemplate(updated, "welcome", 1);
     await store.deleteTemplate(updated, 2);
 
-    expect(commands).toHaveLength(3);
+    expect(commands).toHaveLength(4);
     expect(commands[0]).toBeInstanceOf(TransactWriteCommand);
     const createItems = (commands[0] as TransactWriteCommand).input
       .TransactItems;
@@ -185,8 +186,9 @@ describe("DynamoStore", () => {
       template_id: "tmpl_123",
     });
 
-    expect(commands[2]).toBeInstanceOf(TransactWriteCommand);
-    const deleteItems = (commands[2] as TransactWriteCommand).input
+    expect(commands[2]).toBeInstanceOf(QueryCommand);
+    expect(commands[3]).toBeInstanceOf(TransactWriteCommand);
+    const deleteItems = (commands[3] as TransactWriteCommand).input
       .TransactItems;
     expect(deleteItems).toHaveLength(2);
     expect(deleteItems?.[0]?.Delete).toMatchObject({
@@ -195,6 +197,129 @@ describe("DynamoStore", () => {
         SK: "TEMPLATE#tmpl_123",
       },
       ExpressionAttributeValues: { ":expected_revision": 2 },
+    });
+  });
+
+  it("publishes a template and immutable history record in one transaction", async () => {
+    const commands: unknown[] = [];
+    const template: TemplateRecord = {
+      id: "tmpl_123",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:01:00.000Z",
+      revision: 2,
+      draft: {
+        id: "tmplv_123",
+        name: "Welcome",
+        alias: "welcome",
+        html: "<p>Welcome</p>",
+        variables: [],
+        created_at: "2030-01-01T00:00:00.000Z",
+      },
+      published: {
+        id: "tmplv_123",
+        name: "Welcome",
+        alias: "welcome",
+        html: "<p>Welcome</p>",
+        variables: [],
+        created_at: "2030-01-01T00:00:00.000Z",
+      },
+      published_at: "2030-01-01T00:01:00.000Z",
+    };
+    const publication: TemplatePublicationRecord = {
+      id: "tmplv_123",
+      template_id: template.id,
+      version: structuredClone(template.draft),
+      published_at: "2030-01-01T00:01:00.000Z",
+      expires_at: "2030-04-01T00:01:00.000Z",
+      actor: { id: "key_123", name: "Release automation" },
+      source: "cli",
+    };
+    const storedPublication = {
+      PK: "TEMPLATE_VERSION#tmpl_123",
+      SK: "TEMPLATE_VERSION#tmplv_123",
+      GSI1PK: "TEMPLATE_VERSIONS#tmpl_123",
+      GSI1SK: "2030-01-01T00:01:00.000Z#tmplv_123",
+      entity: publication,
+      ttl: Math.floor(Date.parse(publication.expires_at) / 1_000),
+    };
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        if (command instanceof GetCommand) {
+          return { Item: storedPublication };
+        }
+        if (
+          command instanceof QueryCommand &&
+          command.input.IndexName === "GSI1"
+        ) {
+          return { Items: [storedPublication] };
+        }
+        return { Items: [] };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await expect(
+      store.publishTemplate(template, publication, undefined, 1, 50),
+    ).resolves.toBe(true);
+    await expect(
+      store.getTemplateVersion(template.id, publication.id),
+    ).resolves.toEqual(publication);
+    await expect(
+      store.listTemplateVersions(
+        template.id,
+        20,
+        undefined,
+        Math.floor(Date.parse("2030-01-02T00:00:00.000Z") / 1_000),
+      ),
+    ).resolves.toMatchObject({
+      data: [publication],
+      has_more: false,
+    });
+    await store.listTemplateVersions(
+      template.id,
+      20,
+      publication,
+      Math.floor(Date.parse("2030-01-02T00:00:00.000Z") / 1_000),
+    );
+
+    expect(commands[0]).toBeInstanceOf(QueryCommand);
+    expect(commands[1]).toBeInstanceOf(TransactWriteCommand);
+    const publishItems = (commands[1] as TransactWriteCommand).input
+      .TransactItems;
+    expect(publishItems?.[0]?.Put).toMatchObject({
+      ConditionExpression:
+        "attribute_exists(PK) AND entity.#revision = :expected_revision",
+      ExpressionAttributeValues: { ":expected_revision": 1 },
+    });
+    expect(publishItems?.[1]?.Put?.Item).toEqual(storedPublication);
+    expect(publishItems?.[1]?.Put?.ConditionExpression).toBe(
+      "attribute_not_exists(PK)",
+    );
+    expect(publishItems?.[2]?.Put?.Item).toMatchObject({
+      PK: "TEMPLATE_PUBLISHED_ALIAS#welcome",
+      template_id: template.id,
+    });
+    expect(commands[2]).toBeInstanceOf(GetCommand);
+    expect((commands[2] as GetCommand).input.Key).toEqual({
+      PK: "TEMPLATE_VERSION#tmpl_123",
+      SK: "TEMPLATE_VERSION#tmplv_123",
+    });
+    expect(commands[3]).toBeInstanceOf(QueryCommand);
+    expect((commands[3] as QueryCommand).input).toMatchObject({
+      IndexName: "GSI1",
+      KeyConditionExpression: "GSI1PK = :partition",
+      ExpressionAttributeValues: {
+        ":partition": "TEMPLATE_VERSIONS#tmpl_123",
+      },
+      ScanIndexForward: false,
+    });
+    expect(commands[4]).toBeInstanceOf(QueryCommand);
+    expect((commands[4] as QueryCommand).input.ExclusiveStartKey).toEqual({
+      PK: storedPublication.PK,
+      SK: storedPublication.SK,
+      GSI1PK: storedPublication.GSI1PK,
+      GSI1SK: storedPublication.GSI1SK,
     });
   });
 

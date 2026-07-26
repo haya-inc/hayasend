@@ -9,6 +9,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplatePublicationRecord,
   TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
@@ -34,11 +35,31 @@ export interface Store {
 
   createTemplate(record: TemplateRecord): Promise<void>;
   getTemplate(identifier: string): Promise<TemplateRecord | undefined>;
+  getPublishedTemplate(
+    identifier: string,
+  ): Promise<TemplateRecord | undefined>;
   replaceTemplate(
     record: TemplateRecord,
     previousAlias: string | undefined,
     expectedRevision: number,
   ): Promise<boolean>;
+  publishTemplate(
+    record: TemplateRecord,
+    publication: TemplatePublicationRecord,
+    previousPublishedAlias: string | undefined,
+    expectedRevision: number,
+    historyLimit: number,
+  ): Promise<boolean>;
+  getTemplateVersion(
+    templateId: string,
+    versionId: string,
+  ): Promise<TemplatePublicationRecord | undefined>;
+  listTemplateVersions(
+    templateId: string,
+    limit: number,
+    cursor: TemplatePublicationRecord | undefined,
+    nowEpochSeconds: number,
+  ): Promise<Page<TemplatePublicationRecord>>;
   deleteTemplate(
     record: TemplateRecord,
     expectedRevision: number,

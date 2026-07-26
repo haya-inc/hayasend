@@ -8,19 +8,44 @@ import {
 } from "../core/errors.js";
 import type {
   Page,
+  PublicTemplateVersion,
   PublicTemplate,
   RenderedTemplate,
   SendEmailInput,
   TemplateListItem,
+  TemplatePublicationActor,
+  TemplatePublicationRecord,
+  TemplatePublicationSource,
   TemplateRecord,
+  TemplateRestoreResult,
   TemplateVariable,
   TemplateVariableType,
   TemplateVersion,
+  TemplateVersionListItem,
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
 
 export const MAX_TEMPLATE_BYTES = 128 * 1024;
 export const MAX_RENDERED_TEMPLATE_BYTES = 1024 * 1024;
+export const DEFAULT_TEMPLATE_HISTORY_RETENTION_DAYS = 90;
+export const DEFAULT_TEMPLATE_HISTORY_LIMIT = 50;
+export const MAX_TEMPLATE_HISTORY_RETENTION_DAYS = 365;
+export const MAX_TEMPLATE_HISTORY_LIMIT = 50;
+
+export interface TemplateHistoryOptions {
+  retentionDays: number;
+  limit: number;
+}
+
+export interface TemplatePublicationContext {
+  actor: TemplatePublicationActor;
+  source: TemplatePublicationSource;
+}
+
+const DEFAULT_PUBLICATION_CONTEXT: TemplatePublicationContext = {
+  actor: { id: "system", name: "System" },
+  source: "api",
+};
 
 const RESERVED_VARIABLES = new Set([
   "FIRST_NAME",
@@ -278,6 +303,41 @@ function listItem(record: TemplateRecord): TemplateListItem {
   };
 }
 
+function versionListItem(
+  publication: TemplatePublicationRecord,
+): TemplateVersionListItem {
+  return {
+    object: "template_version",
+    id: publication.id,
+    template_id: publication.template_id,
+    published_at: publication.published_at,
+    expires_at: publication.expires_at,
+    actor: structuredClone(publication.actor),
+    source: publication.source,
+    source_version_id: publication.source_version_id ?? null,
+  };
+}
+
+function publicTemplateVersion(
+  publication: TemplatePublicationRecord,
+): PublicTemplateVersion {
+  const version = publication.version;
+  return {
+    ...versionListItem(publication),
+    name: version.name,
+    alias: version.alias ?? null,
+    from: version.from ?? null,
+    subject: version.subject ?? null,
+    reply_to: version.reply_to ?? null,
+    html: version.html,
+    text: version.text ?? null,
+    variables:
+      version.variables.length > 0
+        ? structuredClone(version.variables)
+        : null,
+  };
+}
+
 function renderValue(
   value: string | undefined,
   variables: Map<string, string | number>,
@@ -402,7 +462,35 @@ function renderTemplateVersion(
 }
 
 export class TemplateService {
-  constructor(private readonly store: Store) {}
+  private readonly history: TemplateHistoryOptions;
+
+  constructor(
+    private readonly store: Store,
+    history: Partial<TemplateHistoryOptions> = {},
+  ) {
+    const retentionDays =
+      history.retentionDays ?? DEFAULT_TEMPLATE_HISTORY_RETENTION_DAYS;
+    const limit = history.limit ?? DEFAULT_TEMPLATE_HISTORY_LIMIT;
+    if (
+      !Number.isInteger(retentionDays) ||
+      retentionDays < 1 ||
+      retentionDays > MAX_TEMPLATE_HISTORY_RETENTION_DAYS
+    ) {
+      throw new ValidationError(
+        `Template history retention must be between 1 and ${MAX_TEMPLATE_HISTORY_RETENTION_DAYS} days.`,
+      );
+    }
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_TEMPLATE_HISTORY_LIMIT
+    ) {
+      throw new ValidationError(
+        `Template history limit must be between 1 and ${MAX_TEMPLATE_HISTORY_LIMIT}.`,
+      );
+    }
+    this.history = { retentionDays, limit };
+  }
 
   async create(
     input: CreateTemplateInput,
@@ -464,6 +552,114 @@ export class TemplateService {
     return { ...page, data: page.data.map(listItem) };
   }
 
+  async listVersions(
+    identifier: string,
+    limit: number,
+    after?: string,
+    now = new Date(),
+  ): Promise<Page<TemplateVersionListItem>> {
+    const template = await this.getRecord(identifier);
+    const cursor = after
+      ? await this.getPublicationRecord(template, after, now)
+      : undefined;
+    const page = await this.store.listTemplateVersions(
+      template.id,
+      limit,
+      cursor,
+      Math.floor(now.getTime() / 1_000),
+    );
+    return { ...page, data: page.data.map(versionListItem) };
+  }
+
+  async getVersion(
+    identifier: string,
+    versionId: string,
+    now = new Date(),
+  ): Promise<PublicTemplateVersion> {
+    const template = await this.getRecord(identifier);
+    return publicTemplateVersion(
+      await this.getPublicationRecord(template, versionId, now),
+    );
+  }
+
+  async renderVersion(
+    identifier: string,
+    versionId: string,
+    input: RenderTemplateInput,
+    now = new Date(),
+  ): Promise<RenderedTemplate> {
+    const template = await this.getRecord(identifier);
+    const publication = await this.getPublicationRecord(
+      template,
+      versionId,
+      now,
+    );
+    const rendered = renderTemplateVersion(
+      publication.version,
+      input,
+      "render",
+    );
+    return {
+      object: "template_render",
+      template_id: template.id,
+      version_id: publication.id,
+      from: rendered.from ?? null,
+      subject: rendered.subject ?? null,
+      reply_to: rendered.reply_to ?? null,
+      html: rendered.html,
+      text: rendered.text,
+    };
+  }
+
+  async restoreVersion(
+    identifier: string,
+    versionId: string,
+    expectedDraftVersionId: string,
+    now = new Date(),
+  ): Promise<TemplateRestoreResult> {
+    const current = await this.getRecord(identifier);
+    if (current.draft.id !== expectedDraftVersionId) {
+      throw new PreconditionFailedError(
+        "Template draft changed after restore was requested; inspect the current draft and retry.",
+      );
+    }
+    const publication = await this.getPublicationRecord(
+      current,
+      versionId,
+      now,
+    );
+    const timestamp = now.toISOString();
+    const draft: TemplateVersion = {
+      ...structuredClone(publication.version),
+      id: createId("tmplv"),
+      created_at: timestamp,
+      source_version_id: publication.id,
+    };
+    validateVersion(draft);
+    const updated: TemplateRecord = {
+      ...current,
+      draft,
+      updated_at: timestamp,
+      revision: current.revision + 1,
+    };
+    const replaced = await this.store.replaceTemplate(
+      updated,
+      current.draft.alias,
+      current.revision,
+    );
+    if (!replaced) {
+      throw new ConflictError(
+        "Template changed concurrently; retry the restore.",
+      );
+    }
+    return {
+      object: "template_restore",
+      template_id: current.id,
+      source_version_id: publication.id,
+      current_version_id: draft.id,
+    };
+  }
+
   async update(
     identifier: string,
     input: UpdateTemplateInput,
@@ -511,6 +707,7 @@ export class TemplateService {
     identifier: string,
     now = new Date(),
     expectedDraftVersionId?: string,
+    context: TemplatePublicationContext = DEFAULT_PUBLICATION_CONTEXT,
   ): Promise<{ object: "template"; id: string }> {
     const current = await this.getRecord(identifier);
     if (
@@ -532,10 +729,26 @@ export class TemplateService {
       updated_at: timestamp,
       revision: current.revision + 1,
     };
-    const replaced = await this.store.replaceTemplate(
+    const publication: TemplatePublicationRecord = {
+      id: current.draft.id,
+      template_id: current.id,
+      version: structuredClone(current.draft),
+      published_at: timestamp,
+      expires_at: new Date(
+        now.getTime() + this.history.retentionDays * 24 * 60 * 60 * 1_000,
+      ).toISOString(),
+      actor: structuredClone(context.actor),
+      source: context.source,
+      ...(current.draft.source_version_id
+        ? { source_version_id: current.draft.source_version_id }
+        : {}),
+    };
+    const replaced = await this.store.publishTemplate(
       updated,
-      current.draft.alias,
+      publication,
+      current.published?.alias,
       current.revision,
+      this.history.limit,
     );
     if (!replaced) {
       throw new ConflictError(
@@ -612,7 +825,7 @@ export class TemplateService {
       const { template: _template, ...resolved } = input;
       return { ...resolved, from: input.from, subject: input.subject };
     }
-    const record = await this.getRecord(input.template.id);
+    const record = await this.getPublishedRecord(input.template.id);
     const version = record.published;
     if (!version) {
       throw new ValidationError(
@@ -668,6 +881,38 @@ export class TemplateService {
       throw new NotFoundError("Template");
     }
     return record;
+  }
+
+  private async getPublishedRecord(
+    identifier: string,
+  ): Promise<TemplateRecord> {
+    const record = await this.store.getPublishedTemplate(identifier);
+    if (!record) {
+      throw new NotFoundError("Template");
+    }
+    return record;
+  }
+
+  private async getPublicationRecord(
+    template: TemplateRecord,
+    versionId: string,
+    now: Date,
+  ): Promise<TemplatePublicationRecord> {
+    const publication = await this.store.getTemplateVersion(
+      template.id,
+      versionId,
+    );
+    if (
+      !publication ||
+      publication.template_id !== template.id ||
+      publication.id !== versionId ||
+      publication.version.id !== versionId ||
+      !Number.isFinite(Date.parse(publication.expires_at)) ||
+      Date.parse(publication.expires_at) <= now.getTime()
+    ) {
+      throw new NotFoundError("Template version");
+    }
+    return publication;
   }
 
   private updatedOptional<

@@ -20,6 +20,8 @@ export interface Config {
   inboundRetentionDays: number;
   inboundMaxMessageBytes: number;
   webhookDeliveryRetentionDays: number;
+  templateHistoryRetentionDays: number;
+  templateHistoryLimit: number;
 }
 
 export function loadConfig(env = process.env): Config {
@@ -103,6 +105,30 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS must be an integer between 1 and 30.",
     );
   }
+  const templateHistoryRetentionDays = Number(
+    env.HAYASEND_TEMPLATE_HISTORY_RETENTION_DAYS ?? 90,
+  );
+  if (
+    !Number.isInteger(templateHistoryRetentionDays) ||
+    templateHistoryRetentionDays < 1 ||
+    templateHistoryRetentionDays > 365
+  ) {
+    throw new ValidationError(
+      "HAYASEND_TEMPLATE_HISTORY_RETENTION_DAYS must be an integer between 1 and 365.",
+    );
+  }
+  const templateHistoryLimit = Number(
+    env.HAYASEND_TEMPLATE_HISTORY_LIMIT ?? 50,
+  );
+  if (
+    !Number.isInteger(templateHistoryLimit) ||
+    templateHistoryLimit < 1 ||
+    templateHistoryLimit > 50
+  ) {
+    throw new ValidationError(
+      "HAYASEND_TEMPLATE_HISTORY_LIMIT must be an integer between 1 and 50.",
+    );
+  }
 
   return {
     mode,
@@ -113,6 +139,8 @@ export function loadConfig(env = process.env): Config {
     inboundRetentionDays,
     inboundMaxMessageBytes,
     webhookDeliveryRetentionDays,
+    templateHistoryRetentionDays,
+    templateHistoryLimit,
     ...(mode === "local" && apiKey ? { apiKey } : {}),
     ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME

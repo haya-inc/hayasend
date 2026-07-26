@@ -60,6 +60,8 @@ A single DynamoDB table stores typed entities:
 - `SUPPRESSION#<sha256-normalized-email>`
 - `TEMPLATE#<id>`
 - `TEMPLATE_ALIAS#<alias>`
+- `TEMPLATE_PUBLISHED_ALIAS#<alias>`
+- `TEMPLATE_VERSION#<template-id>` / `TEMPLATE_VERSION#<version-id>`
 
 `GSI1` provides reverse-chronological lists by entity type. Idempotency claims
 and unreferenced attachment metadata expire after 24 hours through DynamoDB
@@ -82,8 +84,12 @@ expire after 45 days; email metadata remains in DynamoDB. Public email
 responses expose attachment metadata only.
 
 Templates remain within the DynamoDB size boundary through a 128 KiB
-per-version limit. Each record contains the editable draft and immutable
-published snapshot; sends never read draft content. Alias ownership and
+per-version limit. Each template record contains the editable draft and
+immutable published snapshot; sends never read draft content. Published
+versions are also retained as separate immutable records with a configurable
+count and TTL. Publication atomically writes the history item, published
+snapshot, and published-alias mapping. Draft aliases are separate, so editing
+or restoring a draft cannot redirect production sends. Alias ownership and
 revision changes are transactional, and optimistic revision checks reject
 concurrent updates. Variables are type checked before queueing and HTML values
 are escaped during rendering.
@@ -144,6 +150,6 @@ A manual replay creates a new delivery record and message ID, links it through
 
 - one bootstrap administrator key per deployment;
 - payload retention is fixed at 45 days;
-- template history retains only the current draft and published snapshot;
+- template publication history is bounded to 1–50 versions and 1–365 days;
 - inbound forwarding, alias routing, and ARC preservation are not implemented;
 - no deployment test has run in a dedicated AWS account.

@@ -49,4 +49,11 @@ Create and publish each template through the official SDK, then continue using
 Give the migration job `templates:read` and `templates:write`; the application
 sender itself needs only `emails:send`. See
 [hosted templates](hosted-templates.md) for the draft/publication boundary and
-current version-retention limit.
+version-retention controls.
+
+Publication history begins with versions published by HayaSend after this
+feature is deployed; existing Resend history and legacy HayaSend snapshots are
+not backfilled. A restore is intentionally not an instant production rollback:
+it creates a new unpublished draft, which should be rendered and reviewed
+before an explicit conditional publish. The previously published snapshot
+continues serving sends during that review.

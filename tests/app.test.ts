@@ -223,6 +223,135 @@ describe("HTTP API", () => {
     expect(malformedVersion.status).toBe(422);
   });
 
+  it("authorizes version history separately and restores with a current-draft precondition", async () => {
+    const { request } = fixture();
+    const createdResponse = await request("/templates", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Historical",
+        alias: "historical",
+        html: "<p>Known good</p>",
+      }),
+    });
+    const created = (await createdResponse.json()) as { id: string };
+    const currentResponse = await request(`/templates/${created.id}`);
+    const current = (await currentResponse.json()) as {
+      current_version_id: string;
+    };
+    const published = await request(`/templates/${created.id}/publish`, {
+      method: "POST",
+      headers: {
+        "if-match": `"${current.current_version_id}"`,
+        "x-hayasend-source": "cli",
+      },
+    });
+    expect(published.status).toBe(200);
+
+    const readerResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "history reviewer",
+        scopes: ["templates:read"],
+      }),
+    });
+    const reader = (await readerResponse.json()) as { token: string };
+    const versionsResponse = await request(
+      `/templates/${created.id}/versions?limit=1`,
+      {},
+      reader.token,
+    );
+    expect(versionsResponse.status).toBe(200);
+    const versions = (await versionsResponse.json()) as {
+      data: Array<Record<string, unknown>>;
+    };
+    expect(versions.data).toHaveLength(1);
+    expect(versions.data[0]).toMatchObject({
+      object: "template_version",
+      id: current.current_version_id,
+      template_id: created.id,
+      actor: {
+        id: "bootstrap",
+        name: "Bootstrap administrator",
+      },
+      source: "cli",
+      source_version_id: null,
+    });
+    expect(versions.data[0]).not.toHaveProperty("html");
+    expect(versions.data[0]).not.toHaveProperty("text");
+
+    const inspected = await request(
+      `/templates/${created.id}/versions/${current.current_version_id}`,
+      {},
+      reader.token,
+    );
+    expect(inspected.status).toBe(200);
+    await expect(inspected.json()).resolves.toMatchObject({
+      object: "template_version",
+      id: current.current_version_id,
+      html: "<p>Known good</p>",
+    });
+    const rendered = await request(
+      `/templates/${created.id}/versions/${current.current_version_id}/render`,
+      { method: "POST", body: "{}" },
+      reader.token,
+    );
+    expect(rendered.status).toBe(200);
+    expect(rendered.headers.get("etag")).toBe(
+      `"${current.current_version_id}"`,
+    );
+
+    const forbiddenRestore = await request(
+      `/templates/${created.id}/versions/${current.current_version_id}/restore`,
+      {
+        method: "POST",
+        headers: { "if-match": `"${current.current_version_id}"` },
+      },
+      reader.token,
+    );
+    expect(forbiddenRestore.status).toBe(403);
+    const missingPrecondition = await request(
+      `/templates/${created.id}/versions/${current.current_version_id}/restore`,
+      { method: "POST" },
+    );
+    expect(missingPrecondition.status).toBe(412);
+    const restoredResponse = await request(
+      `/templates/${created.id}/versions/${current.current_version_id}/restore`,
+      {
+        method: "POST",
+        headers: { "if-match": `"${current.current_version_id}"` },
+      },
+    );
+    expect(restoredResponse.status).toBe(200);
+    const restored = (await restoredResponse.json()) as {
+      object: string;
+      current_version_id: string;
+    };
+    expect(restored.object).toBe("template_restore");
+    expect(restored.current_version_id).toMatch(/^tmplv_[a-f0-9]{32}$/);
+    expect(restored.current_version_id).not.toBe(current.current_version_id);
+
+    const otherResponse = await request("/templates", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Other",
+        html: "<p>Other</p>",
+      }),
+    });
+    const other = (await otherResponse.json()) as { id: string };
+    const wrongTemplate = await request(
+      `/templates/${other.id}/versions/${current.current_version_id}`,
+      {},
+      reader.token,
+    );
+    expect(wrongTemplate.status).toBe(404);
+    const malformedVersion = await request(
+      `/templates/${created.id}/versions/not-a-version`,
+      {},
+      reader.token,
+    );
+    expect(malformedVersion.status).toBe(422);
+  });
+
   it("exposes the preview only when local preview mode is enabled", async () => {
     const regular = fixture();
     const protectedPreview = await regular.app.request("/preview");
