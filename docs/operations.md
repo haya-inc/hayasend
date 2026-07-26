@@ -173,14 +173,41 @@ identical payload with the same key when the caller did not receive a response.
 A changed payload conflicts, while a new key creates a distinct delivery
 intent.
 
+## Recipient ledger and provider-event recovery
+
+Provider submission attempts are stored beside their message and recipients.
+SES notifications are stored separately under an immutable provider-event
+identity and indexed by email ID. A duplicate SNS `MessageId` is expected and
+does not add a second event. Delivery, delay, bounce, and complaint events must
+resolve their normalized address to a recipient on the accepted SES attempt.
+Open and click evidence for a multi-recipient submission intentionally has no
+recipient IDs; do not hand-edit it to guess an attribution.
+
+If the SES-event Lambda moves an item to its DLQ:
+
+1. use only the opaque HayaSend email ID, SNS message ID, provider message ID,
+   and safe error category in logs or tickets;
+2. verify the email has exactly one accepted attempt with that provider
+   message ID;
+3. verify the event's exact recipient is part of that attempt;
+4. correct permissions or normalization code, then redrive the original SNS
+   envelope;
+5. confirm the immutable event appears once and the recipient status did not
+   regress.
+
+Do not delete an existing provider event to force a replay, and do not paste
+the SNS message, SMTP response, address, subject, or body into a ticket. A
+recognized duplicate or older event still produces the normalized outward
+webhook, while current recipient state remains conservative.
+
 ## Upgrade and rollback
 
 The transactional outbox deployment is additive to the v0.1 single-table
 layout and reuses the existing `GSI1`; CloudFormation must not replace the
 DynamoDB table. Existing v0.1 emails remain readable. Jobs and Scheduler
 entries that were accepted before upgrade continue to reload the legacy email
-record, while newly created dispatchable messages also receive delivery and
-outbox records.
+record, while newly created messages also receive delivery, attempt, event,
+recipient, and outbox records.
 
 Before upgrading:
 

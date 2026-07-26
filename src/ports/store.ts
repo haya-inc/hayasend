@@ -15,8 +15,9 @@ import type {
   WebhookEndpoint,
 } from "../core/types.js";
 import type { DeliveryOutboxStore } from "./delivery-outbox-store.js";
+import type { DeliveryLedgerStore } from "./delivery-ledger-store.js";
 
-export interface Store extends DeliveryOutboxStore {
+export interface Store extends DeliveryOutboxStore, DeliveryLedgerStore {
   createEmail(
     record: EmailRecord,
     idempotency?: IdempotencyClaim,

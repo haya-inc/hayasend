@@ -604,7 +604,7 @@ describe("EmailService", () => {
   });
 
   it("does not enqueue or deliver to a suppressed recipient", async () => {
-    const { queue, service, suppressions, transport } = fixture();
+    const { queue, service, store, suppressions, transport } = fixture();
     await suppressions.put({
       email: "Recipient <recipient@example.net>",
       reason: "complaint",
@@ -612,6 +612,19 @@ describe("EmailService", () => {
     const created = await service.create(input);
     expect(created.record.status).toBe("suppressed");
     expect(queue.jobs).toHaveLength(0);
+    await expect(
+      store.getDeliveryLedger(created.record.id),
+    ).resolves.toMatchObject({
+      message: { status: "suppressed" },
+      recipients: [{ status: "suppressed" }],
+    });
+    await expect(
+      store.getDelivery(created.record.id),
+    ).resolves.toMatchObject({
+      outbox: {
+        dispatched_at: created.record.created_at,
+      },
+    });
     await service.processSend(created.record.id);
     expect(transport.sent).toHaveLength(0);
   });

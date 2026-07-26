@@ -20,6 +20,10 @@ minor releases before v1.0.
   dispatcher, deterministic queue jobs, privacy-safe alarms, and live
   deploy/recover/delete proof. SQS and EventBridge Scheduler are now wake-up
   optimizations rather than delivery truth.
+- Add an immutable provider-event and recipient-attempt ledger shared by the
+  memory and DynamoDB adapters, with SNS event deduplication, exact
+  recipient correlation, conservative message aggregates, sticky complaint and
+  suppression safety, and no retained raw provider payloads.
 
 ## 0.1.0 - 2026-07-26
 
