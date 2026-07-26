@@ -6,6 +6,7 @@ import {
   conformanceResultSchema,
   providerCapabilityDocumentSchema,
 } from "../src/core/provider-capabilities.js";
+import { deliveryRecordSchema } from "../src/core/delivery-model.js";
 
 function jsonSchema(schema: z.ZodType, id: string) {
   const generated = z.toJSONSchema(schema, {
@@ -34,6 +35,10 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "schemas/conformance-result.v1.schema.json": jsonSchema(
     conformanceResultSchema,
     "https://hayasend.dev/schemas/conformance-result.v1.schema.json",
+  ),
+  "schemas/delivery-record.v1.schema.json": jsonSchema(
+    deliveryRecordSchema,
+    "https://hayasend.dev/schemas/delivery-record.v1.schema.json",
   ),
   "schemas/provider-capabilities.v1.schema.json": jsonSchema(
     providerCapabilityDocumentSchema,

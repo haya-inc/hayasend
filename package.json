@@ -30,6 +30,7 @@
     "cost:estimate": "node scripts/aws-cost-model.mjs",
     "dev": "tsx src/server.ts",
     "doctor": "tsx src/cli.ts doctor",
+    "generate:conformance": "tsx scripts/check-conformance.ts --write",
     "lint:openapi": "redocly lint openapi.yaml",
     "start": "node dist/server.js",
     "test": "vitest run",

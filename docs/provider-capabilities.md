@@ -15,6 +15,8 @@ The generated artifacts are:
   — capability document schema;
 - [`schemas/conformance-result.v1.schema.json`](../schemas/conformance-result.v1.schema.json)
   — evidence report schema.
+- [`schemas/delivery-record.v1.schema.json`](../schemas/delivery-record.v1.schema.json)
+  — provider-neutral message, recipient, attempt, event, and outbox records.
 
 `npm run check:conformance` regenerates every artifact in memory and fails if a
 committed file is absent or stale. This prevents source types, published JSON,

@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFORMANCE_ARTIFACTS } from "./conformance-artifacts.js";
 
 function canonicalJson(value: unknown) {
@@ -6,7 +8,13 @@ function canonicalJson(value: unknown) {
 }
 
 const requestedArtifact = process.argv[2];
-if (requestedArtifact) {
+if (requestedArtifact === "--write") {
+  for (const [path, expected] of Object.entries(CONFORMANCE_ARTIFACTS)) {
+    const artifactUrl = new URL(`../${path}`, import.meta.url);
+    await mkdir(dirname(fileURLToPath(artifactUrl)), { recursive: true });
+    await writeFile(artifactUrl, canonicalJson(expected), "utf8");
+  }
+} else if (requestedArtifact) {
   const artifact = CONFORMANCE_ARTIFACTS[requestedArtifact];
   if (artifact === undefined) {
     throw new Error(`Unknown conformance artifact: ${requestedArtifact}.`);

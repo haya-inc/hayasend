@@ -1,0 +1,616 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hayasend.dev/schemas/delivery-record.v1.schema.json",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema12"
+    },
+    {
+      "$ref": "#/$defs/__schema21"
+    },
+    {
+      "$ref": "#/$defs/__schema32"
+    },
+    {
+      "$ref": "#/$defs/__schema43"
+    }
+  ],
+  "title": "HayaSend provider-neutral delivery record",
+  "description": "Versioned message, recipient, attempt, provider-event, and outbox records.",
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "record_type": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "provider": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "intent_digest": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "recipient_ids": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "status": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "created_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "scheduled_at": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "id",
+        "provider",
+        "intent_digest",
+        "recipient_ids",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "__schema1": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema2": {
+      "type": "string",
+      "const": "message"
+    },
+    "__schema3": {
+      "type": "string",
+      "pattern": "^email_[A-Za-z0-9_-]{16,128}$"
+    },
+    "__schema4": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$"
+        },
+        "adapter_version": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "capability_version": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "required": [
+        "name",
+        "adapter_version",
+        "capability_version"
+      ],
+      "additionalProperties": false
+    },
+    "__schema5": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "__schema6": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "__schema7": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      }
+    },
+    "__schema8": {
+      "type": "string",
+      "pattern": "^rcpt_[A-Za-z0-9_-]{22,128}$"
+    },
+    "__schema9": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "scheduled",
+        "sending",
+        "accepted",
+        "partially_delivered",
+        "delivered",
+        "delivery_delayed",
+        "bounced",
+        "complained",
+        "failed",
+        "canceled",
+        "suppressed"
+      ]
+    },
+    "__schema10": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "__schema11": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema12": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "record_type": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "message_id": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "role": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "address": {
+          "$ref": "#/$defs/__schema17"
+        },
+        "status": {
+          "$ref": "#/$defs/__schema18"
+        },
+        "latest_attempt_id": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "created_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "id",
+        "message_id",
+        "role",
+        "ordinal",
+        "address",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "__schema13": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema14": {
+      "type": "string",
+      "const": "recipient"
+    },
+    "__schema15": {
+      "type": "string",
+      "enum": [
+        "to",
+        "cc",
+        "bcc"
+      ]
+    },
+    "__schema16": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema17": {
+      "type": "string",
+      "maxLength": 320,
+      "format": "email",
+      "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+    },
+    "__schema18": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "sending",
+        "accepted",
+        "delivery_delayed",
+        "delivered",
+        "opened",
+        "clicked",
+        "bounced",
+        "complained",
+        "rejected",
+        "failed",
+        "suppressed",
+        "canceled"
+      ]
+    },
+    "__schema19": {
+      "$ref": "#/$defs/__schema20"
+    },
+    "__schema20": {
+      "type": "string",
+      "pattern": "^attempt_[A-Za-z0-9_-]{22,128}$"
+    },
+    "__schema21": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema22"
+        },
+        "record_type": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "message_id": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "recipient_ids": {
+          "$ref": "#/$defs/__schema24"
+        },
+        "sequence": {
+          "$ref": "#/$defs/__schema25"
+        },
+        "provider": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "status": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "provider_message_id": {
+          "$ref": "#/$defs/__schema27"
+        },
+        "diagnostic_category": {
+          "$ref": "#/$defs/__schema29"
+        },
+        "started_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "completed_at": {
+          "$ref": "#/$defs/__schema31"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "id",
+        "message_id",
+        "recipient_ids",
+        "sequence",
+        "provider",
+        "status",
+        "started_at"
+      ],
+      "additionalProperties": false
+    },
+    "__schema22": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema23": {
+      "type": "string",
+      "const": "attempt"
+    },
+    "__schema24": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      }
+    },
+    "__schema25": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema26": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "submitting",
+        "accepted",
+        "ambiguous",
+        "retryable_failed",
+        "permanent_failed"
+      ]
+    },
+    "__schema27": {
+      "$ref": "#/$defs/__schema28"
+    },
+    "__schema28": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\s@]+$"
+    },
+    "__schema29": {
+      "$ref": "#/$defs/__schema30"
+    },
+    "__schema30": {
+      "type": "string",
+      "enum": [
+        "application_error",
+        "invalid_data",
+        "network_dns",
+        "network_refused",
+        "network_reset",
+        "provider_error",
+        "provider_rejected",
+        "provider_throttled",
+        "provider_unavailable",
+        "timeout"
+      ]
+    },
+    "__schema31": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema32": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "record_type": {
+          "$ref": "#/$defs/__schema34"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema35"
+        },
+        "provider": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "source": {
+          "$ref": "#/$defs/__schema36"
+        },
+        "message_id": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/__schema37"
+        },
+        "recipient_ids": {
+          "$ref": "#/$defs/__schema38"
+        },
+        "provider_message_id": {
+          "$ref": "#/$defs/__schema39"
+        },
+        "type": {
+          "$ref": "#/$defs/__schema40"
+        },
+        "provider_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "received_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "terminal": {
+          "$ref": "#/$defs/__schema41"
+        },
+        "diagnostic_category": {
+          "$ref": "#/$defs/__schema42"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "id",
+        "provider",
+        "source",
+        "message_id",
+        "recipient_ids",
+        "type",
+        "provider_at",
+        "received_at",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "__schema33": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema34": {
+      "type": "string",
+      "const": "provider_event"
+    },
+    "__schema35": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^provider-event:v1:[^:]+:(?:id|digest):.+$"
+    },
+    "__schema36": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "provider_event_id"
+            },
+            "value": {
+              "$ref": "#/$defs/__schema28"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "normalized_event_digest"
+            },
+            "value": {
+              "$ref": "#/$defs/__schema6"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema37": {
+      "$ref": "#/$defs/__schema20"
+    },
+    "__schema38": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema8"
+      }
+    },
+    "__schema39": {
+      "$ref": "#/$defs/__schema28"
+    },
+    "__schema40": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "delivered",
+        "delayed",
+        "bounced",
+        "complained",
+        "rejected",
+        "opened",
+        "clicked",
+        "failed"
+      ]
+    },
+    "__schema41": {
+      "type": "boolean"
+    },
+    "__schema42": {
+      "$ref": "#/$defs/__schema30"
+    },
+    "__schema43": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema44"
+        },
+        "record_type": {
+          "$ref": "#/$defs/__schema45"
+        },
+        "id": {
+          "$ref": "#/$defs/__schema46"
+        },
+        "message_id": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "job_type": {
+          "$ref": "#/$defs/__schema47"
+        },
+        "generation": {
+          "$ref": "#/$defs/__schema48"
+        },
+        "due_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "attempts": {
+          "$ref": "#/$defs/__schema49"
+        },
+        "lease_owner": {
+          "$ref": "#/$defs/__schema50"
+        },
+        "lease_expires_at": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "dispatched_at": {
+          "$ref": "#/$defs/__schema52"
+        },
+        "last_diagnostic_category": {
+          "$ref": "#/$defs/__schema53"
+        },
+        "created_at": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/__schema10"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_type",
+        "id",
+        "message_id",
+        "job_type",
+        "generation",
+        "due_at",
+        "attempts",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "__schema44": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema45": {
+      "type": "string",
+      "const": "outbox_item"
+    },
+    "__schema46": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^outbox:v1:[^:]+:[a-z][a-z0-9-]+:[0-9]+$"
+    },
+    "__schema47": {
+      "type": "string",
+      "enum": [
+        "dispatch-message",
+        "wake-scheduled-message",
+        "reconcile-message"
+      ]
+    },
+    "__schema48": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema49": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema50": {
+      "$ref": "#/$defs/__schema28"
+    },
+    "__schema51": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema52": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema53": {
+      "$ref": "#/$defs/__schema30"
+    }
+  }
+}
