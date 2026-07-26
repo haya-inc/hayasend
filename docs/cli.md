@@ -259,11 +259,16 @@ template are not replayed. Supported overrides are:
 - `--webhook-retention-days 1..30`;
 - `--template-history-retention-days 1..365`;
 - `--template-history-limit 1..50`;
+- `--worker-reserved-concurrency 0..1000` (`0` uses the account's unreserved
+  concurrency pool);
 - repeatable `--tag KEY=VALUE`.
 
 Enabling inbound receiving requires explicit non-`.invalid` recipient
 suffixes. An existing bootstrap secret ARN must belong to the expected account
 and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
+The production default reserves 10 worker executions. New or quota-constrained
+accounts can set the override to `0`; queue scaling still caps worker
+concurrency at 10.
 
 After execution, the CLI waits for CloudFormation, reads the API URL, bootstrap
 secret ARN, alarm topic, dashboard, and optional inbound MX target, then prints

@@ -923,6 +923,7 @@ async function deployCommand(
       "webhook-retention-days",
       "template-history-retention-days",
       "template-history-limit",
+      "worker-reserved-concurrency",
     ],
     booleans: [
       "apply",
@@ -960,6 +961,10 @@ async function deployCommand(
     "template-history-retention-days",
   );
   const templateHistoryLimit = flag(args, "template-history-limit");
+  const workerReservedConcurrency = flag(
+    args,
+    "worker-reserved-concurrency",
+  );
   await deployAws(
     {
       account,
@@ -983,6 +988,9 @@ async function deployCommand(
         ? { templateHistoryRetentionDays }
         : {}),
       ...(templateHistoryLimit ? { templateHistoryLimit } : {}),
+      ...(workerReservedConcurrency !== undefined
+        ? { workerReservedConcurrency }
+        : {}),
       tags: flags(args, "tag"),
     },
     {
