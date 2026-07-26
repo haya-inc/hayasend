@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.1.0 - 2026-07-26
+
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS
   deployment foundation.
 - Add Resend-compatible hosted templates with aliases, typed variables,
