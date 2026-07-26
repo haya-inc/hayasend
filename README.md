@@ -17,7 +17,8 @@ account, and HayaSend never logs message bodies.
 - checksum-bound direct S3 attachment uploads up to 25 MiB
 - `POST /emails/batch` for up to 100 messages
 - hosted templates with unique aliases, typed variables, isolated
-  draft/published versions, and official SDK/React Email support
+  draft/published versions, official SDK/React Email support, and
+  repository-to-draft CLI reconciliation
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
 - automatic hard-bounce and complaint suppressions plus manual suppression API
@@ -137,11 +138,11 @@ docker compose -f ../my-application/compose.hayasend.yaml up -d
 npm run cli -- doctor
 ```
 
-The command creates a hardened Compose file and
-`.env.hayasend.example`. Use `npm run cli -- help` for the full command list
-and read [the CLI guide](docs/cli.md) for secret handling and real-send
-behavior. The future standalone CLI will use the same commands and generated
-files.
+The command creates a hardened Compose file and `.env.hayasend.example`. Use
+`npm run cli -- help` for the full command list and read
+[the CLI guide](docs/cli.md) for secret handling, template-as-code
+reconciliation, and real-send behavior. The compiled package exposes the same
+commands through its `hayasend` executable.
 
 ```bash
 curl http://localhost:8787/emails \

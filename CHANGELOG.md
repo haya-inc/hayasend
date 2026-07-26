@@ -11,3 +11,6 @@ minor releases before v1.0.
 - Add Resend-compatible hosted templates with aliases, typed variables,
   draft/published isolation, React Email SDK interoperability, and scoped API
   access.
+- Add a safe template-as-code CLI with manifest validation, dry-run planning,
+  idempotent draft reconciliation, explicit publication, and hosted-template
+  sends.

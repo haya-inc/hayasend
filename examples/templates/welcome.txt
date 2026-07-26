@@ -1,0 +1,3 @@
+Welcome, {{{NAME}}}
+
+Your HayaSend template is ready.

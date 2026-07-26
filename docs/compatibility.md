@@ -28,6 +28,8 @@ migration path. It does not claim full Resend API coverage.
 | Templates           | create/get/list/update/publish/duplicate/delete |        Implemented | ID or alias; isolated draft/published snapshots                    |
 | Templates           | send/batch send                                 |        Implemented | typed variables, fallbacks, text derivation, and default overrides |
 | Templates           | React Email                                     |        Implemented | official SDK renders locally with `@react-email/render`            |
+| Templates           | CLI list/get/publish/send                       |        Implemented | Resend-shaped commands and repeatable `--var` values               |
+| Templates           | manifest reconciliation                         | HayaSend extension | dry-run, drifted drafts only, and explicit publication             |
 | Templates           | full historical rollback                        |            Planned | current draft and published snapshots are retained today           |
 | Contacts/broadcasts | marketing APIs                                  | Not planned for v1 | compliance work required                                           |
 

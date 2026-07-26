@@ -8,7 +8,8 @@ The self-hosted transactional path remains Apache-2.0:
 - AWS deployment templates;
 - SES transport and event normalization;
 - queues, retries, idempotency, and webhooks;
-- hosted templates, React Email interoperability, and safe version publishing;
+- hosted templates, React Email interoperability, template-as-code
+  reconciliation, and safe version publishing;
 - inbound and forwarding primitives when implemented;
 - security fixes and documented upgrade paths.
 

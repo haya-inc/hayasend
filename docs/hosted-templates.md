@@ -105,3 +105,19 @@ from adding markup or injecting a mail header.
 For least privilege, a deployment pipeline normally receives
 `templates:read` and `templates:write`, while an application runtime receives
 `emails:send` only.
+
+## Reconcile templates from a repository
+
+The HayaSend CLI can reconcile a versioned `hayasend.templates.json` manifest
+with hosted drafts. It validates all local files first, creates only missing
+aliases, patches only drifted drafts, and never deletes remote templates.
+Publishing remains a separate opt-in boundary:
+
+```bash
+npm run cli -- templates push --dry-run
+npm run cli -- templates push
+npm run cli -- templates push --publish
+```
+
+See the [CLI guide](cli.md#manage-templates-as-code) for the manifest format,
+JSON Schema, CI behavior, and path-safety rules.

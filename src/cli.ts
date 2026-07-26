@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  loadTemplateManifest,
+  parseRemoteTemplate,
+  parseTemplateVariables,
+  templatesMatch,
+  type DesiredTemplate,
+  type RemoteTemplate,
+} from "./cli-templates.js";
 import { startServer } from "./server.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -33,46 +35,106 @@ const defaultDependencies: CliDependencies = {
   io: console,
 };
 
+function flags(args: string[], name: string): string[] {
+  const values: string[] = [];
+  for (let index = 1; index < args.length; index += 1) {
+    if (args[index] !== `--${name}`) {
+      continue;
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`--${name} requires a value.`);
+    }
+    values.push(value);
+  }
+  return values;
+}
+
 function flag(args: string[], name: string): string | undefined {
-  const index = args.indexOf(`--${name}`);
-  if (index < 0) {
-    return undefined;
+  const values = flags(args, name);
+  if (values.length > 1) {
+    throw new Error(`Option --${name} may be provided only once.`);
   }
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`--${name} requires a value.`);
-  }
-  return value;
+  return values[0];
 }
 
 function hasFlag(args: string[], name: string) {
   return args.includes(`--${name}`);
 }
 
-function validateOptions(args: string[], allowed: string[]) {
+function positional(args: string[], index: number, label: string) {
+  const value = args[index];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${label} is required.`);
+  }
+  return value;
+}
+
+interface OptionSpecification {
+  values?: string[];
+  booleans?: string[];
+  repeatable?: string[];
+  positionals?: number;
+}
+
+function validateOptions(
+  args: string[],
+  {
+    values = [],
+    booleans = [],
+    repeatable = [],
+    positionals = 0,
+  }: OptionSpecification,
+) {
   const seen = new Set<string>();
-  for (let index = 1; index < args.length; index += 2) {
+  let positionalCount = 0;
+  for (let index = 1; index < args.length; index += 1) {
     const option = args[index];
     if (!option?.startsWith("--")) {
-      throw new Error(`Unexpected argument: ${option ?? ""}`);
+      if (positionalCount >= positionals) {
+        throw new Error(`Unexpected argument: ${option ?? ""}`);
+      }
+      positionalCount += 1;
+      continue;
     }
     const name = option.slice(2);
-    if (!allowed.includes(name)) {
+    if (booleans.includes(name)) {
+      if (seen.has(name)) {
+        throw new Error(`Option --${name} may be provided only once.`);
+      }
+      seen.add(name);
+      continue;
+    }
+    if (![...values, ...repeatable].includes(name)) {
       throw new Error(`Unknown option: --${name}`);
     }
-    if (seen.has(name)) {
+    if (seen.has(name) && !repeatable.includes(name)) {
       throw new Error(`Option --${name} may be provided only once.`);
     }
     seen.add(name);
-    flag(args, name);
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`--${name} requires a value.`);
+    }
+    index += 1;
+  }
+  if (positionalCount < positionals) {
+    throw new Error("A required argument is missing.");
+  }
+}
+
+class HttpResponseError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(`HTTP ${status}: ${JSON.stringify(body)}`);
   }
 }
 
 function isLoopbackHostname(hostname: string) {
   return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]"
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
   );
 }
 
@@ -102,9 +164,7 @@ export function normalizeEndpoint(value: string) {
 
 function endpoint(args: string[], env: NodeJS.ProcessEnv) {
   return normalizeEndpoint(
-    flag(args, "endpoint") ??
-      env.HAYASEND_BASE_URL ??
-      "http://localhost:8787",
+    flag(args, "endpoint") ?? env.HAYASEND_BASE_URL ?? "http://localhost:8787",
   );
 }
 
@@ -143,9 +203,242 @@ async function request(
   );
   const body = await readJsonResponse(response);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${JSON.stringify(body)}`);
+    throw new HttpResponseError(response.status, body);
   }
   return body;
+}
+
+function idFromResponse(value: unknown) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("id" in value) ||
+    typeof value.id !== "string" ||
+    value.id.length === 0
+  ) {
+    throw new Error("HayaSend did not return a valid identifier.");
+  }
+  return value.id;
+}
+
+function templatePath(identifier: string) {
+  return `/templates/${encodeURIComponent(identifier)}`;
+}
+
+function templatePayload(template: DesiredTemplate) {
+  return {
+    alias: template.alias,
+    name: template.name,
+    html: template.html,
+    text: template.text,
+    from: template.from,
+    subject: template.subject,
+    reply_to: template.reply_to,
+    variables: template.variables,
+  };
+}
+
+interface TemplatePlan {
+  desired: DesiredTemplate;
+  remote?: RemoteTemplate;
+  actions: Array<"create" | "update" | "publish">;
+}
+
+async function planTemplatePush(
+  args: string[],
+  dependencies: CliDependencies,
+  templates: DesiredTemplate[],
+  publish: boolean,
+) {
+  const plans: TemplatePlan[] = [];
+  for (const desired of templates) {
+    let remote: RemoteTemplate | undefined;
+    try {
+      remote = parseRemoteTemplate(
+        await request(templatePath(desired.alias), args, dependencies),
+      );
+    } catch (error) {
+      if (!(error instanceof HttpResponseError) || error.status !== 404) {
+        throw error;
+      }
+    }
+    const actions: TemplatePlan["actions"] = [];
+    if (!remote) {
+      actions.push("create");
+    } else if (!templatesMatch(desired, remote)) {
+      actions.push("update");
+    }
+    if (
+      publish &&
+      (!remote ||
+        actions.includes("update") ||
+        remote.status !== "published" ||
+        remote.has_unpublished_versions)
+    ) {
+      actions.push("publish");
+    }
+    plans.push({ desired, ...(remote ? { remote } : {}), actions });
+  }
+  return plans;
+}
+
+async function pushTemplates(args: string[], dependencies: CliDependencies) {
+  const manifest = await loadTemplateManifest(
+    dependencies.cwd,
+    flag(args, "file"),
+  );
+  const publish = hasFlag(args, "publish");
+  const dryRun = hasFlag(args, "dry-run");
+  const plans = await planTemplatePush(
+    args,
+    dependencies,
+    manifest.templates,
+    publish,
+  );
+  const results: Array<{
+    alias: string;
+    id: string | null;
+    actions: TemplatePlan["actions"];
+  }> = [];
+  for (const plan of plans) {
+    let id = plan.remote?.id;
+    if (!dryRun && plan.actions.includes("create")) {
+      id = idFromResponse(
+        await request("/templates", args, dependencies, {
+          method: "POST",
+          body: JSON.stringify(templatePayload(plan.desired)),
+        }),
+      );
+    }
+    if (!dryRun && plan.actions.includes("update")) {
+      id = idFromResponse(
+        await request(
+          templatePath(plan.remote?.id ?? plan.desired.alias),
+          args,
+          dependencies,
+          {
+            method: "PATCH",
+            body: JSON.stringify(templatePayload(plan.desired)),
+          },
+        ),
+      );
+    }
+    if (!dryRun && plan.actions.includes("publish")) {
+      id = idFromResponse(
+        await request(
+          `${templatePath(id ?? plan.desired.alias)}/publish`,
+          args,
+          dependencies,
+          { method: "POST" },
+        ),
+      );
+    }
+    results.push({
+      alias: plan.desired.alias,
+      id: id ?? null,
+      actions: plan.actions,
+    });
+  }
+  const count = (action: TemplatePlan["actions"][number]) =>
+    results.filter((result) => result.actions.includes(action)).length;
+  dependencies.io.log(
+    JSON.stringify(
+      {
+        ok: true,
+        file: manifest.path,
+        dry_run: dryRun,
+        publish,
+        summary: {
+          created: count("create"),
+          updated: count("update"),
+          published: count("publish"),
+          unchanged: results.filter((result) => result.actions.length === 0)
+            .length,
+        },
+        templates: results,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function templateCommand(args: string[], dependencies: CliDependencies) {
+  const command = args[0] ?? "help";
+  switch (command) {
+    case "push":
+      validateOptions(args, {
+        values: ["file", "endpoint"],
+        booleans: ["publish", "dry-run"],
+      });
+      await pushTemplates(args, dependencies);
+      break;
+    case "list": {
+      validateOptions(args, {
+        values: ["limit", "after", "before", "endpoint"],
+      });
+      if (flag(args, "after") && flag(args, "before")) {
+        throw new Error("--after and --before cannot be combined.");
+      }
+      const parameters = new URLSearchParams();
+      for (const name of ["limit", "after", "before"]) {
+        const value = flag(args, name);
+        if (value) {
+          parameters.set(name, value);
+        }
+      }
+      const query = parameters.size > 0 ? `?${parameters}` : "";
+      dependencies.io.log(
+        JSON.stringify(
+          await request(`/templates${query}`, args, dependencies),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "get":
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 1,
+      });
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            templatePath(positional(args, 1, "Template ID or alias")),
+            args,
+            dependencies,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    case "publish":
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 1,
+      });
+      dependencies.io.log(
+        JSON.stringify(
+          await request(
+            `${templatePath(
+              positional(args, 1, "Template ID or alias"),
+            )}/publish`,
+            args,
+            dependencies,
+            { method: "POST" },
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    default:
+      throw new Error(
+        `Unknown templates command: ${command}. Run hayasend help.`,
+      );
+  }
 }
 
 async function doctor(args: string[], dependencies: CliDependencies) {
@@ -186,9 +479,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
           identity: "pass",
           authentication: "pass",
           preview:
-            previewResponse.status === 200
-              ? "available"
-              : "not_available",
+            previewResponse.status === 200 ? "available" : "not_available",
         },
       },
       null,
@@ -205,9 +496,9 @@ interface InitFile {
 
 async function packageVersion() {
   const packagePath = new URL("../package.json", import.meta.url);
-  const packageJson = JSON.parse(
-    await readFile(packagePath, "utf8"),
-  ) as { version?: unknown };
+  const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
+    version?: unknown;
+  };
   if (
     typeof packageJson.version !== "string" ||
     !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)
@@ -251,21 +542,14 @@ async function fileExists(path: string) {
     await access(path);
     return true;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
     }
     throw error;
   }
 }
 
-async function initProject(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function initProject(args: string[], dependencies: CliDependencies) {
   const target = resolve(
     dependencies.cwd,
     flag(args, "dir") ?? dependencies.cwd,
@@ -332,14 +616,32 @@ async function send(args: string[], dependencies: CliDependencies) {
   const to = flag(args, "to");
   const subject = flag(args, "subject");
   const text = flag(args, "text");
-  if (!from || !to || !subject || !text) {
+  const template = flag(args, "template");
+  if (!to) {
+    throw new Error("send requires --to.");
+  }
+  if (template && text !== undefined) {
+    throw new Error("send cannot combine --template with --text.");
+  }
+  if (!template && (!from || !subject || !text)) {
     throw new Error(
       "send requires --from, --to, --subject, and --text arguments.",
     );
   }
+  const body = template
+    ? {
+        to,
+        ...(from ? { from } : {}),
+        ...(subject ? { subject } : {}),
+        template: {
+          id: template,
+          variables: parseTemplateVariables(flags(args, "var")),
+        },
+      }
+    : { from, to, subject, text };
   const result = await request("/emails", args, dependencies, {
     method: "POST",
-    body: JSON.stringify({ from, to, subject, text }),
+    body: JSON.stringify(body),
   });
   dependencies.io.log(JSON.stringify(result, null, 2));
 }
@@ -396,8 +698,7 @@ async function testSend(args: string[], dependencies: CliDependencies) {
         status: retrieved.status,
         ...(isLoopbackHostname(new URL(baseUrl).hostname)
           ? {
-              preview_url:
-                `${baseUrl}/preview?email=${encodeURIComponent(created.id)}`,
+              preview_url: `${baseUrl}/preview?email=${encodeURIComponent(created.id)}`,
             }
           : {}),
       },
@@ -428,6 +729,18 @@ Commands:
   send --from ADDRESS --to ADDRESS --subject TEXT --text TEXT [--endpoint URL]
       Send a plain-text email.
 
+  send --to ADDRESS --template ID [--var KEY=VALUE] [--from ADDRESS]
+      Send a published hosted template. Repeat --var for multiple variables.
+
+  templates push [--file FILE] [--dry-run] [--publish] [--endpoint URL]
+      Reconcile hayasend.templates.json. Changes remain drafts unless
+      --publish is explicitly provided.
+
+  templates list [--limit NUMBER] [--after ID | --before ID] [--endpoint URL]
+  templates get ID_OR_ALIAS [--endpoint URL]
+  templates publish ID_OR_ALIAS [--endpoint URL]
+      Inspect or explicitly publish hosted templates.
+
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
@@ -449,30 +762,32 @@ export async function runCli(
   }
   switch (command) {
     case "init":
-      validateOptions(args, ["dir"]);
+      validateOptions(args, { values: ["dir"] });
       await initProject(args, dependencies);
       break;
     case "dev":
-      validateOptions(args, []);
+      validateOptions(args, {});
       startServer();
       break;
     case "doctor":
-      validateOptions(args, ["endpoint"]);
+      validateOptions(args, { values: ["endpoint"] });
       await doctor(args, dependencies);
       break;
     case "test":
-      validateOptions(args, ["from", "to", "subject", "endpoint"]);
+      validateOptions(args, {
+        values: ["from", "to", "subject", "endpoint"],
+      });
       await testSend(args, dependencies);
       break;
     case "send":
-      validateOptions(args, [
-        "from",
-        "to",
-        "subject",
-        "text",
-        "endpoint",
-      ]);
+      validateOptions(args, {
+        values: ["from", "to", "subject", "text", "template", "endpoint"],
+        repeatable: ["var"],
+      });
       await send(args, dependencies);
+      break;
+    case "templates":
+      await templateCommand(args.slice(1), dependencies);
       break;
     default:
       throw new Error(`Unknown command: ${command}. Run hayasend help.`);

@@ -1,0 +1,21 @@
+{
+  "$schema": "../../schemas/hayasend.templates.schema.json",
+  "version": 1,
+  "templates": [
+    {
+      "alias": "welcome-example",
+      "name": "Welcome example",
+      "html_file": "welcome.html",
+      "text_file": "welcome.txt",
+      "from": "Example <hello@example.com>",
+      "subject": "Welcome, {{{NAME}}}",
+      "variables": [
+        {
+          "key": "NAME",
+          "type": "string",
+          "fallback_value": "friend"
+        }
+      ]
+    }
+  ]
+}

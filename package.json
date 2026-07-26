@@ -9,7 +9,8 @@
     "hayasend": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "schemas"
   ],
   "engines": {
     "node": ">=22"
