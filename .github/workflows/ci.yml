@@ -132,3 +132,51 @@ jobs:
           done
 
           python tests/sdk/python_resend_compat.py
+
+  go-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: tests/sdk/go/go.sum
+      - run: npm ci
+      - name: Download the official Resend Go SDK
+        run: go -C tests/sdk/go mod download
+      - name: Exercise Go SDK compatibility
+        env:
+          RESEND_API_KEY: re_hayasend_dev
+          RESEND_BASE_URL: http://127.0.0.1:8787/
+        run: |
+          set -euo pipefail
+
+          if RESEND_BASE_URL=http://api.resend.com:80/ \
+            go -C tests/sdk/go run . \
+            2> "$RUNNER_TEMP/go-sdk-endpoint-guard.log"; then
+            echo "The Go SDK compatibility test accepted a production endpoint."
+            exit 1
+          fi
+          grep --quiet "loopback" "$RUNNER_TEMP/go-sdk-endpoint-guard.log"
+
+          npm run dev > "$RUNNER_TEMP/hayasend-go-sdk.log" 2>&1 &
+          hayasend_server_pid=$!
+          trap 'kill "$hayasend_server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent "${RESEND_BASE_URL}healthz" > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              cat "$RUNNER_TEMP/hayasend-go-sdk.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          go -C tests/sdk/go run .

@@ -40,7 +40,7 @@ account, and HayaSend never logs message bodies.
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
-- compatibility tests against the official Resend Node and Python SDKs
+- compatibility tests against the official Resend Node, Python, and Go SDKs
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
 The dedicated-account deployment gate is documented in
@@ -87,6 +87,32 @@ email = resend.Emails.send(
     }
 )
 ```
+
+The official Go SDK reads its compatible endpoint when the process starts:
+
+```bash
+export RESEND_BASE_URL="$HAYASEND_BASE_URL"
+export RESEND_API_KEY="$HAYASEND_API_KEY"
+```
+
+```go
+import (
+    "os"
+
+    "github.com/resend/resend-go/v3"
+)
+
+email := resend.NewClient(os.Getenv("RESEND_API_KEY"))
+sent, err := email.Emails.Send(&resend.SendEmailRequest{
+    From:    "Product <hello@example.com>",
+    To:      []string{"person@example.net"},
+    Subject: "Welcome",
+    Text:    "Your account is ready.",
+})
+```
+
+HayaSend CI verifies the official Go SDK v3.11.0. Treat a returned `err` as a
+failed request before reading `sent`.
 
 Hosted templates also work through the official SDK:
 

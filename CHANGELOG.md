@@ -6,7 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
-No unreleased changes.
+- Add a pinned black-box compatibility gate for the official Resend Go SDK,
+  covering send, idempotent replay, retrieve, list, and batch operations.
 
 ## 0.1.0 - 2026-07-26
 
