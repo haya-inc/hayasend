@@ -10,6 +10,8 @@ minor releases before v1.0.
   throttling, provider availability, network, timeout, and unknown failures.
 - Repair missing SQS or EventBridge dispatch when an identical idempotent
   replay finds a stored queued or scheduled email.
+- Publish a versioned AWS SES capability document, provider-neutral
+  conformance cases, and generated schemas that CI checks for drift.
 
 ## 0.1.0 - 2026-07-26
 

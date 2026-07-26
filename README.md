@@ -12,6 +12,7 @@ implemented provider today. HayaSend never logs message bodies.
 
 [Project site](https://haya-inc.github.io/hayasend/) ·
 [Compatibility](docs/compatibility.md) ·
+[Provider capabilities](docs/provider-capabilities.md) ·
 [Execution plan](docs/execution-plan.md) ·
 [Support](SUPPORT.md)
 

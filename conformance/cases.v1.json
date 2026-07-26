@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "case_id": "api-atomic-commit",
+      "boundary": "API commit",
+      "injected_condition": "Failure inside the atomic write",
+      "required_outcome": "No partial message or idempotency claim is retained.",
+      "required": true
+    },
+    {
+      "case_id": "outbox-queue-unavailable",
+      "boundary": "Outbox dispatch",
+      "injected_condition": "Queue unavailable",
+      "required_outcome": "The committed item remains due and observable.",
+      "required": true
+    },
+    {
+      "case_id": "outbox-ack-crash",
+      "boundary": "Outbox acknowledgement",
+      "injected_condition": "Crash after queue acceptance",
+      "required_outcome": "A duplicate deterministic job is safe.",
+      "required": true
+    },
+    {
+      "case_id": "send-lease-concurrency",
+      "boundary": "Send lease",
+      "injected_condition": "Concurrent or expired consumers",
+      "required_outcome": "Only one active claimant owns a lease.",
+      "required": true
+    },
+    {
+      "case_id": "provider-permanent-rejection",
+      "boundary": "Provider call",
+      "injected_condition": "Permanent rejection",
+      "required_outcome": "The submission is not retried and recipient records retain a terminal reason category.",
+      "required": true
+    },
+    {
+      "case_id": "provider-throttle",
+      "boundary": "Provider call",
+      "injected_condition": "Throttle or provider unavailability",
+      "required_outcome": "The submission uses bounded retry with backoff.",
+      "required": true
+    },
+    {
+      "case_id": "provider-acceptance-ambiguity",
+      "boundary": "Provider acceptance",
+      "injected_condition": "Crash before the attempt update",
+      "required_outcome": "The ambiguity is recorded and measurable.",
+      "required": true
+    },
+    {
+      "case_id": "provider-event-ordering",
+      "boundary": "Provider events",
+      "injected_condition": "Duplicate or older event",
+      "required_outcome": "The immutable event is deduplicated and recipient state does not regress.",
+      "required": true
+    },
+    {
+      "case_id": "recipient-mixed-outcomes",
+      "boundary": "Recipient aggregate",
+      "injected_condition": "Mixed delivery and bounce",
+      "required_outcome": "Both recipient outcomes remain canonical and the message aggregate is deterministic.",
+      "required": true
+    },
+    {
+      "case_id": "payload-orphan",
+      "boundary": "Payload store",
+      "injected_condition": "Object write without metadata commit",
+      "required_outcome": "Bounded orphan cleanup removes the unreferenced object.",
+      "required": true
+    },
+    {
+      "case_id": "webhook-duplicate",
+      "boundary": "Webhook",
+      "injected_condition": "Timeout or duplicate queue job",
+      "required_outcome": "Automatic retries retain one stable event ID.",
+      "required": true
+    },
+    {
+      "case_id": "deploy-interruption",
+      "boundary": "Deploy",
+      "injected_condition": "Interrupted migration",
+      "required_outcome": "Retry is safe or a tested rollback is documented.",
+      "required": true
+    },
+    {
+      "case_id": "telemetry-private-fields",
+      "boundary": "Telemetry",
+      "injected_condition": "Adversarial private fields",
+      "required_outcome": "No message content, address, credential, signed URL, or raw provider error leaves the data plane.",
+      "required": true
+    }
+  ]
+}
