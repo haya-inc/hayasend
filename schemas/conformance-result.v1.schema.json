@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hayasend.dev/schemas/conformance-result.v1.schema.json",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "run_id": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "provider": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "adapter_version": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "capability_document_sha256": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "started_at": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "completed_at": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "evidence_url": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "case_count": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "summary": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "status": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "results": {
+      "$ref": "#/$defs/__schema10"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "provider",
+    "adapter_version",
+    "capability_document_sha256",
+    "started_at",
+    "completed_at",
+    "evidence_url",
+    "case_count",
+    "summary",
+    "status",
+    "results"
+  ],
+  "additionalProperties": false,
+  "title": "HayaSend provider conformance result",
+  "description": "A privacy-safe report of one adapter run against the versioned HayaSend conformance catalog.",
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema1": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "__schema2": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "__schema3": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "__schema4": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "__schema5": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "__schema6": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https:\\/\\/.*"
+    },
+    "__schema7": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema8": {
+      "type": "object",
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "passed",
+        "failed",
+        "unsupported"
+      ],
+      "additionalProperties": false
+    },
+    "__schema9": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "__schema10": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema11"
+      }
+    },
+    "__schema11": {
+      "type": "object",
+      "properties": {
+        "case_id": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "evidence_url": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "capability_path": {
+          "type": "string",
+          "pattern": "^(features|events)\\.[a-z][a-z0-9_]*\\.status$"
+        }
+      },
+      "required": [
+        "case_id",
+        "status",
+        "evidence_url"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

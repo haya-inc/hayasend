@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hayasend.dev/schemas/conformance-cases.v1.schema.json",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "cases": {
+      "$ref": "#/$defs/__schema1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "title": "HayaSend conformance case catalog",
+  "description": "The versioned provider-neutral fault and lifecycle cases every adapter report must address.",
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema1": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      }
+    },
+    "__schema2": {
+      "type": "object",
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$"
+        },
+        "boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "injected_condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "required_outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "unsupported_capability_path": {
+          "type": "string",
+          "pattern": "^(features|events)\\.[a-z][a-z0-9_]*\\.status$"
+        }
+      },
+      "required": [
+        "case_id",
+        "boundary",
+        "injected_condition",
+        "required_outcome",
+        "required"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hayasend.dev/schemas/provider-capabilities.v1.schema.json",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "provider": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "adapter_version": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "checked_at": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "service_maturity": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "required_plan": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "limits": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "features": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "events": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "error_mapping": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "privacy": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "sources": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "limitations": {
+      "$ref": "#/$defs/__schema15"
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider",
+    "adapter_version",
+    "checked_at",
+    "service_maturity",
+    "required_plan",
+    "limits",
+    "features",
+    "events",
+    "error_mapping",
+    "privacy",
+    "sources",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "title": "HayaSend provider capability document",
+  "description": "Versioned, privacy-safe capabilities and limits for one HayaSend provider adapter.",
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema1": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "__schema2": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "__schema3": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "__schema4": {
+      "type": "string",
+      "enum": [
+        "experimental",
+        "beta",
+        "production"
+      ]
+    },
+    "__schema5": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "__schema6": {
+      "type": "object",
+      "properties": {
+        "max_serialized_request_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_mime_message_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_combined_recipients": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_attachments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_decoded_attachment_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_batch_messages": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_schedule_delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "max_serialized_request_bytes",
+        "max_mime_message_bytes",
+        "max_combined_recipients",
+        "max_attachments",
+        "max_decoded_attachment_bytes",
+        "max_batch_messages",
+        "max_schedule_delay_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "__schema7": {
+      "type": "object",
+      "properties": {
+        "attachments": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "custom_headers": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "scheduling": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "cancellation": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "batch": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "provider_message_id": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "provider_event_id": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "provider_idempotency": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "domain_verification": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "suppression_handling": {
+          "$ref": "#/$defs/__schema8"
+        }
+      },
+      "required": [
+        "attachments",
+        "custom_headers",
+        "scheduling",
+        "cancellation",
+        "batch",
+        "provider_message_id",
+        "provider_event_id",
+        "provider_idempotency",
+        "domain_verification",
+        "suppression_handling"
+      ],
+      "additionalProperties": false
+    },
+    "__schema8": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "conditional",
+            "unsupported"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "status",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "__schema9": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "delivered": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "delayed": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "bounced": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "complained": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "rejected": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "opened": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "clicked": {
+          "$ref": "#/$defs/__schema8"
+        }
+      },
+      "required": [
+        "accepted",
+        "delivered",
+        "delayed",
+        "bounced",
+        "complained",
+        "rejected",
+        "opened",
+        "clicked"
+      ],
+      "additionalProperties": false
+    },
+    "__schema10": {
+      "type": "object",
+      "properties": {
+        "retryable_categories": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema11"
+          }
+        },
+        "permanent_categories": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema11"
+          }
+        },
+        "unknown_error_behavior": {
+          "type": "string",
+          "const": "retry"
+        }
+      },
+      "required": [
+        "retryable_categories",
+        "permanent_categories",
+        "unknown_error_behavior"
+      ],
+      "additionalProperties": false
+    },
+    "__schema11": {
+      "type": "string",
+      "enum": [
+        "application_error",
+        "invalid_data",
+        "network_dns",
+        "network_refused",
+        "network_reset",
+        "provider_error",
+        "provider_rejected",
+        "provider_throttled",
+        "provider_unavailable",
+        "timeout"
+      ]
+    },
+    "__schema12": {
+      "type": "object",
+      "properties": {
+        "content_exported_by_default": {
+          "type": "boolean",
+          "const": false
+        },
+        "addresses_exported_by_default": {
+          "type": "boolean",
+          "const": false
+        },
+        "raw_provider_errors_retained": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "content_exported_by_default",
+        "addresses_exported_by_default",
+        "raw_provider_errors_retained"
+      ],
+      "additionalProperties": false
+    },
+    "__schema13": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema14"
+      }
+    },
+    "__schema14": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https:\\/\\/.*"
+        },
+        "checked_at": {
+          "$ref": "#/$defs/__schema3"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "checked_at"
+      ],
+      "additionalProperties": false
+    },
+    "__schema15": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    }
+  }
+}
