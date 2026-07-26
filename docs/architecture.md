@@ -28,10 +28,14 @@ revocation.
 4. The send worker reloads current state, rechecks suppressions, and verifies
    attachment size and SHA-256 immediately before calling SES v2, so a newly
    suppressed recipient or corrupted attachment cannot be delivered.
-5. Permanent SES request rejections fail immediately. Throttling, provider
-   availability, network, timeout, and unknown application failures return to
-   SQS for no more than three delivery attempts.
-6. SES events arrive through SNS and update the record.
+5. Each provider submission is recorded as an attempt before the call and
+   atomically completed with its allowlisted result. Permanent SES request
+   rejections fail immediately. Throttling, provider availability, network,
+   timeout, and unknown application failures return to SQS for no more than
+   three delivery attempts.
+6. SES events arrive through SNS, are stripped to allowlisted fields,
+   deduplicated by SNS `MessageId`, correlated to one accepted attempt, and
+   conditionally update exact recipients without regressing state.
 7. Matching webhook deliveries return to SQS, so webhook failure cannot cause
    the email to be sent twice.
 
@@ -66,6 +70,8 @@ A single DynamoDB table stores typed entities:
 - `EMAIL#<id>`
 - `EMAIL#<id>` / `DELIVERY_MESSAGE#<id>`
 - `EMAIL#<id>` / `RECIPIENT#<recipient-id>`
+- `EMAIL#<id>` / `ATTEMPT#<zero-padded-sequence>`
+- `PROVIDER_EVENT#<provider-and-event-identity>`
 - `OUTBOX#<deterministic-id>`
 - `OUTBOX_METRICS`
 - `ATTACHMENT#<id>`
@@ -82,7 +88,8 @@ A single DynamoDB table stores typed entities:
 - `TEMPLATE_PUBLISHED_ALIAS#<alias>`
 - `TEMPLATE_VERSION#<template-id>` / `TEMPLATE_VERSION#<version-id>`
 
-`GSI1` provides reverse-chronological lists by entity type. Idempotency claims
+`GSI1` provides reverse-chronological lists by entity type and a
+`DELIVERY_EVENTS#<email-id>` immutable event history. Idempotency claims
 and unreferenced attachment metadata expire after 24 hours through DynamoDB
 TTL. Once an email is accepted, its immutable object reference is copied into
 the email payload so a scheduled send does not depend on upload metadata
@@ -181,4 +188,7 @@ A manual replay creates a new delivery record and message ID, links it through
 - payload retention is fixed at 45 days;
 - template publication history is bounded to 1–50 versions and 1–365 days;
 - inbound forwarding, alias routing, and ARC preservation are not implemented;
-- no deployment test has run in a dedicated AWS account.
+- SES has no verified provider-side idempotency key, so acceptance followed by
+  process loss before the attempt result is durable can still duplicate a send;
+- multi-recipient SES open and click events are retained without recipient
+  attribution because SES does not identify the interacting recipient.

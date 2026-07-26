@@ -23,7 +23,7 @@ const providerOpaqueIdSchema = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^[^\s@]+$/);
+  .regex(/^[\x21-\x3F\x41-\x7E]+$/);
 const providerEventIdentitySchema = z
   .string()
   .min(1)
@@ -262,7 +262,7 @@ const providerEventRecordObject = z
     source: providerEventSourceSchema,
     message_id: messageIdSchema,
     attempt_id: attemptIdSchema.optional(),
-    recipient_ids: z.array(recipientIdSchema).min(1),
+    recipient_ids: z.array(recipientIdSchema),
     provider_message_id: providerOpaqueIdSchema.optional(),
     type: providerEventTypeSchema,
     provider_at: timestampSchema,
@@ -405,6 +405,24 @@ export function createProviderEventIdentity(input: {
       sourceKind,
       identitySegment(source.value),
     ].join(":"),
+  );
+}
+
+export function isEquivalentProviderEventReplay(
+  left: ProviderEventRecord,
+  right: ProviderEventRecord,
+): boolean {
+  const {
+    received_at: _leftReceivedAt,
+    ...leftIdentityPayload
+  } = providerEventRecordSchema.parse(left);
+  const {
+    received_at: _rightReceivedAt,
+    ...rightIdentityPayload
+  } = providerEventRecordSchema.parse(right);
+  return (
+    JSON.stringify(leftIdentityPayload) ===
+    JSON.stringify(rightIdentityPayload)
   );
 }
 

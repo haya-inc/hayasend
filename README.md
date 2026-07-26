@@ -35,6 +35,9 @@ implemented provider today. HayaSend never logs message bodies.
 - DynamoDB transactional outbox recovery with deterministic jobs,
   conditional leases, privacy-safe alarms, and no client-replay requirement
   after a committed send
+- immutable provider-event and recipient-attempt history with exact
+  recipient correlation, SNS deduplication, sticky safety outcomes, and
+  conservative message aggregates
 - email retrieval, listing, cancellation, and rescheduling
 - SES domain creation, DKIM record discovery, refresh, and deletion
 - signed webhooks with SQS retry, retained delivery history, manual replay,

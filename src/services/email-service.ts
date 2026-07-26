@@ -6,12 +6,18 @@ import {
   ValidationError,
 } from "../core/errors.js";
 import {
+  safeErrorCategory,
   safeFailureMessage,
   shouldRetryOperationalError,
 } from "../core/error-telemetry.js";
 import {
+  createProviderEventIdentity,
   createOutboxIdentity,
+  deliveryDiagnosticCategorySchema,
+  type DeliveryAttemptRecord,
+  type DeliveryDiagnosticCategory,
   type EnvelopeRole,
+  type ProviderEventRecord,
   type ProviderReference,
   type RecipientRecord,
 } from "../core/delivery-model.js";
@@ -57,6 +63,17 @@ const DEFAULT_PROVIDER: ProviderReference = {
 
 export interface EmailServiceOptions {
   provider?: ProviderReference | undefined;
+}
+
+export interface NormalizedProviderEvent {
+  provider_event_id?: string | undefined;
+  provider_message_id?: string | undefined;
+  provider_at: string;
+  received_at?: string | undefined;
+  recipient_addresses?: string[] | undefined;
+  provider_type?: ProviderEventRecord["type"] | undefined;
+  terminal?: boolean | undefined;
+  diagnostic_category?: DeliveryDiagnosticCategory | undefined;
 }
 
 interface NormalizedRecipients {
@@ -281,19 +298,6 @@ export class EmailService {
     }: PreparedEmail,
     now: Date,
   ): Promise<CreateEmailResult> {
-    if (suppressedRecipients.length > 0) {
-      const created = await this.store.createEmail(record, idempotency);
-      if (!created.replayed) {
-        emitCountMetric("SuppressedEmails");
-        await this.webhooks.publish("email.suppressed", record, {
-          suppressed_recipients: suppressedRecipients.map(
-            (suppression) => suppression.email,
-          ),
-        });
-      }
-      return created;
-    }
-
     const timestamp = record.created_at;
     const recipientInputs: Array<{
       role: EnvelopeRole;
@@ -315,7 +319,7 @@ export class EmailService {
       id: createId("rcpt"),
       message_id: record.id,
       ...recipient,
-      status: "queued",
+      status: record.status === "suppressed" ? "suppressed" : "queued",
       created_at: timestamp,
       updated_at: timestamp,
     }));
@@ -334,7 +338,12 @@ export class EmailService {
           provider: this.options.provider ?? DEFAULT_PROVIDER,
           intent_digest: record.request_hash,
           recipient_ids: recipients.map((recipient) => recipient.id),
-          status: record.status === "scheduled" ? "scheduled" : "queued",
+          status:
+            record.status === "suppressed"
+              ? "suppressed"
+              : record.status === "scheduled"
+                ? "scheduled"
+                : "queued",
           created_at: timestamp,
           updated_at: timestamp,
           ...(record.scheduled_at
@@ -351,6 +360,9 @@ export class EmailService {
           generation: 0,
           due_at: record.scheduled_at ?? timestamp,
           attempts: 0,
+          ...(record.status === "suppressed"
+            ? { dispatched_at: timestamp }
+            : {}),
           created_at: timestamp,
           updated_at: timestamp,
         },
@@ -359,6 +371,15 @@ export class EmailService {
       Math.floor(now.getTime() / 1_000),
     );
     if (!created.replayed) {
+      if (record.status === "suppressed") {
+        emitCountMetric("SuppressedEmails");
+        await this.webhooks.publish("email.suppressed", record, {
+          suppressed_recipients: suppressedRecipients.map(
+            (suppression) => suppression.email,
+          ),
+        });
+        return { record: created.email, replayed: false };
+      }
       try {
         await this.scheduler.schedule(
           record.id,
@@ -411,15 +432,28 @@ export class EmailService {
         `Email ${id} cannot be canceled from status ${record.status}.`,
       );
     }
-    const updated = await this.store.updateEmail(
-      id,
-      {
-        status: "canceled",
-        last_event: "canceled",
-        updated_at: new Date().toISOString(),
-      },
-      ["queued", "scheduled"],
-    );
+    const updatedAt = new Date().toISOString();
+    const ledger = await this.store.getDeliveryLedger(id);
+    const ledgerUpdate = ledger
+      ? await this.store.applyLocalDeliveryState(
+          id,
+          "canceled",
+          updatedAt,
+        )
+      : undefined;
+    const updated =
+      ledgerUpdate?.email ??
+      (ledger
+        ? undefined
+        : await this.store.updateEmail(
+            id,
+            {
+              status: "canceled",
+              last_event: "canceled",
+              updated_at: updatedAt,
+            },
+            ["queued", "scheduled"],
+          ));
     if (!updated) {
       throw new NotFoundError("Email");
     }
@@ -522,15 +556,28 @@ export class EmailService {
       ...(record.bcc ?? []),
     ]);
     if (suppressedRecipients.length > 0) {
-      const suppressed = await this.store.updateEmail(
-        id,
-        {
-          status: "suppressed",
-          last_event: "suppressed",
-          updated_at: new Date().toISOString(),
-        },
-        ["queued", "scheduled"],
-      );
+      const updatedAt = new Date().toISOString();
+      const ledger = await this.store.getDeliveryLedger(id);
+      const ledgerUpdate = ledger
+        ? await this.store.applyLocalDeliveryState(
+            id,
+            "suppressed",
+            updatedAt,
+          )
+        : undefined;
+      const suppressed =
+        ledgerUpdate?.email ??
+        (ledger
+          ? undefined
+          : await this.store.updateEmail(
+              id,
+              {
+                status: "suppressed",
+                last_event: "suppressed",
+                updated_at: updatedAt,
+              },
+              ["queued", "scheduled"],
+            ));
       if (suppressed) {
         emitCountMetric("SuppressedEmails");
         await this.webhooks.publish("email.suppressed", suppressed, {
@@ -547,6 +594,35 @@ export class EmailService {
       return;
     }
 
+    const ledger = await this.store.getDeliveryLedger(id);
+    let deliveryAttempt: DeliveryAttemptRecord | undefined;
+    if (ledger) {
+      deliveryAttempt = {
+        schema_version: "1.0.0",
+        record_type: "attempt",
+        id: createId("attempt"),
+        message_id: id,
+        recipient_ids: [...ledger.message.recipient_ids],
+        sequence:
+          Math.max(
+            0,
+            ...ledger.attempts.map(
+              (existingAttempt) => existingAttempt.sequence,
+            ),
+          ) + 1,
+        provider: ledger.message.provider,
+        status: "submitting",
+        started_at: sending.updated_at,
+      };
+      const started = await this.store.beginDeliveryAttempt(deliveryAttempt);
+      if (!started) {
+        throw new InvalidStateError(
+          `Delivery ledger ${id} disappeared while starting an attempt.`,
+        );
+      }
+    }
+
+    let result;
     try {
       const sendable = sending.attachments
         ? {
@@ -572,37 +648,42 @@ export class EmailService {
             ),
           }
         : sending;
-      const result = await this.transport.send(sendable);
-      const sent = await this.store.updateEmail(
-        id,
-        {
-          status: "sent",
-          last_event: "sent",
-          provider_id: result.provider_id,
-          updated_at: new Date().toISOString(),
-          error: undefined,
-          send_lease_until: undefined,
-        },
-        ["sending"],
-      );
-      if (sent) {
-        await this.webhooks.publish("email.sent", sent);
-      }
+      result = await this.transport.send(sendable);
     } catch (error) {
       const message = safeFailureMessage("Email delivery failed", error);
       const finalAttempt =
         attempt >= 3 || !shouldRetryOperationalError(error);
-      const failed = await this.store.updateEmail(
-        id,
-        {
-          status: finalAttempt ? "failed" : "queued",
-          last_event: finalAttempt ? "failed" : "retrying",
-          updated_at: new Date().toISOString(),
-          error: message,
-          send_lease_until: undefined,
-        },
-        ["sending"],
-      );
+      const category = deliveryDiagnosticCategorySchema.catch(
+        "application_error",
+      ).parse(safeErrorCategory(error));
+      const completedAt = new Date().toISOString();
+      const ledgerFailure = deliveryAttempt
+        ? await this.store.completeDeliveryAttempt({
+            message_id: id,
+            attempt_id: deliveryAttempt.id,
+            status: finalAttempt
+              ? "permanent_failed"
+              : "retryable_failed",
+            completed_at: completedAt,
+            diagnostic_category: category,
+            public_error: message,
+          })
+        : undefined;
+      const failed =
+        ledgerFailure?.email ??
+        (deliveryAttempt
+          ? undefined
+          : await this.store.updateEmail(
+              id,
+              {
+                status: finalAttempt ? "failed" : "queued",
+                last_event: finalAttempt ? "failed" : "retrying",
+                updated_at: completedAt,
+                error: message,
+                send_lease_until: undefined,
+              },
+              ["sending"],
+            ));
       if (finalAttempt) {
         emitCountMetric("SendFailures");
         if (failed) {
@@ -614,12 +695,41 @@ export class EmailService {
       }
       throw error;
     }
+    const completedAt = new Date().toISOString();
+    const ledgerSuccess = deliveryAttempt
+      ? await this.store.completeDeliveryAttempt({
+          message_id: id,
+          attempt_id: deliveryAttempt.id,
+          status: "accepted",
+          completed_at: completedAt,
+          provider_message_id: result.provider_id,
+        })
+      : undefined;
+    const sent =
+      ledgerSuccess?.email ??
+      (deliveryAttempt
+        ? undefined
+        : await this.store.updateEmail(
+            id,
+            {
+              status: "sent",
+              last_event: "sent",
+              provider_id: result.provider_id,
+              updated_at: completedAt,
+              error: undefined,
+              send_lease_until: undefined,
+            },
+            ["sending"],
+          ));
+    if (sent) {
+      await this.webhooks.publish("email.sent", sent);
+    }
   }
 
   async applyProviderEvent(
     id: string,
     type: WebhookEventType,
-    extra: Record<string, unknown> = {},
+    input: NormalizedProviderEvent,
   ): Promise<void> {
     const statusByEvent: Partial<Record<WebhookEventType, EmailStatus>> = {
       "email.delivered": "delivered",
@@ -635,13 +745,140 @@ export class EmailService {
     if (!status) {
       return;
     }
-    const updated = await this.store.updateEmail(id, {
-      status,
-      last_event: type.slice("email.".length),
-      updated_at: new Date().toISOString(),
+    const ledger = await this.store.getDeliveryLedger(id);
+    if (!ledger) {
+      const updated = await this.store.updateEmail(id, {
+        status,
+        last_event: type.slice("email.".length),
+        updated_at: new Date(
+          input.received_at ?? Date.now(),
+        ).toISOString(),
+      });
+      if (updated) {
+        await this.webhooks.publish(type, updated);
+      }
+      return;
+    }
+    if (!input.provider_message_id) {
+      throw new InvalidStateError(
+        `Provider event for ${id} is missing its provider message ID.`,
+      );
+    }
+    const attempts = ledger.attempts.filter(
+      (attempt) =>
+        attempt.status === "accepted" &&
+        attempt.provider_message_id === input.provider_message_id,
+    );
+    if (attempts.length !== 1) {
+      throw new InvalidStateError(
+        `Provider event for ${id} does not correlate to exactly one accepted attempt.`,
+      );
+    }
+    const attempt = attempts[0]!;
+    const recipientByAddress = new Map(
+      ledger.recipients.map((recipient) => [
+        normalizeEnvelopeAddress(recipient.address),
+        recipient,
+      ]),
+    );
+    const requestedAddresses = [
+      ...new Set(
+        (input.recipient_addresses ?? []).map(normalizeEnvelopeAddress),
+      ),
+    ];
+    const correlatedRecipients = requestedAddresses.map((address) =>
+      recipientByAddress.get(address),
+    );
+    if (correlatedRecipients.some((recipient) => recipient === undefined)) {
+      throw new InvalidStateError(
+        `Provider event for ${id} contains an unknown recipient.`,
+      );
+    }
+    const recipientIds =
+      requestedAddresses.length === 0 && ledger.recipients.length === 1
+        ? [ledger.recipients[0]!.id]
+        : correlatedRecipients.map((recipient) => recipient!.id);
+    if (
+      recipientIds.some(
+        (recipientId) => !attempt.recipient_ids.includes(recipientId),
+      )
+    ) {
+      throw new InvalidStateError(
+        `Provider event for ${id} targets a recipient outside its attempt.`,
+      );
+    }
+    const providerAt = new Date(input.provider_at).toISOString();
+    const receivedAt = new Date(
+      input.received_at ?? Date.now(),
+    ).toISOString();
+    const providerTypeByEvent: Partial<
+      Record<WebhookEventType, ProviderEventRecord["type"]>
+    > = {
+      "email.delivered": "delivered",
+      "email.delivery_delayed": "delayed",
+      "email.opened": "opened",
+      "email.clicked": "clicked",
+      "email.bounced": "bounced",
+      "email.complained": "complained",
+      "email.failed": "failed",
+      "email.suppressed": "failed",
+    };
+    const providerType = input.provider_type ?? providerTypeByEvent[type];
+    if (!providerType) {
+      return;
+    }
+    const digestInput = JSON.stringify({
+      provider: ledger.message.provider.name,
+      provider_message_id: input.provider_message_id,
+      provider_at: providerAt,
+      recipient_ids: [...recipientIds].sort(),
+      type: providerType,
+      terminal: input.terminal ?? false,
+      diagnostic_category: input.diagnostic_category,
     });
+    const source =
+      input.provider_event_id &&
+      /^[\x21-\x3F\x41-\x7E]{1,512}$/.test(input.provider_event_id)
+        ? {
+            kind: "provider_event_id" as const,
+            value: input.provider_event_id,
+          }
+        : {
+            kind: "normalized_event_digest" as const,
+            value: sha256(digestInput),
+          };
+    const event: ProviderEventRecord = {
+      schema_version: "1.0.0",
+      record_type: "provider_event",
+      id: createProviderEventIdentity({
+        provider: ledger.message.provider.name,
+        source,
+      }),
+      provider: ledger.message.provider,
+      source,
+      message_id: id,
+      attempt_id: attempt.id,
+      recipient_ids: recipientIds,
+      provider_message_id: input.provider_message_id,
+      type: providerType,
+      provider_at: providerAt,
+      received_at: receivedAt,
+      terminal: input.terminal ?? false,
+      ...(input.diagnostic_category
+        ? { diagnostic_category: input.diagnostic_category }
+        : {}),
+    };
+    const result = await this.store.appendProviderEvent(event);
+    const updated = result?.email;
     if (updated) {
-      await this.webhooks.publish(type, updated, extra);
+      await this.webhooks.publish(type, updated, {
+        provider_event_id: event.id,
+        provider_message_id: event.provider_message_id,
+        provider_at: event.provider_at,
+        terminal: event.terminal,
+        recipient_ids: event.recipient_ids,
+        replayed: result.replayed,
+      });
     }
   }
 }

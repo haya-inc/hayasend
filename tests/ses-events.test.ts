@@ -26,7 +26,9 @@ const transport: MailTransport = {
 function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    validateEndpoint: async () => undefined,
+  });
   const suppressionService = new SuppressionService(store);
   const scheduler = new QueueEmailScheduler(queue);
   const attachmentService = new AttachmentService(
@@ -41,10 +43,176 @@ function fixture() {
     suppressionService,
     attachmentService,
   );
-  return { emailService, suppressionService };
+  return {
+    emailService,
+    suppressionService,
+    store,
+    queue,
+    webhooks,
+  };
 }
 
 describe("SES event processing", () => {
+  it("publishes an older normalized event without regressing recipient state", async () => {
+    const services = fixture();
+    await services.webhooks.create({
+      endpoint: "https://example.com/provider-events",
+      events: ["email.delivered", "email.delivery_delayed"],
+    });
+    const created = await services.emailService.create({
+      from: "sender@example.com",
+      to: ["recipient@example.net"],
+      subject: "Ordering",
+      text: "Body",
+    });
+    await services.emailService.processSend(created.record.id);
+    const baseMail = {
+      messageId: "provider",
+      destination: ["recipient@example.net"],
+      tags: { hayasend_id: [created.record.id] },
+    };
+
+    await processSesEvent(
+      {
+        eventType: "Delivery",
+        mail: {
+          ...baseMail,
+          timestamp: "2026-07-26T03:00:00.000Z",
+        },
+        delivery: {
+          timestamp: "2026-07-26T03:05:00.000Z",
+          recipients: ["recipient@example.net"],
+        },
+      },
+      services,
+      {
+        providerEventId: "sns-delivered",
+        receivedAt: "2026-07-26T03:05:01.000Z",
+      },
+    );
+    await processSesEvent(
+      {
+        eventType: "DeliveryDelay",
+        mail: {
+          ...baseMail,
+          timestamp: "2026-07-26T03:00:00.000Z",
+        },
+        deliveryDelay: {
+          timestamp: "2026-07-26T03:01:00.000Z",
+          delayedRecipients: [
+            { emailAddress: "recipient@example.net" },
+          ],
+        },
+      },
+      services,
+      {
+        providerEventId: "sns-delayed",
+        receivedAt: "2026-07-26T03:06:00.000Z",
+      },
+    );
+
+    await expect(
+      services.store.getDeliveryLedger(created.record.id),
+    ).resolves.toMatchObject({
+      recipients: [{ status: "delivered" }],
+      events: [{ type: "delivered" }, { type: "delayed" }],
+    });
+    expect(
+      services.queue.jobs.filter(
+        ({ job }) => job.type === "deliver_webhook",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("deduplicates SNS events and mutates only exactly correlated recipients", async () => {
+    const services = fixture();
+    const created = await services.emailService.create({
+      from: "sender@example.com",
+      to: ["first@example.net", "second@example.net"],
+      subject: "Sensitive subject",
+      text: "Sensitive body",
+    });
+    await services.emailService.processSend(created.record.id);
+    const sesEvent = {
+      eventType: "Delivery",
+      mail: {
+        messageId: "provider",
+        timestamp: "2026-07-26T03:00:00.000Z",
+        destination: ["first@example.net", "second@example.net"],
+        tags: { hayasend_id: [created.record.id] },
+      },
+      delivery: {
+        timestamp: "2026-07-26T03:01:00.000Z",
+        recipients: ["first@example.net"],
+        smtpResponse: "smtp private response must not be retained",
+      },
+    };
+    const context = {
+      providerEventId: "sns-message-id-1",
+      receivedAt: "2026-07-26T03:01:01.000Z",
+    };
+
+    await processSesEvent(sesEvent, services, context);
+    await processSesEvent(sesEvent, services, context);
+
+    const ledger = await services.store.getDeliveryLedger(created.record.id);
+    expect(
+      ledger?.recipients.map((recipient) => recipient.status),
+    ).toEqual(["delivered", "accepted"]);
+    expect(ledger?.events).toHaveLength(1);
+    expect(ledger?.events[0]).toMatchObject({
+      source: {
+        kind: "provider_event_id",
+        value: "sns-message-id-1",
+      },
+      provider_message_id: "provider",
+      type: "delivered",
+      recipient_ids: [ledger?.recipients[0]?.id],
+    });
+    const serialized = JSON.stringify(ledger?.events);
+    expect(serialized).not.toContain("first@example.net");
+    expect(serialized).not.toContain("Sensitive subject");
+    expect(serialized).not.toContain("Sensitive body");
+    expect(serialized).not.toContain("smtp private");
+  });
+
+  it("records multi-recipient engagement without guessing a recipient", async () => {
+    const services = fixture();
+    const created = await services.emailService.create({
+      from: "sender@example.com",
+      to: ["first@example.net", "second@example.net"],
+      subject: "Engagement",
+      text: "Body",
+    });
+    await services.emailService.processSend(created.record.id);
+
+    await processSesEvent(
+      {
+        eventType: "Open",
+        mail: {
+          messageId: "provider",
+          timestamp: "2026-07-26T03:00:00.000Z",
+          destination: ["first@example.net", "second@example.net"],
+          tags: { hayasend_id: [created.record.id] },
+        },
+        open: { timestamp: "2026-07-26T03:02:00.000Z" },
+      },
+      services,
+      {
+        providerEventId: "sns-message-id-open",
+        receivedAt: "2026-07-26T03:02:01.000Z",
+      },
+    );
+
+    const ledger = await services.store.getDeliveryLedger(created.record.id);
+    expect(
+      ledger?.recipients.map((recipient) => recipient.status),
+    ).toEqual(["accepted", "accepted"]);
+    expect(ledger?.events).toMatchObject([
+      { type: "opened", recipient_ids: [] },
+    ]);
+  });
+
   it("adds permanent bounces to the suppression list", async () => {
     const services = fixture();
     const created = await services.emailService.create({
@@ -53,11 +221,18 @@ describe("SES event processing", () => {
       subject: "Bounce test",
       text: "Body",
     });
+    await services.emailService.processSend(created.record.id);
     await processSesEvent(
       {
         eventType: "Bounce",
-        mail: { tags: { hayasend_id: [created.record.id] } },
+        mail: {
+          messageId: "provider",
+          timestamp: "2026-07-26T03:00:00.000Z",
+          destination: ["hard-bounce@example.net"],
+          tags: { hayasend_id: [created.record.id] },
+        },
         bounce: {
+          timestamp: "2026-07-26T03:01:00.000Z",
           bounceType: "Permanent",
           bounceSubType: "General",
           bouncedRecipients: [
@@ -69,6 +244,10 @@ describe("SES event processing", () => {
         },
       },
       services,
+      {
+        providerEventId: "sns-hard-bounce",
+        receivedAt: "2026-07-26T03:01:01.000Z",
+      },
     );
 
     await expect(
@@ -87,16 +266,27 @@ describe("SES event processing", () => {
       subject: "Bounce test",
       text: "Body",
     });
+    await services.emailService.processSend(created.record.id);
     await processSesEvent(
       {
         eventType: "Bounce",
-        mail: { tags: { hayasend_id: [created.record.id] } },
+        mail: {
+          messageId: "provider",
+          timestamp: "2026-07-26T03:00:00.000Z",
+          destination: ["temporary@example.net"],
+          tags: { hayasend_id: [created.record.id] },
+        },
         bounce: {
+          timestamp: "2026-07-26T03:01:00.000Z",
           bounceType: "Transient",
           bouncedRecipients: [{ emailAddress: "temporary@example.net" }],
         },
       },
       services,
+      {
+        providerEventId: "sns-transient-bounce",
+        receivedAt: "2026-07-26T03:01:01.000Z",
+      },
     );
     await expect(
       services.suppressionService.get("temporary@example.net"),

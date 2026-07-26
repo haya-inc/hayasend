@@ -17,16 +17,29 @@ import {
 import { validateDeliveryCommit } from "../core/delivery-commit.js";
 import {
   createOutboxIdentity,
+  deliveryAttemptRecordSchema,
   deliveryDiagnosticCategorySchema,
   deliveryMessageRecordSchema,
+  isEquivalentProviderEventReplay,
   outboxItemRecordSchema,
+  providerEventRecordSchema,
   recipientRecordSchema,
+  type DeliveryAttemptRecord,
   type DeliveryDiagnosticCategory,
   type DeliveryMessageRecord,
   type OutboxItemRecord,
+  type ProviderEventRecord,
   type RecipientRecord,
 } from "../core/delivery-model.js";
 import { ConflictError } from "../core/errors.js";
+import {
+  planAttemptCompletion,
+  planAttemptStart,
+  planLocalRecipientState,
+  planProviderEvent,
+  type AttemptCompletion,
+  type DeliveryLedgerPlan,
+} from "../core/recipient-ledger.js";
 import type {
   ApiKeyRecord,
   AttachmentUploadRecord,
@@ -50,6 +63,10 @@ import type {
   LeaseDueOutboxInput,
   OutboxMetrics,
 } from "../ports/delivery-outbox-store.js";
+import type {
+  DeliveryLedgerMutationResult,
+  DeliveryLedgerSnapshot,
+} from "../ports/delivery-ledger-store.js";
 import type { Store } from "../ports/store.js";
 
 type Entity =
@@ -126,6 +143,20 @@ interface StoredOutboxItem extends StoredDeliveryRecord<OutboxItemRecord> {
   GSI1SK?: string | undefined;
 }
 
+interface StoredProviderEvent
+  extends StoredDeliveryRecord<ProviderEventRecord> {
+  GSI1PK: string;
+  GSI1SK: string;
+}
+
+interface StoredDeliveryState {
+  emailItem: StoredEntity;
+  messageItem: StoredDeliveryRecord<DeliveryMessageRecord>;
+  recipientItems: Map<string, StoredDeliveryRecord<RecipientRecord>>;
+  attemptItems: Map<string, StoredDeliveryRecord<DeliveryAttemptRecord>>;
+  snapshot: Omit<DeliveryLedgerSnapshot, "events">;
+}
+
 interface StoredOutboxMetrics {
   PK: string;
   SK: string;
@@ -137,6 +168,7 @@ interface StoredOutboxMetrics {
 const OUTBOX_DUE_PARTITION = "OUTBOX_DUE";
 const OUTBOX_LEASED_PARTITION = "OUTBOX_LEASED";
 const OUTBOX_METRIC_QUERY_LIMIT = 1_000;
+const DELIVERY_LEDGER_RETRIES = 8;
 
 const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   EMAIL: "EMAILS",
@@ -166,6 +198,34 @@ function recipientKey(messageId: string, recipientId: string) {
   };
 }
 
+function attemptKey(messageId: string, sequence: number) {
+  if (!Number.isInteger(sequence) || sequence <= 0) {
+    throw new Error("Delivery attempt sequence must be a positive integer.");
+  }
+  return {
+    PK: `EMAIL#${messageId}`,
+    SK: `ATTEMPT#${String(sequence).padStart(10, "0")}`,
+  };
+}
+
+function providerEventKey(id: string) {
+  return {
+    PK: `PROVIDER_EVENT#${id}`,
+    SK: `PROVIDER_EVENT#${id}`,
+  };
+}
+
+function storedProviderEvent(
+  record: ProviderEventRecord,
+): StoredProviderEvent {
+  return {
+    ...providerEventKey(record.id),
+    GSI1PK: `DELIVERY_EVENTS#${record.message_id}`,
+    GSI1SK: `${record.received_at}#${record.id}`,
+    entity: record,
+  };
+}
+
 function outboxKey(id: string) {
   return { PK: `OUTBOX#${id}`, SK: `OUTBOX#${id}` };
 }
@@ -181,8 +241,12 @@ function outboxSort(availableAt: string, id: string) {
 function storedOutboxItem(record: OutboxItemRecord): StoredOutboxItem {
   return {
     ...outboxKey(record.id),
-    GSI1PK: OUTBOX_DUE_PARTITION,
-    GSI1SK: outboxSort(record.due_at, record.id),
+    ...(record.dispatched_at === undefined
+      ? {
+          GSI1PK: OUTBOX_DUE_PARTITION,
+          GSI1SK: outboxSort(record.due_at, record.id),
+        }
+      : {}),
     entity: record,
   };
 }
@@ -390,18 +454,22 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
             },
           ]
         : []),
-      {
-        Update: {
-          TableName: this.tableName,
-          Key: outboxMetricsKey(),
-          UpdateExpression:
-            "SET updated_at = :updated ADD undispatched :one",
-          ExpressionAttributeValues: {
-            ":updated": email.created_at,
-            ":one": 1,
-          },
-        },
-      },
+      ...(outbox.dispatched_at === undefined
+        ? [
+            {
+              Update: {
+                TableName: this.tableName,
+                Key: outboxMetricsKey(),
+                UpdateExpression:
+                  "SET updated_at = :updated ADD undispatched :one",
+                ExpressionAttributeValues: {
+                  ":updated": email.created_at,
+                  ":one": 1,
+                },
+              },
+            },
+          ]
+        : []),
     ];
     let transactionError: unknown;
     try {
@@ -529,6 +597,248 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
       outbox,
       replayed: false,
     };
+  }
+
+  async getDeliveryLedger(
+    messageId: string,
+  ): Promise<DeliveryLedgerSnapshot | undefined> {
+    const stored = await this.getStoredDeliveryState(messageId);
+    if (!stored) {
+      return undefined;
+    }
+    const events = await this.listProviderEvents(messageId);
+    return {
+      ...structuredClone(stored.snapshot),
+      events,
+    };
+  }
+
+  async beginDeliveryAttempt(
+    input: DeliveryAttemptRecord,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const attempt = deliveryAttemptRecordSchema.parse(input);
+    for (let retry = 0; retry < DELIVERY_LEDGER_RETRIES; retry += 1) {
+      const stored = await this.getStoredDeliveryState(attempt.message_id);
+      if (!stored) {
+        return undefined;
+      }
+      const existing = stored.snapshot.attempts.find(
+        (candidate) =>
+          candidate.id === attempt.id ||
+          candidate.sequence === attempt.sequence,
+      );
+      if (existing) {
+        if (JSON.stringify(existing) !== JSON.stringify(attempt)) {
+          throw new ConflictError(
+            "Delivery attempt identity or sequence is already in use.",
+          );
+        }
+        return this.deliveryLedgerResult(
+          attempt.message_id,
+          true,
+          [],
+          { attempt: existing },
+        );
+      }
+      const plan = planAttemptStart(stored.snapshot, attempt);
+      try {
+        await this.client.send(
+          new TransactWriteCommand({
+            TransactItems: this.deliveryLedgerTransaction(
+              stored,
+              plan,
+              { putAttempt: attempt },
+            ),
+          }),
+        );
+        return this.deliveryLedgerResult(
+          attempt.message_id,
+          false,
+          plan.changed_recipient_ids,
+          { attempt },
+        );
+      } catch (error) {
+        if (!this.isTransactionConflict(error)) {
+          throw error;
+        }
+      }
+    }
+    throw new ConflictError(
+      "Delivery attempt could not be started after concurrent updates.",
+    );
+  }
+
+  async completeDeliveryAttempt(
+    input: AttemptCompletion,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    for (let retry = 0; retry < DELIVERY_LEDGER_RETRIES; retry += 1) {
+      const stored = await this.getStoredDeliveryState(input.message_id);
+      if (!stored) {
+        return undefined;
+      }
+      const existing = stored.snapshot.attempts.find(
+        (attempt) => attempt.id === input.attempt_id,
+      );
+      if (!existing) {
+        throw new ConflictError("Delivery attempt does not exist.");
+      }
+      if (existing.status !== "submitting") {
+        const sameCompletion =
+          existing.status === input.status &&
+          existing.completed_at === new Date(input.completed_at).toISOString() &&
+          existing.provider_message_id === input.provider_message_id &&
+          existing.diagnostic_category === input.diagnostic_category;
+        if (!sameCompletion) {
+          throw new ConflictError(
+            "Delivery attempt has already completed differently.",
+          );
+        }
+        return this.deliveryLedgerResult(
+          input.message_id,
+          true,
+          [],
+          { attempt: existing },
+        );
+      }
+      const plan = planAttemptCompletion(stored.snapshot, input);
+      try {
+        await this.client.send(
+          new TransactWriteCommand({
+            TransactItems: this.deliveryLedgerTransaction(
+              stored,
+              plan,
+              { updateAttempt: plan.attempt },
+            ),
+          }),
+        );
+        return this.deliveryLedgerResult(
+          input.message_id,
+          false,
+          plan.changed_recipient_ids,
+          { attempt: plan.attempt },
+        );
+      } catch (error) {
+        if (!this.isTransactionConflict(error)) {
+          throw error;
+        }
+      }
+    }
+    throw new ConflictError(
+      "Delivery attempt could not be completed after concurrent updates.",
+    );
+  }
+
+  async appendProviderEvent(
+    input: ProviderEventRecord,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const event = providerEventRecordSchema.parse(input);
+    const replay = await this.getProviderEvent(event.id);
+    if (replay) {
+      if (!isEquivalentProviderEventReplay(replay, event)) {
+        throw new ConflictError(
+          "Provider event identity is already used by a different normalized event.",
+        );
+      }
+      return this.deliveryLedgerResult(replay.message_id, true, [], {
+        event: replay,
+      });
+    }
+    for (let retry = 0; retry < DELIVERY_LEDGER_RETRIES; retry += 1) {
+      const stored = await this.getStoredDeliveryState(event.message_id);
+      if (!stored) {
+        return undefined;
+      }
+      const plan = planProviderEvent(stored.snapshot, event);
+      try {
+        await this.client.send(
+          new TransactWriteCommand({
+            TransactItems: this.deliveryLedgerTransaction(
+              stored,
+              plan,
+              { putEvent: event },
+            ),
+          }),
+        );
+        return this.deliveryLedgerResult(
+          event.message_id,
+          false,
+          plan.changed_recipient_ids,
+          { event },
+        );
+      } catch (error) {
+        if (!this.isTransactionConflict(error)) {
+          throw error;
+        }
+        const existing = await this.getProviderEvent(event.id);
+        if (existing) {
+          if (!isEquivalentProviderEventReplay(existing, event)) {
+            throw new ConflictError(
+              "Provider event identity is already used by a different normalized event.",
+            );
+          }
+          return this.deliveryLedgerResult(
+            existing.message_id,
+            true,
+            [],
+            { event: existing },
+          );
+        }
+      }
+    }
+    throw new ConflictError(
+      "Provider event could not be appended after concurrent updates.",
+    );
+  }
+
+  async applyLocalDeliveryState(
+    messageId: string,
+    status: "canceled" | "suppressed",
+    updatedAt: string,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    for (let retry = 0; retry < DELIVERY_LEDGER_RETRIES; retry += 1) {
+      const stored = await this.getStoredDeliveryState(messageId);
+      if (!stored) {
+        return undefined;
+      }
+      const plan = planLocalRecipientState(
+        stored.snapshot,
+        status,
+        updatedAt,
+      );
+      try {
+        await this.client.send(
+          new TransactWriteCommand({
+            TransactItems: this.deliveryLedgerTransaction(stored, plan),
+          }),
+        );
+        return this.deliveryLedgerResult(
+          messageId,
+          false,
+          plan.changed_recipient_ids,
+        );
+      } catch (error) {
+        if (!this.isTransactionConflict(error)) {
+          throw error;
+        }
+      }
+    }
+    throw new ConflictError(
+      "Local delivery state could not be applied after concurrent updates.",
+    );
+  }
+
+  async getProviderEvent(
+    id: string,
+  ): Promise<ProviderEventRecord | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: providerEventKey(id),
+        ConsistentRead: true,
+      }),
+    );
+    const event = (result.Item as StoredProviderEvent | undefined)?.entity;
+    return event ? providerEventRecordSchema.parse(event) : undefined;
   }
 
   async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
@@ -1861,6 +2171,308 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     cursor?: string,
   ): Promise<Page<SuppressionRecord>> {
     return this.listEntities<SuppressionRecord>("SUPPRESSIONS", limit, cursor);
+  }
+
+  private async getStoredDeliveryState(
+    messageId: string,
+  ): Promise<StoredDeliveryState | undefined> {
+    const items: Array<Record<string, unknown>> = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "PK = :partition",
+          ExpressionAttributeValues: {
+            ":partition": `EMAIL#${messageId}`,
+          },
+          ConsistentRead: true,
+          ...(exclusiveStartKey
+            ? { ExclusiveStartKey: exclusiveStartKey }
+            : {}),
+        }),
+      );
+      items.push(...(result.Items ?? []));
+      exclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (exclusiveStartKey);
+
+    const emailItem = items.find(
+      (item) => item.SK === `EMAIL#${messageId}`,
+    ) as StoredEntity | undefined;
+    const messageItem = items.find(
+      (item) => item.SK === `DELIVERY_MESSAGE#${messageId}`,
+    ) as StoredDeliveryRecord<DeliveryMessageRecord> | undefined;
+    if (!emailItem || !messageItem) {
+      return undefined;
+    }
+    const message = deliveryMessageRecordSchema.parse(messageItem.entity);
+    const recipientItems = new Map<string, StoredDeliveryRecord<RecipientRecord>>();
+    const attemptItems = new Map<
+      string,
+      StoredDeliveryRecord<DeliveryAttemptRecord>
+    >();
+    for (const item of items) {
+      if (
+        typeof item.SK === "string" &&
+        item.SK.startsWith("RECIPIENT#")
+      ) {
+        const stored = item as unknown as StoredDeliveryRecord<RecipientRecord>;
+        const recipient = recipientRecordSchema.parse(stored.entity);
+        recipientItems.set(recipient.id, { ...stored, entity: recipient });
+      } else if (
+        typeof item.SK === "string" &&
+        item.SK.startsWith("ATTEMPT#")
+      ) {
+        const stored =
+          item as unknown as StoredDeliveryRecord<DeliveryAttemptRecord>;
+        const attempt = deliveryAttemptRecordSchema.parse(stored.entity);
+        attemptItems.set(attempt.id, { ...stored, entity: attempt });
+      }
+    }
+    const recipients = message.recipient_ids.map((id) =>
+      recipientItems.get(id)?.entity,
+    );
+    if (recipients.some((recipient) => recipient === undefined)) {
+      return undefined;
+    }
+    const attempts = [...attemptItems.values()]
+      .map((item) => item.entity)
+      .sort(
+        (left, right) =>
+          left.sequence - right.sequence || left.id.localeCompare(right.id),
+      );
+    return {
+      emailItem,
+      messageItem: { ...messageItem, entity: message },
+      recipientItems,
+      attemptItems,
+      snapshot: {
+        email: structuredClone(emailItem.entity as EmailRecord),
+        message,
+        recipients: recipients as RecipientRecord[],
+        attempts,
+      },
+    };
+  }
+
+  private async listProviderEvents(
+    messageId: string,
+  ): Promise<ProviderEventRecord[]> {
+    const events: ProviderEventRecord[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :partition",
+          ExpressionAttributeValues: {
+            ":partition": `DELIVERY_EVENTS#${messageId}`,
+          },
+          ScanIndexForward: true,
+          ...(exclusiveStartKey
+            ? { ExclusiveStartKey: exclusiveStartKey }
+            : {}),
+        }),
+      );
+      for (const item of result.Items ?? []) {
+        const event = (item as StoredProviderEvent).entity;
+        events.push(providerEventRecordSchema.parse(event));
+      }
+      exclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (exclusiveStartKey);
+    return events;
+  }
+
+  private deliveryLedgerTransaction(
+    stored: StoredDeliveryState,
+    plan: DeliveryLedgerPlan,
+    addition: {
+      putAttempt?: DeliveryAttemptRecord | undefined;
+      updateAttempt?: DeliveryAttemptRecord | undefined;
+      putEvent?: ProviderEventRecord | undefined;
+    } = {},
+  ): NonNullable<TransactWriteCommandInput["TransactItems"]> {
+    const update = (
+      key: { PK: string; SK: string },
+      expected: unknown,
+      next: unknown,
+    ) => ({
+      Update: {
+        TableName: this.tableName,
+        Key: key,
+        UpdateExpression: "SET entity = :next",
+        ConditionExpression: "entity = :expected",
+        ExpressionAttributeValues: {
+          ":expected": expected,
+          ":next": next,
+        },
+      },
+    });
+    const condition = (
+      key: { PK: string; SK: string },
+      expected: unknown,
+    ) => ({
+      ConditionCheck: {
+        TableName: this.tableName,
+        Key: key,
+        ConditionExpression: "entity = :expected",
+        ExpressionAttributeValues: {
+          ":expected": expected,
+        },
+      },
+    });
+    const changedRecipientIds = new Set(plan.changed_recipient_ids);
+    const recipientById = new Map(
+      plan.recipients.map((recipient) => [recipient.id, recipient]),
+    );
+    const items: NonNullable<
+      TransactWriteCommandInput["TransactItems"]
+    > = [
+      update(
+        entityKey("EMAIL", plan.email.id),
+        stored.snapshot.email,
+        plan.email,
+      ),
+      update(
+        deliveryMessageKey(plan.message.id),
+        stored.snapshot.message,
+        plan.message,
+      ),
+      ...stored.snapshot.message.recipient_ids.map((id) => {
+        const current = stored.recipientItems.get(id);
+        const next = recipientById.get(id);
+        if (!current || !next) {
+          throw new Error("Delivery recipient disappeared during mutation.");
+        }
+        return changedRecipientIds.has(id)
+          ? update(
+              recipientKey(plan.message.id, id),
+              current.entity,
+              next,
+            )
+          : condition(
+              recipientKey(plan.message.id, id),
+              current.entity,
+            );
+      }),
+    ];
+
+    if (addition.putAttempt) {
+      items.push({
+        Put: {
+          TableName: this.tableName,
+          Item: {
+            ...attemptKey(
+              addition.putAttempt.message_id,
+              addition.putAttempt.sequence,
+            ),
+            entity: addition.putAttempt,
+          } satisfies StoredDeliveryRecord<DeliveryAttemptRecord>,
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      });
+    }
+    if (addition.updateAttempt) {
+      const current = stored.attemptItems.get(addition.updateAttempt.id);
+      if (!current) {
+        throw new Error("Delivery attempt disappeared during mutation.");
+      }
+      items.push(
+        update(
+          attemptKey(
+            addition.updateAttempt.message_id,
+            addition.updateAttempt.sequence,
+          ),
+          current.entity,
+          addition.updateAttempt,
+        ),
+      );
+    }
+    if (addition.putEvent) {
+      const attempt = stored.attemptItems.get(
+        addition.putEvent.attempt_id ?? "",
+      );
+      if (!attempt) {
+        throw new Error("Provider event attempt disappeared during mutation.");
+      }
+      items.push(
+        {
+          ConditionCheck: {
+            TableName: this.tableName,
+            Key: attemptKey(
+              attempt.entity.message_id,
+              attempt.entity.sequence,
+            ),
+            ConditionExpression: "entity = :expected",
+            ExpressionAttributeValues: {
+              ":expected": attempt.entity,
+            },
+          },
+        },
+        {
+          Put: {
+            TableName: this.tableName,
+            Item: storedProviderEvent(addition.putEvent),
+            ConditionExpression: "attribute_not_exists(PK)",
+          },
+        },
+      );
+    }
+    if (items.length > 100) {
+      throw new Error(
+        "Delivery ledger transaction exceeds the DynamoDB action limit.",
+      );
+    }
+    return items;
+  }
+
+  private async deliveryLedgerResult(
+    messageId: string,
+    replayed: boolean,
+    changedRecipientIds: string[],
+    addition: {
+      attempt?: DeliveryAttemptRecord | undefined;
+      event?: ProviderEventRecord | undefined;
+    } = {},
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const snapshot = await this.getDeliveryLedger(messageId);
+    if (!snapshot) {
+      return undefined;
+    }
+    if (
+      addition.event &&
+      !snapshot.events.some((event) => event.id === addition.event?.id)
+    ) {
+      snapshot.events.push(structuredClone(addition.event));
+      snapshot.events.sort(
+        (left, right) =>
+          left.received_at.localeCompare(right.received_at) ||
+          left.id.localeCompare(right.id),
+      );
+    }
+    return {
+      ...snapshot,
+      replayed,
+      changed_recipient_ids: [...changedRecipientIds],
+      ...(addition.attempt
+        ? { attempt: structuredClone(addition.attempt) }
+        : {}),
+      ...(addition.event
+        ? { event: structuredClone(addition.event) }
+        : {}),
+    };
+  }
+
+  private isTransactionConflict(error: unknown): boolean {
+    return [
+      "TransactionCanceledException",
+      "TransactionConflictException",
+    ].includes((error as { name?: string }).name ?? "");
   }
 
   private async putEntity(

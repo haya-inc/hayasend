@@ -1,10 +1,10 @@
 # Provider-neutral delivery model
 
 HayaSend separates provider-neutral delivery truth from the existing
-Resend-compatible message response. Dispatchable messages now persist this
-contract in both the memory and DynamoDB stores without changing the public
-API. Recipient-attempt and provider-event mutation follows in the next Gate 1
-changes.
+Resend-compatible message response. Dispatchable and locally suppressed
+messages persist this contract in both the memory and DynamoDB stores without
+changing the public API. Recipient attempts and provider events mutate the same
+ledger transactionally.
 
 The source contract is
 [`src/core/delivery-model.ts`](../src/core/delivery-model.ts), and
@@ -82,6 +82,29 @@ message, every unique envelope recipient, optional idempotency claim,
 generation-zero outbox item, and durable backlog counter in one
 `TransactWriteItems` call. The public 50-recipient limit keeps the transaction
 below DynamoDB's 100-action limit.
+
+Attempt start and completion, local cancellation or suppression, recipient
+transitions, message aggregate derivation, and public compatibility status are
+also atomic. Each DynamoDB mutation compares the complete expected message,
+recipient, attempt, and email entities before replacing them in one
+`TransactWriteItems` call. Conflicts reload and re-run the shared pure
+transition planner. The memory adapter stages the same plan copy-on-write, and
+both adapters run the same generated lifecycle and race contract cases.
+
+Provider events live under a globally unique provider-event key and a
+message-scoped sparse index. The immutable conditional put and recipient state
+changes share one transaction. A repeated SNS `MessageId` returns the original
+event without adding history, while the normalized outward webhook is still
+published. Event records contain only IDs, normalized type and timestamps,
+terminal interpretation, and an optional allowlisted diagnostic category; raw
+payloads, SMTP text, addresses, subjects, bodies, and credentials are excluded.
+
+SES delivery, bounce, complaint, and delay notifications carry exact recipient
+addresses which are normalized and resolved to opaque recipient IDs before the
+event is stored. SES open and click notifications do not identify one recipient
+when the original submission had several recipients. In that case the
+immutable event is retained with an empty recipient list and current recipient
+state is left unchanged.
 
 Pending and leased items use sparse `GSI1` partitions ordered by due time or
 lease expiry. GSI reads identify candidates; a conditional update against the

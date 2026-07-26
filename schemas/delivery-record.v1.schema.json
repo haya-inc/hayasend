@@ -339,7 +339,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512,
-      "pattern": "^[^\\s@]+$"
+      "pattern": "^[\\x21-\\x3F\\x41-\\x7E]+$"
     },
     "__schema29": {
       "$ref": "#/$defs/__schema30"
@@ -479,7 +479,6 @@
       "$ref": "#/$defs/__schema20"
     },
     "__schema38": {
-      "minItems": 1,
       "type": "array",
       "items": {
         "$ref": "#/$defs/__schema8"

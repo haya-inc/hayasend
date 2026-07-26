@@ -1,13 +1,26 @@
 import { ConflictError } from "../core/errors.js";
 import { validateDeliveryCommit } from "../core/delivery-commit.js";
 import {
+  deliveryAttemptRecordSchema,
   deliveryDiagnosticCategorySchema,
+  isEquivalentProviderEventReplay,
   outboxItemRecordSchema,
+  providerEventRecordSchema,
+  type DeliveryAttemptRecord,
   type DeliveryDiagnosticCategory,
   type DeliveryMessageRecord,
   type OutboxItemRecord,
+  type ProviderEventRecord,
   type RecipientRecord,
 } from "../core/delivery-model.js";
+import {
+  planAttemptCompletion,
+  planAttemptStart,
+  planLocalRecipientState,
+  planProviderEvent,
+  type AttemptCompletion,
+  type DeliveryLedgerPlan,
+} from "../core/recipient-ledger.js";
 import type {
   ApiKeyRecord,
   AttachmentUploadRecord,
@@ -31,6 +44,10 @@ import type {
   LeaseDueOutboxInput,
   OutboxMetrics,
 } from "../ports/delivery-outbox-store.js";
+import type {
+  DeliveryLedgerMutationResult,
+  DeliveryLedgerSnapshot,
+} from "../ports/delivery-ledger-store.js";
 import type { Store } from "../ports/store.js";
 
 interface IdempotencyEntry extends IdempotencyClaim {
@@ -46,6 +63,16 @@ export type MemoryDeliveryMutation =
   | {
       operation: "commit_swap" | "lease" | "acknowledge" | "failure";
       entity: "outbox";
+    }
+  | {
+      operation: "ledger";
+      entity:
+        | "email"
+        | "message"
+        | "recipient"
+        | "attempt"
+        | "provider_event";
+      index?: number | undefined;
     };
 
 export interface MemoryStoreOptions {
@@ -102,6 +129,8 @@ export class MemoryStore implements Store, DeliveryOutboxStore {
   >();
   private deliveryMessages = new Map<string, DeliveryMessageRecord>();
   private deliveryRecipients = new Map<string, RecipientRecord>();
+  private deliveryAttempts = new Map<string, DeliveryAttemptRecord>();
+  private providerEvents = new Map<string, ProviderEventRecord>();
   private outboxItems = new Map<string, OutboxItemRecord>();
   private outboxByMessage = new Map<string, string>();
   private outboxPublishFailures = 0;
@@ -807,6 +836,146 @@ export class MemoryStore implements Store, DeliveryOutboxStore {
     return this.deliveryResult(messageId, false);
   }
 
+  async getDeliveryLedger(
+    messageId: string,
+  ): Promise<DeliveryLedgerSnapshot | undefined> {
+    return this.deliveryLedger(messageId);
+  }
+
+  async beginDeliveryAttempt(
+    input: DeliveryAttemptRecord,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const attempt = deliveryAttemptRecordSchema.parse(input);
+    const snapshot = this.deliveryLedger(attempt.message_id);
+    if (!snapshot) {
+      return undefined;
+    }
+    const existing = snapshot.attempts.find(
+      (candidate) =>
+        candidate.id === attempt.id ||
+        candidate.sequence === attempt.sequence,
+    );
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(attempt)) {
+        throw new ConflictError(
+          "Delivery attempt identity or sequence is already in use.",
+        );
+      }
+      return this.deliveryLedgerResult(
+        attempt.message_id,
+        true,
+        [],
+        { attempt: existing },
+      );
+    }
+    const plan = planAttemptStart(snapshot, attempt);
+    this.commitLedgerPlan(plan, { attempt });
+    return this.deliveryLedgerResult(
+      attempt.message_id,
+      false,
+      plan.changed_recipient_ids,
+      { attempt },
+    );
+  }
+
+  async completeDeliveryAttempt(
+    input: AttemptCompletion,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const snapshot = this.deliveryLedger(input.message_id);
+    if (!snapshot) {
+      return undefined;
+    }
+    const existing = snapshot.attempts.find(
+      (attempt) => attempt.id === input.attempt_id,
+    );
+    if (!existing) {
+      throw new ConflictError("Delivery attempt does not exist.");
+    }
+    if (existing.status !== "submitting") {
+      const sameCompletion =
+        existing.status === input.status &&
+        existing.completed_at === new Date(input.completed_at).toISOString() &&
+        existing.provider_message_id === input.provider_message_id &&
+        existing.diagnostic_category === input.diagnostic_category;
+      if (!sameCompletion) {
+        throw new ConflictError(
+          "Delivery attempt has already completed differently.",
+        );
+      }
+      return this.deliveryLedgerResult(
+        input.message_id,
+        true,
+        [],
+        { attempt: existing },
+      );
+    }
+    const plan = planAttemptCompletion(snapshot, input);
+    this.commitLedgerPlan(plan, { attempt: plan.attempt });
+    return this.deliveryLedgerResult(
+      input.message_id,
+      false,
+      plan.changed_recipient_ids,
+      { attempt: plan.attempt },
+    );
+  }
+
+  async appendProviderEvent(
+    input: ProviderEventRecord,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const event = providerEventRecordSchema.parse(input);
+    const existing = this.providerEvents.get(event.id);
+    if (existing) {
+      if (!isEquivalentProviderEventReplay(existing, event)) {
+        throw new ConflictError(
+          "Provider event identity is already used by a different normalized event.",
+        );
+      }
+      return this.deliveryLedgerResult(
+        existing.message_id,
+        true,
+        [],
+        { event: existing },
+      );
+    }
+    const snapshot = this.deliveryLedger(event.message_id);
+    if (!snapshot) {
+      return undefined;
+    }
+    const plan = planProviderEvent(snapshot, event);
+    this.commitLedgerPlan(plan, { event });
+    return this.deliveryLedgerResult(
+      event.message_id,
+      false,
+      plan.changed_recipient_ids,
+      { event },
+    );
+  }
+
+  async applyLocalDeliveryState(
+    messageId: string,
+    status: "canceled" | "suppressed",
+    updatedAt: string,
+  ): Promise<DeliveryLedgerMutationResult | undefined> {
+    const snapshot = this.deliveryLedger(messageId);
+    if (!snapshot) {
+      return undefined;
+    }
+    const plan = planLocalRecipientState(snapshot, status, updatedAt);
+    this.commitLedgerPlan(plan);
+    return this.deliveryLedgerResult(
+      messageId,
+      false,
+      plan.changed_recipient_ids,
+    );
+  }
+
+  async getProviderEvent(
+    id: string,
+  ): Promise<ProviderEventRecord | undefined> {
+    const event = this.providerEvents.get(id);
+    return event ? structuredClone(event) : undefined;
+  }
+
   async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
     const item = this.outboxItems.get(id);
     return item ? structuredClone(item) : undefined;
@@ -1002,6 +1171,115 @@ export class MemoryStore implements Store, DeliveryOutboxStore {
       outbox: structuredClone(outbox),
       ...(idempotency ? { idempotency } : {}),
       replayed,
+    };
+  }
+
+  private deliveryLedger(
+    messageId: string,
+  ): DeliveryLedgerSnapshot | undefined {
+    const email = this.emails.get(messageId);
+    const message = this.deliveryMessages.get(messageId);
+    if (!email || !message) {
+      return undefined;
+    }
+    const recipients = message.recipient_ids.map((id) =>
+      this.deliveryRecipients.get(id),
+    );
+    if (recipients.some((recipient) => recipient === undefined)) {
+      return undefined;
+    }
+    const attempts = [...this.deliveryAttempts.values()]
+      .filter((attempt) => attempt.message_id === messageId)
+      .sort(
+        (left, right) =>
+          left.sequence - right.sequence || left.id.localeCompare(right.id),
+      );
+    const events = [...this.providerEvents.values()]
+      .filter((event) => event.message_id === messageId)
+      .sort(
+        (left, right) =>
+          left.received_at.localeCompare(right.received_at) ||
+          left.id.localeCompare(right.id),
+      );
+    return structuredClone({
+      email,
+      message,
+      recipients: recipients as RecipientRecord[],
+      attempts,
+      events,
+    });
+  }
+
+  private commitLedgerPlan(
+    plan: DeliveryLedgerPlan,
+    addition: {
+      attempt?: DeliveryAttemptRecord | undefined;
+      event?: ProviderEventRecord | undefined;
+    } = {},
+  ): void {
+    const nextEmails = new Map(this.emails);
+    const nextMessages = new Map(this.deliveryMessages);
+    const nextRecipients = new Map(this.deliveryRecipients);
+    const nextAttempts = new Map(this.deliveryAttempts);
+    const nextEvents = new Map(this.providerEvents);
+
+    nextEmails.set(plan.email.id, structuredClone(plan.email));
+    this.afterDeliveryMutation({ operation: "ledger", entity: "email" });
+    nextMessages.set(plan.message.id, structuredClone(plan.message));
+    this.afterDeliveryMutation({ operation: "ledger", entity: "message" });
+    plan.recipients.forEach((recipient, index) => {
+      nextRecipients.set(recipient.id, structuredClone(recipient));
+      this.afterDeliveryMutation({
+        operation: "ledger",
+        entity: "recipient",
+        index,
+      });
+    });
+    if (addition.attempt) {
+      nextAttempts.set(
+        addition.attempt.id,
+        structuredClone(addition.attempt),
+      );
+      this.afterDeliveryMutation({ operation: "ledger", entity: "attempt" });
+    }
+    if (addition.event) {
+      nextEvents.set(addition.event.id, structuredClone(addition.event));
+      this.afterDeliveryMutation({
+        operation: "ledger",
+        entity: "provider_event",
+      });
+    }
+
+    this.emails = nextEmails;
+    this.deliveryMessages = nextMessages;
+    this.deliveryRecipients = nextRecipients;
+    this.deliveryAttempts = nextAttempts;
+    this.providerEvents = nextEvents;
+  }
+
+  private deliveryLedgerResult(
+    messageId: string,
+    replayed: boolean,
+    changedRecipientIds: string[],
+    addition: {
+      attempt?: DeliveryAttemptRecord | undefined;
+      event?: ProviderEventRecord | undefined;
+    } = {},
+  ): DeliveryLedgerMutationResult | undefined {
+    const snapshot = this.deliveryLedger(messageId);
+    if (!snapshot) {
+      return undefined;
+    }
+    return {
+      ...snapshot,
+      replayed,
+      changed_recipient_ids: [...changedRecipientIds],
+      ...(addition.attempt
+        ? { attempt: structuredClone(addition.attempt) }
+        : {}),
+      ...(addition.event
+        ? { event: structuredClone(addition.event) }
+        : {}),
     };
   }
 

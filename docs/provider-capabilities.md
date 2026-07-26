@@ -53,7 +53,9 @@ serialized API request, a conservative 39 MiB MIME estimate, 25 MiB decoded
 attachments, 20 attachments, 50 recipients, 100 strictly validated batch
 items, and schedules no more than 30 days ahead.
 
-The current adapter explicitly reports provider-event deduplication and
-provider-side send idempotency as unsupported. The recipient ledger work in
-issue #99 must add immutable event identity and evidence before that capability
-can change.
+The current adapter deduplicates immutable provider events with the SNS
+`MessageId`, or with a digest of allowlisted normalized fields when no provider
+event ID exists. Provider-side send idempotency remains explicitly unsupported.
+SES open and click events do not identify the interacting recipient for a
+multi-recipient submission, so HayaSend retains that evidence without guessing
+or mutating a recipient.

@@ -52,9 +52,9 @@ export const AWS_SES_CAPABILITIES = providerCapabilityDocumentSchema.parse({
       notes: "SES v2 returns a provider message ID for accepted submissions.",
     },
     provider_event_id: {
-      status: "unsupported",
+      status: "supported",
       notes:
-        "The current adapter does not persist a stable provider-event ID; issue #99 adds immutable event deduplication.",
+        "SNS MessageId is retained as a privacy-safe immutable event identity; direct normalized events fall back to a deterministic digest.",
     },
     provider_idempotency: {
       status: "unsupported",
@@ -149,8 +149,8 @@ export const AWS_SES_CAPABILITIES = providerCapabilityDocumentSchema.parse({
     },
   ],
   limitations: [
-    "The v0.1 adapter stores one aggregate message status rather than canonical recipient-level history.",
     "A provider acceptance followed by a crash before the attempt update remains an explicit duplicate-send ambiguity.",
+    "Open and click events for multi-recipient SES submissions are retained without recipient mutation because SES does not identify the interacting recipient.",
     "Open and click evidence depends on tracking configuration and recipient-client behavior.",
   ],
 }) satisfies ProviderCapabilityDocument;

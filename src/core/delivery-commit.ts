@@ -29,8 +29,10 @@ export function validateDeliveryCommit(
     recipientRecordSchema.parse(recipient),
   );
   const outbox = outboxItemRecordSchema.parse(input.outbox);
-  if (!["queued", "scheduled"].includes(email.status)) {
-    throw new Error("Atomic delivery commit requires a dispatchable email.");
+  if (!["queued", "scheduled", "suppressed"].includes(email.status)) {
+    throw new Error(
+      "Atomic delivery commit requires a dispatchable or suppressed email.",
+    );
   }
   if (
     email.id !== message.id ||
@@ -52,6 +54,8 @@ export function validateDeliveryCommit(
     throw new Error("Idempotency claim does not match the delivery intent.");
   }
   const recipientIds = recipients.map((recipient) => recipient.id);
+  const initialRecipientStatus =
+    email.status === "suppressed" ? "suppressed" : "queued";
   if (
     recipients.length === 0 ||
     new Set(recipientIds).size !== recipients.length ||
@@ -60,7 +64,7 @@ export function validateDeliveryCommit(
     recipients.some(
       (recipient) =>
         recipient.message_id !== message.id ||
-        recipient.status !== "queued" ||
+        recipient.status !== initialRecipientStatus ||
         recipient.latest_attempt_id !== undefined ||
         recipient.created_at !== message.created_at ||
         recipient.updated_at !== message.updated_at,
@@ -83,6 +87,8 @@ export function validateDeliveryCommit(
     );
   }
   const expectedDueAt = email.scheduled_at ?? email.created_at;
+  const expectedDispatchedAt =
+    email.status === "suppressed" ? email.updated_at : undefined;
   if (
     outbox.message_id !== message.id ||
     outbox.job_type !== "dispatch-message" ||
@@ -91,7 +97,7 @@ export function validateDeliveryCommit(
     outbox.attempts !== 0 ||
     outbox.lease_owner !== undefined ||
     outbox.lease_expires_at !== undefined ||
-    outbox.dispatched_at !== undefined ||
+    outbox.dispatched_at !== expectedDispatchedAt ||
     outbox.last_diagnostic_category !== undefined ||
     outbox.created_at !== message.created_at ||
     outbox.updated_at !== message.updated_at

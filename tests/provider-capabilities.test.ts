@@ -58,7 +58,7 @@ describe("provider capability contract", () => {
       },
     });
     expect(AWS_SES_CAPABILITIES.features.provider_event_id.status).toBe(
-      "unsupported",
+      "supported",
     );
     expect(AWS_SES_CAPABILITIES.features.provider_idempotency.status).toBe(
       "unsupported",

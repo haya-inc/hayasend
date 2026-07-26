@@ -4,6 +4,10 @@ import {
   safeRuntimeError,
 } from "../core/error-telemetry.js";
 import type { WebhookEventType } from "../core/types.js";
+import type {
+  DeliveryDiagnosticCategory,
+  ProviderEventRecord,
+} from "../core/delivery-model.js";
 import { emitCountMetric } from "../core/metrics.js";
 import {
   createAwsRuntime,
@@ -13,9 +17,13 @@ import {
 export interface SesEvent {
   eventType?: string;
   mail?: {
+    messageId?: string;
+    timestamp?: string;
+    destination?: string[];
     tags?: Record<string, string[]>;
   };
   bounce?: {
+    timestamp?: string;
     bounceType?: string;
     bounceSubType?: string;
     bouncedRecipients?: Array<{
@@ -24,16 +32,36 @@ export interface SesEvent {
     }>;
   };
   complaint?: {
+    timestamp?: string;
     complaintFeedbackType?: string;
     complainedRecipients?: Array<{
       emailAddress?: string;
     }>;
   };
   delivery?: {
+    timestamp?: string;
+    recipients?: string[];
     smtpResponse?: string;
   };
   deliveryDelay?: {
+    timestamp?: string;
     delayType?: string;
+    delayedRecipients?: Array<{
+      emailAddress?: string;
+      diagnosticCode?: string;
+    }>;
+  };
+  open?: {
+    timestamp?: string;
+  };
+  click?: {
+    timestamp?: string;
+  };
+  reject?: {
+    reason?: string;
+  };
+  failure?: {
+    errorMessage?: string;
   };
 }
 
@@ -55,6 +83,11 @@ type SesEventServices = {
   suppressionService: Pick<Runtime["suppressionService"], "put">;
 };
 
+interface SesEventContext {
+  providerEventId?: string | undefined;
+  receivedAt?: string | undefined;
+}
+
 function getRuntime() {
   runtime ??= createAwsRuntime();
   return runtime;
@@ -63,10 +96,12 @@ function getRuntime() {
 export async function processSesEvent(
   sesEvent: SesEvent,
   services: SesEventServices,
+  context: SesEventContext = {},
 ): Promise<void> {
   const emailId = sesEvent.mail?.tags?.hayasend_id?.[0];
-  const eventType = sesEvent.eventType
-    ? EVENT_MAP[sesEvent.eventType.toLowerCase()]
+  const normalizedEventType = sesEvent.eventType?.toLowerCase();
+  const eventType = normalizedEventType
+    ? EVENT_MAP[normalizedEventType]
     : undefined;
   if (!emailId || !eventType) {
     return;
@@ -92,9 +127,6 @@ export async function processSesEvent(
             email: recipient.emailAddress,
             reason: "bounce",
             source_email_id: emailId,
-            ...(recipient.diagnosticCode
-              ? { detail: recipient.diagnosticCode.slice(0, 500) }
-              : {}),
           }),
         ),
     );
@@ -113,21 +145,90 @@ export async function processSesEvent(
             email,
             reason: "complaint",
             source_email_id: emailId,
-            ...(sesEvent.complaint?.complaintFeedbackType
-              ? {
-                  detail:
-                    sesEvent.complaint.complaintFeedbackType.slice(0, 500),
-                }
-              : {}),
           }),
         ),
     );
   }
+  const recipientAddresses = (() => {
+    switch (normalizedEventType) {
+      case "delivery":
+        return sesEvent.delivery?.recipients ?? [];
+      case "deliverydelay":
+        return (sesEvent.deliveryDelay?.delayedRecipients ?? [])
+          .map((recipient) => recipient.emailAddress)
+          .filter((address): address is string => Boolean(address));
+      case "bounce":
+        return (sesEvent.bounce?.bouncedRecipients ?? [])
+          .map((recipient) => recipient.emailAddress)
+          .filter((address): address is string => Boolean(address));
+      case "complaint":
+        return (sesEvent.complaint?.complainedRecipients ?? [])
+          .map((recipient) => recipient.emailAddress)
+          .filter((address): address is string => Boolean(address));
+      case "open":
+      case "click":
+        return sesEvent.mail?.destination?.length === 1
+          ? sesEvent.mail.destination
+          : [];
+      case "reject":
+      case "renderingfailure":
+        return sesEvent.mail?.destination ?? [];
+      default:
+        return [];
+    }
+  })();
+  const providerType = (
+    {
+      delivery: "delivered",
+      deliverydelay: "delayed",
+      open: "opened",
+      click: "clicked",
+      bounce: "bounced",
+      complaint: "complained",
+      reject: "rejected",
+      renderingfailure: "failed",
+    } satisfies Record<string, ProviderEventRecord["type"]>
+  )[normalizedEventType ?? ""];
+  const terminal = [
+    "delivery",
+    "bounce",
+    "complaint",
+    "reject",
+    "renderingfailure",
+  ].includes(normalizedEventType ?? "");
+  const diagnosticCategory = (
+    {
+      bounce: "provider_rejected",
+      reject: "provider_rejected",
+      renderingfailure: "invalid_data",
+      deliverydelay: "provider_unavailable",
+    } satisfies Record<string, DeliveryDiagnosticCategory>
+  )[normalizedEventType ?? ""];
+  const providerAt =
+    sesEvent.bounce?.timestamp ??
+    sesEvent.complaint?.timestamp ??
+    sesEvent.delivery?.timestamp ??
+    sesEvent.deliveryDelay?.timestamp ??
+    sesEvent.open?.timestamp ??
+    sesEvent.click?.timestamp ??
+    sesEvent.mail?.timestamp ??
+    context.receivedAt ??
+    new Date().toISOString();
   await services.emailService.applyProviderEvent(emailId, eventType, {
-    ...(sesEvent.bounce ?? {}),
-    ...(sesEvent.complaint ?? {}),
-    ...(sesEvent.delivery ?? {}),
-    ...(sesEvent.deliveryDelay ?? {}),
+    ...(context.providerEventId
+      ? { provider_event_id: context.providerEventId }
+      : {}),
+    ...(sesEvent.mail?.messageId
+      ? { provider_message_id: sesEvent.mail.messageId }
+      : {}),
+    provider_at: providerAt,
+    ...(context.receivedAt ? { received_at: context.receivedAt } : {}),
+    recipient_addresses: recipientAddresses,
+    ...(providerType ? { provider_type: providerType } : {}),
+    terminal,
+    ...(diagnosticCategory
+      ? { diagnostic_category: diagnosticCategory }
+      : {}),
   });
 }
 
@@ -139,6 +240,10 @@ export async function processSesRecords(
     await processSesEvent(
       JSON.parse(record.Sns.Message) as SesEvent,
       services,
+      {
+        providerEventId: record.Sns.MessageId,
+        receivedAt: record.Sns.Timestamp,
+      },
     );
   }
 }
