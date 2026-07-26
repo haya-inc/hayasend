@@ -1,4 +1,5 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import { createTemplateSchema } from "./schemas.js";
@@ -145,18 +146,23 @@ function formatZodError(error: z.ZodError) {
 }
 
 async function readBoundedFile(path: string, maximumBytes: number) {
-  const metadata = await stat(path);
-  if (!metadata.isFile()) {
-    throw new Error(`Expected a regular file: ${path}`);
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile()) {
+      throw new Error(`Expected a regular file: ${path}`);
+    }
+    if (metadata.size > maximumBytes) {
+      throw new Error(`File exceeds the ${maximumBytes}-byte limit: ${path}`);
+    }
+    const content = await file.readFile({ encoding: "utf8" });
+    if (Buffer.byteLength(content, "utf8") > maximumBytes) {
+      throw new Error(`File exceeds the ${maximumBytes}-byte limit: ${path}`);
+    }
+    return content;
+  } finally {
+    await file.close();
   }
-  if (metadata.size > maximumBytes) {
-    throw new Error(`File exceeds the ${maximumBytes}-byte limit: ${path}`);
-  }
-  const content = await readFile(path, "utf8");
-  if (Buffer.byteLength(content, "utf8") > maximumBytes) {
-    throw new Error(`File exceeds the ${maximumBytes}-byte limit: ${path}`);
-  }
-  return content;
 }
 
 async function resolveContentFile(
@@ -260,7 +266,8 @@ export async function loadTemplateManifest(
   cwd: string,
   configuredPath = "hayasend.templates.json",
 ) {
-  const manifestPath = resolve(cwd, configuredPath);
+  const configuredManifestPath = resolve(cwd, configuredPath);
+  const manifestPath = await realpath(configuredManifestPath);
   const source = await readBoundedFile(manifestPath, MAX_MANIFEST_BYTES);
   let untrusted: unknown;
   try {
@@ -278,13 +285,13 @@ export async function loadTemplateManifest(
       `Template manifest is invalid: ${formatZodError(parsed.error)}`,
     );
   }
-  const root = await realpath(dirname(manifestPath));
+  const root = dirname(manifestPath);
   const templates = await Promise.all(
     parsed.data.templates.map((template) =>
       loadDesiredTemplate(root, template),
     ),
   );
-  return { path: manifestPath, templates };
+  return { path: configuredManifestPath, templates };
 }
 
 export function parseRemoteTemplate(value: unknown): RemoteTemplate {

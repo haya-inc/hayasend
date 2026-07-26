@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { normalizeApiGatewayBaseUrl } from "./aws-integration-safety.mjs";
 
 function requiredEnvironment(name) {
   const value = process.env[name];
@@ -9,7 +10,11 @@ function requiredEnvironment(name) {
   return value;
 }
 
-const baseUrl = requiredEnvironment("HAYASEND_BASE_URL").replace(/\/$/, "");
+const baseUrl = normalizeApiGatewayBaseUrl(
+  requiredEnvironment("HAYASEND_BASE_URL"),
+  requiredEnvironment("HAYASEND_EXPECTED_API_ID"),
+  requiredEnvironment("AWS_REGION"),
+);
 const bootstrapKey = requiredEnvironment("HAYASEND_BOOTSTRAP_KEY");
 const runId = (process.env.GITHUB_RUN_ID ?? String(Date.now())).replace(
   /[^a-zA-Z0-9-]/g,
@@ -35,7 +40,7 @@ async function api(
   const raw = await response.text();
   if (response.status !== expectedStatus) {
     throw new Error(
-      `${method} ${path} returned ${response.status}, expected ${expectedStatus}: ${raw.slice(0, 1_000)}`,
+      `${method} ${path} returned ${response.status}, expected ${expectedStatus}.`,
     );
   }
   return raw ? JSON.parse(raw) : undefined;
@@ -44,9 +49,8 @@ async function api(
 async function bestEffort(label, operation) {
   try {
     await operation();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Cleanup warning for ${label}: ${message}`);
+  } catch {
+    console.warn(`Cleanup warning: ${label} could not be removed.`);
   }
 }
 
@@ -280,7 +284,7 @@ try {
     );
   }
   for (const apiKeyId of created.apiKeyIds.reverse()) {
-    await bestEffort(`API key ${apiKeyId}`, () =>
+    await bestEffort("an API key", () =>
       api("DELETE", `/api-keys/${apiKeyId}`, bootstrapKey),
     );
   }
