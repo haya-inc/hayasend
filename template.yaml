@@ -73,7 +73,7 @@ Conditions:
 
 Globals:
   Function:
-    Runtime: nodejs22.x
+    Runtime: nodejs24.x
     Architectures:
       - arm64
     MemorySize: 256
@@ -119,12 +119,13 @@ Resources:
       BuildProperties:
         EntryPoints:
           - src/aws/api.ts
-        Format: esm
+        Format: cjs
         Minify: true
         OutExtension:
-          - .js=.mjs
+          - .js=.cjs
         Sourcemap: true
-        Target: es2022
+        Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
@@ -203,12 +204,13 @@ Resources:
       BuildProperties:
         EntryPoints:
           - src/aws/worker.ts
-        Format: esm
+        Format: cjs
         Minify: true
         OutExtension:
-          - .js=.mjs
+          - .js=.cjs
         Sourcemap: true
-        Target: es2022
+        Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/worker.handler
@@ -259,12 +261,13 @@ Resources:
       BuildProperties:
         EntryPoints:
           - src/aws/ses-events.ts
-        Format: esm
+        Format: cjs
         Minify: true
         OutExtension:
-          - .js=.mjs
+          - .js=.cjs
         Sourcemap: true
-        Target: es2022
+        Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/ses-events.handler
@@ -287,12 +290,13 @@ Resources:
       BuildProperties:
         EntryPoints:
           - src/aws/inbound.ts
-        Format: esm
+        Format: cjs
         Minify: true
         OutExtension:
-          - .js=.mjs
+          - .js=.cjs
         Sourcemap: true
-        Target: es2022
+        Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/inbound.handler

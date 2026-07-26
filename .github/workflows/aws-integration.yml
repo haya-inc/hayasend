@@ -29,7 +29,7 @@ jobs:
       AWS_TEST_ROLE_ARN: ${{ vars.AWS_TEST_ROLE_ARN }}
       STACK_NAME: hayasend-it-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate dedicated-account configuration
         shell: bash
@@ -45,14 +45,17 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: npm
 
-      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+      - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
-          version: 1.161.0
+          version: 1.164.0
+
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
 
       - name: Install dependencies
         run: |
@@ -61,7 +64,7 @@ jobs:
 
       - name: Configure short-lived AWS credentials
         id: aws-credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ env.AWS_TEST_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -266,6 +269,37 @@ jobs:
             aws dynamodb wait table-not-exists \
               --table-name "$DATA_TABLE" \
               --region "$AWS_REGION"
+          fi
+
+          log_group_prefix="/aws/lambda/${STACK_NAME}-"
+          log_groups="$(
+            aws logs describe-log-groups \
+              --log-group-name-prefix "$log_group_prefix" \
+              --region "$AWS_REGION" \
+              --query "logGroups[].logGroupName" \
+              --output text
+          )"
+          for log_group in $log_groups; do
+            aws logs delete-log-group \
+              --log-group-name "$log_group" \
+              --region "$AWS_REGION"
+          done
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "::error::CloudFormation stack still exists after cleanup."
+            exit 1
+          fi
+          if [[ -n "$(
+            aws logs describe-log-groups \
+              --log-group-name-prefix "$log_group_prefix" \
+              --region "$AWS_REGION" \
+              --query "logGroups[].logGroupName" \
+              --output text
+          )" ]]; then
+            echo "::error::Lambda log groups still exist after cleanup."
+            exit 1
           fi
 
       - name: Record retained stack

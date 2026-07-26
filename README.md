@@ -140,8 +140,8 @@ For source development:
 
 Requirements:
 
-- Node.js 22 or newer
-- npm 10 or newer
+- Node.js 24 LTS or newer
+- npm 12 or newer
 
 ```bash
 npm install
