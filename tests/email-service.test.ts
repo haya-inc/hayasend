@@ -124,6 +124,20 @@ const input = {
 };
 
 describe("EmailService", () => {
+  it("rejects caller-supplied Message-ID headers before queueing", async () => {
+    const { queue, service, store } = fixture();
+
+    await expect(
+      service.create({
+        ...input,
+        headers: { "mEsSaGe-Id": "<caller@example.com>" },
+      }),
+    ).rejects.toThrow("assigned by the delivery provider");
+
+    await expect(store.listEmails(100)).resolves.toMatchObject({ data: [] });
+    expect(queue.jobs).toHaveLength(0);
+  });
+
   it("preflights a strict batch before creating or queueing any email", async () => {
     const { queue, service, store } = fixture();
 

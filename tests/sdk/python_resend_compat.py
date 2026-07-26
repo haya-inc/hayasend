@@ -75,15 +75,27 @@ def main() -> None:
         retrieved.get("to") == ["python-sdk@example.net"],
         "Emails.get changed the recipient.",
     )
+    require(
+        isinstance(retrieved.get("message_id"), str)
+        and retrieved.get("message_id") == retrieved.get("provider_id"),
+        "Emails.get omitted the provider-assigned Message-ID.",
+    )
     require(retrieved.get("status") == "sent", "Local send did not complete.")
 
     listed = resend.Emails.list({"limit": 10})
-    listed_ids = [
-        item.get("id")
-        for item in listed.get("data", [])
-        if isinstance(item, dict)
-    ]
-    require(email_id in listed_ids, "Emails.list omitted the created email.")
+    listed_email = next(
+        (
+            item
+            for item in listed.get("data", [])
+            if isinstance(item, dict) and item.get("id") == email_id
+        ),
+        None,
+    )
+    require(listed_email is not None, "Emails.list omitted the created email.")
+    require(
+        listed_email.get("message_id") == retrieved.get("message_id"),
+        "Emails.list omitted the provider-assigned Message-ID.",
+    )
     require(listed.get("has_more") is False, "Unexpected local pagination state.")
 
     batched = resend.Batch.send(

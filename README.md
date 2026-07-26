@@ -43,6 +43,7 @@ implemented provider today. HayaSend never logs message bodies.
 - signed webhooks with SQS retry, retained delivery history, manual replay,
   and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
+- provider-assigned Message-ID correlation in sent-email reads and webhooks
 - opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
   deterministic duplicate suppression, `email.received` webhooks, and
   Resend-shaped content, attachment retrieval, and SDK-assisted forwarding

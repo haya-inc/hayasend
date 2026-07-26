@@ -459,6 +459,39 @@ describe("HTTP API", () => {
     });
   });
 
+  it("exposes the provider Message-ID only after acceptance", async () => {
+    const { emails, request } = fixture();
+    const response = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify(email),
+    });
+    const { id } = (await response.json()) as { id: string };
+
+    const queued = (await (await request(`/emails/${id}`)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(queued).not.toHaveProperty("message_id");
+
+    await emails.processSend(id);
+
+    await expect(
+      (await request(`/emails/${id}`)).json(),
+    ).resolves.toMatchObject({
+      id,
+      provider_id: `provider_${id}`,
+      message_id: `provider_${id}`,
+    });
+    await expect((await request("/emails")).json()).resolves.toMatchObject({
+      data: [
+        {
+          id,
+          message_id: `provider_${id}`,
+        },
+      ],
+    });
+  });
+
   it("lists and retrieves received emails before the generic email route", async () => {
     const { inboundStorage, receivedEmailService, request } = fixture();
     inboundStorage.seedRaw(

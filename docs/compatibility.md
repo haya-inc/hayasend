@@ -6,7 +6,7 @@ migration path. It does not claim full Resend API coverage.
 | Resource            | Operation                                       |             Status | Notes                                                              |
 | ------------------- | ----------------------------------------------- | -----------------: | ------------------------------------------------------------------ |
 | Emails              | send                                            |        Implemented | HTML, text, recipients, headers, tags                              |
-| Emails              | retrieve/list                                   |        Implemented | HayaSend adds internal status fields                               |
+| Emails              | retrieve/list                                   |        Implemented | Includes provider-assigned `message_id` after acceptance           |
 | Emails              | update/cancel                                   |        Implemented | queued or scheduled messages only                                  |
 | Batch               | send                                            |        Implemented | 1–100 messages; strict validation only, without permissive mode    |
 | Attachments         | base64 content                                  |        Implemented | constrained by the 9 MiB serialized request guardrail              |
@@ -44,3 +44,7 @@ batch behavior without an SDK fork.
 
 Compatibility bugs should include the SDK name and version, the smallest safe
 payload that reproduces the issue, and the expected response shape.
+
+Sent-email retrieve/list responses and provider-accepted outbound email
+webhooks expose the SES identifier as `message_id`. Events emitted before SES
+acceptance omit it rather than fabricating an RFC Message-ID.

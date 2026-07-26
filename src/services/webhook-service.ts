@@ -220,6 +220,7 @@ export class WebhookService {
       to: email.to,
       subject: email.subject,
       ...extra,
+      ...(email.provider_id ? { message_id: email.provider_id } : {}),
     });
   }
 

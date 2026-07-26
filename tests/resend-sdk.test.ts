@@ -57,6 +57,15 @@ describe("official Resend Node SDK compatibility", () => {
     );
     const scheduler = new QueueEmailScheduler(queue);
     const templateService = new TemplateService(store);
+    const emailService = new EmailService(
+      store,
+      scheduler,
+      passthroughTransport,
+      webhooks,
+      suppressions,
+      attachments,
+      templateService,
+    );
     const app = createApp({
       apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
       attachmentService: attachments,
@@ -65,15 +74,7 @@ describe("official Resend Node SDK compatibility", () => {
         new LocalDomainProvider(),
         "ap-northeast-1",
       ),
-      emailService: new EmailService(
-        store,
-        scheduler,
-        passthroughTransport,
-        webhooks,
-        suppressions,
-        attachments,
-        templateService,
-      ),
+      emailService,
       receivedEmailService,
       suppressionService: suppressions,
       templateService,
@@ -306,6 +307,46 @@ describe("official Resend Node SDK compatibility", () => {
     expect(queue.jobs.map(({ job }) => job)).toContainEqual({
       type: "reconcile_outbox",
       outbox_id: `outbox:v1:${data?.id}:dispatch-message:0`,
+    });
+    if (!data?.id) {
+      throw new Error("Expected an SDK-created email.");
+    }
+    await expect(
+      resend.webhooks.update(webhookId, {
+        events: ["email.sent"],
+        status: "enabled",
+      }),
+    ).resolves.toMatchObject({
+      data: { object: "webhook", id: webhookId },
+      error: null,
+    });
+    await emailService.processSend(data.id);
+    const accepted = await resend.emails.get(data.id);
+    expect(accepted.error).toBeNull();
+    expect(accepted.data?.id).toBe(data.id);
+    expect(accepted.data?.message_id).toBe("provider_id");
+    const acceptedList = await resend.emails.list({ limit: 100 });
+    expect(acceptedList.error).toBeNull();
+    expect(
+      acceptedList.data?.data.find((item) => item.id === data.id),
+    ).toMatchObject({
+      id: data.id,
+      message_id: "provider_id",
+    });
+    expect(
+      queue.jobs
+        .map(({ job }) => job)
+        .find(
+          (job) =>
+            job.type === "deliver_webhook" && job.event.type === "email.sent",
+        ),
+    ).toMatchObject({
+      event: {
+        data: {
+          email_id: data.id,
+          message_id: "provider_id",
+        },
+      },
     });
 
     inboundStorage.seedRaw(
