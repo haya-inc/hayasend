@@ -14,6 +14,8 @@ minor releases before v1.0.
   conformance cases, and generated schemas that CI checks for drift.
 - Define versioned provider-neutral message, recipient, attempt, provider-event,
   and outbox records with privacy-safe diagnostics and deterministic identities.
+- Add an atomic memory-store delivery commit and continuously recoverable
+  deterministic outbox reconciler with lease and failure metrics.
 
 ## 0.1.0 - 2026-07-26
 

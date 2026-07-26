@@ -458,6 +458,7 @@ export type Job =
   | {
       type: "send_email";
       email_id: string;
+      job_id?: string | undefined;
     }
   | {
       type: "publish_received_email";

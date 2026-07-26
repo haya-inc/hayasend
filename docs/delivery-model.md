@@ -54,6 +54,27 @@ Timestamps are offset-aware ISO 8601 values. Record schema version, provider
 name, provider adapter version, and capability document version are explicit
 so migrations and conformance evidence can reject silent drift.
 
+## Memory outbox reference
+
+`MemoryStore.commitDelivery` is the executable reference for the atomic
+boundary. It copy-on-write stages the existing sendable email, provider-neutral
+message, recipients, optional idempotency claim, and exactly one generation-zero
+dispatch item, then exposes every record in one state swap. A fault before the
+swap exposes none of them; process loss after the swap leaves due work for the
+reconciler and does not require a client replay.
+
+`OutboxReconciler` conditionally leases due items, publishes a `send_email` job
+whose `job_id` is the outbox identity, and acknowledges dispatch. Queue
+acceptance followed by process loss can publish the job again after lease
+expiry, but both copies have the same identity. Publication failures release
+the item immediately with an allowlisted diagnostic category. Scheduled
+messages remain undispatched until `due_at`; the same sweep handles the exact
+clock boundary.
+
+The privacy-safe metrics are available due count, active lease count, total
+undispatched count, oldest due age, and cumulative publication failures. They
+contain no address, subject, body, provider response, or queue endpoint.
+
 ## Privacy boundary
 
 Addresses are allowed only on recipient records in the customer data plane.
