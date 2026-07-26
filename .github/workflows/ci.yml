@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if HAYASEND_BASE_URL=https://api.resend.com \
+          if HAYASEND_BASE_URL=http://api.resend.com:80 \
             python tests/sdk/python_resend_compat.py \
             2> "$RUNNER_TEMP/python-sdk-endpoint-guard.log"; then
             echo "The SDK compatibility test accepted a production endpoint."
