@@ -121,12 +121,21 @@ jobs:
               --output text
           }
           api_base_url="$(stack_output ApiBaseUrl)"
+          http_api_id="$(
+            aws cloudformation describe-stack-resource \
+              --stack-name "$STACK_NAME" \
+              --logical-resource-id HttpApi \
+              --region "$AWS_REGION" \
+              --query StackResourceDetail.PhysicalResourceId \
+              --output text
+          )"
           bootstrap_secret_arn="$(stack_output BootstrapSecretArn)"
           payload_bucket="$(stack_output PayloadBucketName)"
           data_table="$(stack_output TableName)"
           schedule_group="$(stack_output EmailScheduleGroupName)"
           for value in \
             "$api_base_url" \
+            "$http_api_id" \
             "$bootstrap_secret_arn" \
             "$payload_bucket" \
             "$data_table" \
@@ -138,6 +147,7 @@ jobs:
           done
           {
             echo "API_BASE_URL=$api_base_url"
+            echo "HTTP_API_ID=$http_api_id"
             echo "BOOTSTRAP_SECRET_ARN=$bootstrap_secret_arn"
             echo "PAYLOAD_BUCKET=$payload_bucket"
             echo "DATA_TABLE=$data_table"
@@ -156,6 +166,7 @@ jobs:
           )"
           echo "::add-mask::$bootstrap_key"
           HAYASEND_BASE_URL="$API_BASE_URL" \
+          HAYASEND_EXPECTED_API_ID="$HTTP_API_ID" \
           HAYASEND_BOOTSTRAP_KEY="$bootstrap_key" \
           node scripts/aws-integration.mjs
 

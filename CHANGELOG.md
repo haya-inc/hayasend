@@ -20,6 +20,8 @@ No unreleased changes.
   lookup so unauthenticated input cannot turn storage limits into API errors.
 - Preflight every email in a strict batch before persisting or queueing any
   message, preventing partial sends when a template or attachment is invalid.
+- Pin integration credentials to the expected API Gateway endpoint, redact
+  cleanup failures, and read template files through race-safe descriptors.
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS
   deployment foundation.
 - Add Resend-compatible hosted templates with aliases, typed variables,
