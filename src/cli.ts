@@ -1034,6 +1034,17 @@ Commands:
   emails update ID --scheduled-at TIME --yes [--endpoint URL]
       Cancel or reschedule a queued email after explicit confirmation.
 
+  emails receiving list [--limit NUMBER] [--after ID] [--endpoint URL]
+  emails receiving get ID [--include-content] [--html-format cid|data-uri]
+      Inspect received email. Default output omits addresses, subject, body,
+      headers, filenames, and signed URLs.
+
+  emails receiving attachments ID [--endpoint URL]
+  emails receiving attachment ID ATTACHMENT_ID --output PATH [--force]
+  emails receiving raw ID --output PATH [--force] [--endpoint URL]
+      Select or download inbound files without forwarding the API key.
+      Downloads are bounded, private, atomic, and refuse overwrite by default.
+
   templates push [--file FILE] [--dry-run] [--publish] [--endpoint URL]
       Reconcile hayasend.templates.json. Changes remain drafts unless
       --publish is explicitly provided.
@@ -1103,6 +1114,9 @@ export async function runCli(
     case "emails": {
       const emailArgs = args.slice(1);
       await emailCommand(emailArgs, {
+        baseUrl: endpoint(emailArgs, dependencies.env),
+        cwd: dependencies.cwd,
+        fetch: dependencies.fetch,
         log: dependencies.io.log,
         request: (path, init) =>
           request(path, emailArgs, dependencies, init),

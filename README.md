@@ -180,6 +180,25 @@ npm run cli -- emails cancel email_0123456789abcdef --yes
 
 Only `emails get ID --include-content` prints the complete stored record.
 
+Received-message inspection follows the same privacy boundary:
+
+```bash
+npm run cli -- emails receiving list --limit 20
+npm run cli -- emails receiving get recv_0123456789abcdef0123456789abcdef
+npm run cli -- emails receiving attachments \
+  recv_0123456789abcdef0123456789abcdef
+npm run cli -- emails receiving raw \
+  recv_0123456789abcdef0123456789abcdef \
+  --output message.eml
+```
+
+The default list/get output omits addresses, subject, message ID, body,
+headers, attachment filenames, and signed URLs. Use `get ID --include-content`
+only in a controlled terminal. Attachment and raw downloads are capped at
+25 MiB, never forward the API key, reject redirects and unexpected hosts,
+write private files atomically, and refuse overwrite unless `--force` is
+explicit. See the [CLI guide](docs/cli.md#inspect-and-download-received-email).
+
 ```bash
 curl http://localhost:8787/emails \
   -H 'Authorization: Bearer re_hayasend_dev' \
