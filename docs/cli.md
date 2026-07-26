@@ -118,6 +118,65 @@ canonical UTC timestamp. Cancellation and rescheduling make no API request
 without `--yes`. Read commands need `emails:read`; mutation commands need
 `emails:send`.
 
+## Inspect and download received email
+
+List inbound messages and inspect one without exposing customer content:
+
+```bash
+npm run cli -- emails receiving list --limit 20
+npm run cli -- emails receiving list \
+  --after recv_0123456789abcdef0123456789abcdef
+npm run cli -- emails receiving get \
+  recv_0123456789abcdef0123456789abcdef
+```
+
+Default list/get output contains only the opaque ID, receipt timestamp,
+recipient and attachment counts, and the structured-content truncation flag.
+It omits sender and recipient addresses, subject, Message-ID, bodies, headers,
+attachment filenames, unrecognized server fields, and signed URLs. These
+summaries still reveal operational metadata and require `emails:read`.
+
+Explicitly opt into the validated complete record only in a controlled
+terminal:
+
+```bash
+npm run cli -- emails receiving get RECEIVED_ID \
+  --include-content \
+  --html-format cid
+```
+
+`--html-format` accepts `cid` or `data-uri` and requires
+`--include-content`. The complete record can contain all addresses, subject,
+HTML, text, headers, attachment filenames, and a short-lived raw-MIME URL.
+Do not redirect it into shared CI logs or public issue reports.
+
+Select an attachment without printing its signed URL, then download it to an
+explicit local path:
+
+```bash
+npm run cli -- emails receiving attachments RECEIVED_ID
+npm run cli -- emails receiving attachment \
+  RECEIVED_ID ATTACHMENT_ID \
+  --output ./evidence.bin
+npm run cli -- emails receiving raw RECEIVED_ID \
+  --output ./message.eml
+```
+
+The download commands preflight the output path before contacting HayaSend.
+They refuse an existing path unless `--force` is present, fetch only from the
+configured API origin, an equivalent loopback origin, or HTTPS AWS S3, never
+send the API key to that URL, reject redirects, time out after 60 seconds, and
+stop before writing if declared or streamed data exceeds 25 MiB. Attachment
+downloads must match the API-declared byte length. Data is fully downloaded
+before a private `0600` temporary file is atomically installed, so a network
+or validation failure leaves no partial output. Success prints only the
+canonical path, byte count, and SHA-256.
+
+The CLI intentionally requires a user-selected `--output` rather than trusting
+a message-supplied filename. `listen` and `forward` are not CLI commands yet;
+the official Node SDK forwarding helper remains compatible as documented in
+[the migration guide](migration-from-resend.md).
+
 ## Manage templates as code
 
 Keep a `hayasend.templates.json` manifest and its content files in the

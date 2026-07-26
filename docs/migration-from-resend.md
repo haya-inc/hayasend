@@ -35,6 +35,30 @@ needs `emails:read` for inspection and `emails:send` for these changes.
 `--include-content` is an exceptional debugging option and can reveal the
 complete message.
 
+Inspect received mail without copying addresses, subjects, bodies, filenames,
+or signed URLs into ordinary terminal logs:
+
+```bash
+hayasend emails receiving list --limit 20
+hayasend emails receiving get recv_0123456789abcdef0123456789abcdef
+hayasend emails receiving attachments recv_0123456789abcdef0123456789abcdef
+```
+
+Use `receiving get ID --include-content` only in a controlled terminal.
+Download raw MIME or a selected attachment directly to a private local file
+instead of printing its signed URL:
+
+```bash
+hayasend emails receiving raw RECEIVED_ID --output message.eml
+hayasend emails receiving attachment RECEIVED_ID ATTACHMENT_ID \
+  --output evidence.bin
+```
+
+Downloads never forward the HayaSend API key, reject redirects and
+non-HayaSend/non-S3 targets, stop at 25 MiB, and refuse existing paths unless
+`--force` is explicit. The result prints the canonical path, byte count, and
+SHA-256, but not message content or the short-lived URL.
+
 The official SDK's inline base64 attachments continue to work. Files that
 would approach API Gateway's request limit should use HayaSend's
 `POST /attachments` HTTP extension and then be sent as

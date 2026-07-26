@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add privacy-safe received-email CLI inspection plus bounded, credential-free,
+  atomic raw-MIME and attachment downloads.
 - Add a privacy-safe sent-email lifecycle CLI for listing and inspecting
   metadata, explicitly revealing content, and confirmed cancellation or
   rescheduling.
