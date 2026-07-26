@@ -25,13 +25,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: npm
+      - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: 1.164.0
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
 
       - name: Validate release tag
         id: version
@@ -77,7 +82,9 @@ jobs:
           echo "version=${package_version}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Type-check
         run: npm run check
       - name: Test
@@ -91,19 +98,11 @@ jobs:
           python -m pip install --disable-pip-version-check cfn-lint==1.53.2
           cfn-lint template.yaml
       - name: Validate OpenAPI
-        run: npx --yes @redocly/cli@2.12.5 lint openapi.yaml
-      - name: Bundle Lambda entry points
-        run: >-
-          npx esbuild
-          src/aws/api.ts
-          src/aws/inbound.ts
-          src/aws/worker.ts
-          src/aws/ses-events.ts
-          --bundle
-          --platform=node
-          --target=node22
-          --format=esm
-          --outdir=/tmp/hayasend-esbuild
+        run: npm run lint:openapi
+      - name: Build and load Lambda bundles
+        run: |
+          sam build
+          node scripts/verify-lambda-bundles.mjs
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -149,7 +148,7 @@ jobs:
             generator=docker.io/docker/buildkit-syft-scanner@sha256:79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68
           provenance: mode=max
       - name: Attest container provenance
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.image.outputs.digest }}
@@ -182,11 +181,11 @@ jobs:
               > SHA256SUMS
           )
       - name: Attest release asset provenance
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: release/*
       - name: Attest source SBOM
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: release/hayasend-${{ steps.version.outputs.version }}.tar.gz
           sbom-path: release/hayasend-${{ steps.version.outputs.version }}.cdx.json

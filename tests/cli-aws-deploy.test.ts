@@ -52,7 +52,7 @@ function baseRunner(
       return result("", 0, "aws-cli/2.35.24 Python/3.13");
     }
     if (command === "sam" && args[0] === "--version") {
-      return result("SAM CLI, version 1.161.0");
+      return result("SAM CLI, version 1.164.0");
     }
     if (command === "aws" && args[0] === "sts") {
       return json({
