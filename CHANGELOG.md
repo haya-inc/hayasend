@@ -18,3 +18,5 @@ minor releases before v1.0.
   concurrently changed draft cannot be promoted after review.
 - Add an accessible, dependency-free project site with clear self-hosting and
   commercial-support boundaries, deployed through pinned GitHub Pages actions.
+- Add a pinned black-box compatibility gate for the official Resend Python SDK
+  covering send, retrieve, list, and batch operations.

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+__pycache__/
+*.pyc
 .env
 .aws-sam/
 *.log

@@ -39,13 +39,13 @@ account, and HayaSend never logs message bodies.
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
-- compatibility tests against the official `resend` Node SDK
+- compatibility tests against the official Resend Node and Python SDKs
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
 The dedicated-account deployment gate is documented in
 [AWS integration testing](docs/aws-integration-testing.md).
 
-## Use the official Resend SDK
+## Use the official Resend SDKs
 
 The current official Node SDK accepts a custom `baseUrl`, so no fork is
 required:
@@ -67,6 +67,25 @@ const { data, error } = await email.emails.send({
 
 Use a key beginning with `re_` for compatibility with clients that validate
 the key prefix.
+
+The official Python SDK exposes the same migration path:
+
+```python
+import os
+import resend
+
+resend.api_key = os.environ["HAYASEND_API_KEY"]
+resend.api_url = os.environ["HAYASEND_BASE_URL"]
+
+email = resend.Emails.send(
+    {
+        "from": "Product <hello@example.com>",
+        "to": ["person@example.net"],
+        "subject": "Welcome",
+        "text": "Your account is ready.",
+    }
+)
+```
 
 Hosted templates also work through the official SDK:
 

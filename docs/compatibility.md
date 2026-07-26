@@ -38,7 +38,9 @@ The CI suite constructs the official `resend` Node SDK with a custom `baseUrl`
 and exercises sending, webhook management, received-email listing/retrieval,
 received attachment listing/retrieval, raw-MIME forwarding, hosted-template
 lifecycle, React Email rendering, and template sending through the HayaSend
-application.
+application. A separate black-box gate points the official Resend Python SDK's
+`api_url` at a loopback HayaSend server and verifies send, retrieve, list, and
+batch behavior without an SDK fork.
 
 Compatibility bugs should include the SDK name and version, the smallest safe
 payload that reproduces the issue, and the expected response shape.
