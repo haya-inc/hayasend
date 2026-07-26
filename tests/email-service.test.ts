@@ -107,6 +107,23 @@ const input = {
 };
 
 describe("EmailService", () => {
+  it("preflights a strict batch before creating or queueing any email", async () => {
+    const { queue, service, store } = fixture();
+
+    await expect(
+      service.createBatch([
+        input,
+        {
+          to: ["template-recipient@example.net"],
+          template: { id: "missing-template" },
+        },
+      ]),
+    ).rejects.toThrow("Template");
+
+    await expect(store.listEmails(100)).resolves.toMatchObject({ data: [] });
+    expect(queue.jobs).toHaveLength(0);
+  });
+
   it("keeps a template send idempotent across later publications", async () => {
     const { queue, service, templates } = fixture();
     const template = await templates.create({

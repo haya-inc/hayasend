@@ -644,6 +644,28 @@ describe("HTTP API", () => {
     expect(replayBody.id).not.toBe(deliveryId);
   });
 
+  it("rejects a strict batch before accepting any valid sibling", async () => {
+    const { queue, request, store } = fixture();
+    const response = await request("/emails/batch", {
+      method: "POST",
+      body: JSON.stringify([
+        email,
+        {
+          to: "template-recipient@example.net",
+          template: { id: "missing-template" },
+        },
+      ]),
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      name: "not_found",
+      message: "Template was not found.",
+    });
+    await expect(store.listEmails(100)).resolves.toMatchObject({ data: [] });
+    expect(queue.jobs).toHaveLength(0);
+  });
+
   it("rejects unsupported attachment URLs rather than fetching them", async () => {
     const { request } = fixture();
     const response = await request("/emails", {

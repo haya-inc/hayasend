@@ -18,6 +18,8 @@ No unreleased changes.
   a CLI for substituting operator assumptions.
 - Reject malformed scoped API keys before any DynamoDB or Secrets Manager
   lookup so unauthenticated input cannot turn storage limits into API errors.
+- Preflight every email in a strict batch before persisting or queueing any
+  message, preventing partial sends when a template or attachment is invalid.
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS
   deployment foundation.
 - Add Resend-compatible hosted templates with aliases, typed variables,

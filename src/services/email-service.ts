@@ -11,8 +11,10 @@ import type {
   CreateEmailResult,
   EmailRecord,
   EmailStatus,
+  IdempotencyClaim,
   Page,
   SendEmailInput,
+  SuppressionRecord,
   WebhookEventType,
 } from "../core/types.js";
 import type { EmailScheduler } from "../ports/email-scheduler.js";
@@ -82,6 +84,13 @@ function validateInput(
   }
 }
 
+interface PreparedEmail {
+  record: EmailRecord;
+  idempotency: IdempotencyClaim | undefined;
+  scheduledAt: string | undefined;
+  suppressedRecipients: SuppressionRecord[];
+}
+
 export class EmailService {
   constructor(
     private readonly store: Store,
@@ -98,6 +107,46 @@ export class EmailService {
     idempotencyKey?: string,
     now = new Date(),
   ): Promise<CreateEmailResult> {
+    return this.commitPreparedEmail(
+      await this.prepareEmail(input, idempotencyKey, now),
+      now,
+    );
+  }
+
+  async createBatch(
+    inputs: SendEmailInput[],
+    idempotencyKey?: string,
+  ): Promise<CreateEmailResult[]> {
+    if (inputs.length === 0 || inputs.length > 100) {
+      throw new ValidationError(
+        "A batch must contain between 1 and 100 emails.",
+      );
+    }
+    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 9 * 1024 * 1024) {
+      throw new ValidationError(
+        "The serialized batch request must not exceed 9 MiB.",
+      );
+    }
+    const now = new Date();
+    const prepared = await Promise.all(
+      inputs.map((input, index) =>
+        this.prepareEmail(
+          input,
+          idempotencyKey ? `${idempotencyKey}:${index}` : undefined,
+          now,
+        ),
+      ),
+    );
+    return Promise.all(
+      prepared.map((email) => this.commitPreparedEmail(email, now)),
+    );
+  }
+
+  private async prepareEmail(
+    input: SendEmailInput,
+    idempotencyKey: string | undefined,
+    now: Date,
+  ): Promise<PreparedEmail> {
     const templateRequestHash = input.template ? requestHash(input) : undefined;
     if (input.template) {
       if (!this.templates) {
@@ -157,6 +206,23 @@ export class EmailService {
           expires_at: Math.floor(now.getTime() / 1_000) + 86_400,
         }
       : undefined;
+    return {
+      record,
+      idempotency,
+      scheduledAt,
+      suppressedRecipients,
+    };
+  }
+
+  private async commitPreparedEmail(
+    {
+      record,
+      idempotency,
+      scheduledAt,
+      suppressedRecipients,
+    }: PreparedEmail,
+    now: Date,
+  ): Promise<CreateEmailResult> {
     const created = await this.store.createEmail(record, idempotency);
     if (!created.replayed) {
       if (suppressedRecipients.length > 0) {
@@ -184,30 +250,6 @@ export class EmailService {
       );
     }
     return created;
-  }
-
-  async createBatch(
-    inputs: SendEmailInput[],
-    idempotencyKey?: string,
-  ): Promise<CreateEmailResult[]> {
-    if (inputs.length === 0 || inputs.length > 100) {
-      throw new ValidationError(
-        "A batch must contain between 1 and 100 emails.",
-      );
-    }
-    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 9 * 1024 * 1024) {
-      throw new ValidationError(
-        "The serialized batch request must not exceed 9 MiB.",
-      );
-    }
-    return Promise.all(
-      inputs.map((input, index) =>
-        this.create(
-          input,
-          idempotencyKey ? `${idempotencyKey}:${index}` : undefined,
-        ),
-      ),
-    );
   }
 
   async get(id: string): Promise<EmailRecord> {
