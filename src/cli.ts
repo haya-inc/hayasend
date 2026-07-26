@@ -33,6 +33,7 @@ interface CliDependencies {
   fetch: typeof fetch;
   io: CliIo;
   runCommand: CommandRunner;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 const defaultDependencies: CliDependencies = {
@@ -41,6 +42,8 @@ const defaultDependencies: CliDependencies = {
   fetch,
   io: console,
   runCommand: defaultCommandRunner,
+  sleep: (milliseconds) =>
+    new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)),
 };
 
 function flags(args: string[], name: string): string[] {
@@ -1039,6 +1042,10 @@ Commands:
       Inspect received email. Default output omits addresses, subject, body,
       headers, filenames, and signed URLs.
 
+  emails receiving listen [--interval SECONDS] [--max-polls NUMBER]
+      Stream privacy-safe new-email summaries as NDJSON. Existing messages
+      are seeded without output; polling is continuous unless bounded.
+
   emails receiving attachments ID [--endpoint URL]
   emails receiving attachment ID ATTACHMENT_ID --output PATH [--force]
   emails receiving raw ID --output PATH [--force] [--endpoint URL]
@@ -1116,10 +1123,12 @@ export async function runCli(
       await emailCommand(emailArgs, {
         baseUrl: endpoint(emailArgs, dependencies.env),
         cwd: dependencies.cwd,
+        error: dependencies.io.error,
         fetch: dependencies.fetch,
         log: dependencies.io.log,
         request: (path, init) =>
           request(path, emailArgs, dependencies, init),
+        sleep: dependencies.sleep,
       });
       break;
     }

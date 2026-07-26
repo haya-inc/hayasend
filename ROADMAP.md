@@ -26,6 +26,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] deterministic receipt duplicate suppression
 - [x] explicit received-message forwarding through the official Node SDK
 - [x] privacy-safe CLI inspection and bounded raw/attachment downloads
+- [x] bounded privacy-safe CLI streaming for newly received messages
 - [ ] alias routing and catch-all rules
 - [ ] automatic forwarding that rewrites sender headers safely
 - [ ] loop detection and ARC preservation
@@ -40,6 +41,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] `hayasend init`, `doctor`, and end-to-end `test`
 - [x] privacy-safe sent-email lifecycle CLI
 - [x] privacy-safe received-email inspection and download CLI
+- [x] privacy-safe received-email NDJSON listen CLI
 - `hayasend deploy` and migration commands
 - OpenTelemetry exports and operational dashboard
 - Python, Go, and direct HTTP contract tests

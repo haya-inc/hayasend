@@ -6,8 +6,10 @@ import {
 
 interface ReceivingCommandContext extends DownloadContext {
   cwd: string;
+  error(message: string): void;
   log(message: string): void;
   request(path: string, init?: RequestInit): Promise<unknown>;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 interface ParsedOptions {
@@ -26,6 +28,23 @@ interface ReceivedEmailShape {
   attachments: AttachmentMetadata[];
   contentTruncated: boolean;
   source: Record<string, unknown>;
+}
+
+interface ReceivedEmailSummary {
+  object: "received_email_summary";
+  id: string;
+  created_at: string;
+  recipient_count: number;
+  envelope_recipient_count: number;
+  attachment_count: number;
+  content_truncated: boolean;
+}
+
+interface ReceivedEmailPage {
+  object: "list";
+  data: ReceivedEmailSummary[];
+  has_more: boolean;
+  next_cursor?: string;
 }
 
 interface DownloadTarget {
@@ -181,7 +200,7 @@ function receivedEmail(value: unknown): ReceivedEmailShape {
   };
 }
 
-function receivedSummary(value: unknown) {
+function receivedSummary(value: unknown): ReceivedEmailSummary {
   const record = receivedEmail(value);
   return {
     object: "received_email_summary",
@@ -195,7 +214,7 @@ function receivedSummary(value: unknown) {
   };
 }
 
-function receivedList(value: unknown) {
+function receivedList(value: unknown): ReceivedEmailPage {
   const response = objectRecord(value, "received email list");
   if (
     response.object !== "list" ||
@@ -376,12 +395,242 @@ function boundedLimit(value: string | undefined) {
   return String(parsed);
 }
 
+function boundedInteger(
+  value: string | undefined,
+  option: string,
+  minimum: number,
+  maximum: number,
+) {
+  if (value === undefined || !/^\d+$/.test(value)) {
+    throw new Error(
+      `--${option} must be an integer from ${minimum} to ${maximum}.`,
+    );
+  }
+  const parsed = Number(value);
+  if (parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `--${option} must be an integer from ${minimum} to ${maximum}.`,
+    );
+  }
+  return parsed;
+}
+
 function receivedPath(id: string) {
   return `/emails/receiving/${encodeURIComponent(id)}`;
 }
 
 function print(value: unknown, context: ReceivingCommandContext) {
   context.log(JSON.stringify(value, null, 2));
+}
+
+const LISTEN_PAGE_SIZE = 100;
+const LISTEN_PAGES_PER_POLL = 5;
+const LISTEN_SEEN_LIMIT = 5_000;
+const LISTEN_BACKLOG_LIMIT = 5_000;
+
+interface ListenState {
+  cursor?: string;
+  pending: ReceivedEmailSummary[];
+}
+
+interface ListenFetchResult {
+  state: ListenState;
+  complete: boolean;
+  failed: boolean;
+}
+
+class ListenFatalError extends Error {}
+
+function receivedListPath(limit: number, after?: string) {
+  const parameters = new URLSearchParams({ limit: String(limit) });
+  if (after) {
+    parameters.set("after", after);
+  }
+  return `/emails/receiving?${parameters}`;
+}
+
+async function getReceivedPage(
+  limit: number,
+  after: string | undefined,
+  context: ReceivingCommandContext,
+) {
+  return receivedList(
+    await context.request(receivedListPath(limit, after)),
+  );
+}
+
+function rememberSeen(seenIds: Set<string>, id: string) {
+  seenIds.delete(id);
+  seenIds.add(id);
+  while (seenIds.size > LISTEN_SEEN_LIMIT) {
+    const oldest = seenIds.values().next().value;
+    if (typeof oldest !== "string") {
+      break;
+    }
+    seenIds.delete(oldest);
+  }
+}
+
+function appendUnseen(
+  pending: ReceivedEmailSummary[],
+  candidates: ReceivedEmailSummary[],
+  seenIds: Set<string>,
+) {
+  const pendingIds = new Set(pending.map((email) => email.id));
+  for (const email of candidates) {
+    if (!seenIds.has(email.id) && !pendingIds.has(email.id)) {
+      pending.push(email);
+      pendingIds.add(email.id);
+      if (pending.length > LISTEN_BACKLOG_LIMIT) {
+        throw new ListenFatalError(
+          `Receiving listen backlog exceeds ${LISTEN_BACKLOG_LIMIT} messages; stop and drain the list explicitly.`,
+        );
+      }
+    }
+  }
+}
+
+async function fetchListenPages(
+  initial: ListenState,
+  seenIds: Set<string>,
+  context: ReceivingCommandContext,
+): Promise<ListenFetchResult> {
+  const pending = [...initial.pending];
+  let cursor = initial.cursor;
+  for (
+    let pageNumber = 0;
+    pageNumber < LISTEN_PAGES_PER_POLL;
+    pageNumber += 1
+  ) {
+    let page: ReceivedEmailPage;
+    try {
+      page = await getReceivedPage(
+        LISTEN_PAGE_SIZE,
+        cursor,
+        context,
+      );
+    } catch {
+      return {
+        state: cursor ? { cursor, pending } : { pending },
+        complete: false,
+        failed: true,
+      };
+    }
+    const seenIndex = page.data.findIndex((email) =>
+      seenIds.has(email.id),
+    );
+    appendUnseen(
+      pending,
+      seenIndex >= 0 ? page.data.slice(0, seenIndex) : page.data,
+      seenIds,
+    );
+    if (seenIndex >= 0 || !page.has_more) {
+      return {
+        state: { pending },
+        complete: true,
+        failed: false,
+      };
+    }
+    if (!page.next_cursor || page.next_cursor === cursor) {
+      throw new ListenFatalError(
+        "HayaSend returned an invalid receiving pagination cursor.",
+      );
+    }
+    cursor = page.next_cursor;
+  }
+  return {
+    state: cursor ? { cursor, pending } : { pending },
+    complete: false,
+    failed: false,
+  };
+}
+
+function listenWarning(
+  code: "page_cap_reached" | "poll_failed",
+  context: ReceivingCommandContext,
+  details: Record<string, number>,
+) {
+  context.error(
+    JSON.stringify({
+      object: "listen_warning",
+      code,
+      ...details,
+    }),
+  );
+}
+
+async function listen(
+  options: ParsedOptions,
+  context: ReceivingCommandContext,
+) {
+  const interval = options.values.has("interval")
+    ? boundedInteger(
+        options.values.get("interval"),
+        "interval",
+        2,
+        3_600,
+      )
+    : 5;
+  const maxPolls = options.values.has("max-polls")
+    ? boundedInteger(
+        options.values.get("max-polls"),
+        "max-polls",
+        1,
+        1_000_000,
+      )
+    : undefined;
+  const seenIds = new Set<string>();
+  let seed: ReceivedEmailPage;
+  try {
+    seed = await getReceivedPage(1, undefined, context);
+  } catch {
+    throw new Error("Receiving listen could not connect to HayaSend.");
+  }
+  for (const email of seed.data.toReversed()) {
+    rememberSeen(seenIds, email.id);
+  }
+
+  let state: ListenState = { pending: [] };
+  let consecutiveFailures = 0;
+  let polls = 0;
+  while (maxPolls === undefined || polls < maxPolls) {
+    await context.sleep(interval * 1_000);
+    polls += 1;
+    const result = await fetchListenPages(state, seenIds, context);
+    state = result.state;
+    if (result.failed) {
+      consecutiveFailures += 1;
+      listenWarning("poll_failed", context, {
+        consecutive_failures: consecutiveFailures,
+      });
+      if (consecutiveFailures >= 5) {
+        throw new ListenFatalError(
+          "Receiving listen stopped after 5 consecutive API failures.",
+        );
+      }
+      continue;
+    }
+    consecutiveFailures = 0;
+    if (!result.complete) {
+      listenWarning("page_cap_reached", context, {
+        pending_count: state.pending.length,
+      });
+      continue;
+    }
+    for (const email of state.pending.toReversed()) {
+      rememberSeen(seenIds, email.id);
+      context.log(JSON.stringify(email));
+    }
+    state = { pending: [] };
+  }
+  if (state.pending.length > 0 || state.cursor) {
+    throw new Error(
+      "Receiving listen stopped before the pending backlog was complete.",
+    );
+  }
+  if (consecutiveFailures > 0) {
+    throw new Error("Receiving listen ended after an API failure.");
+  }
 }
 
 async function download(
@@ -428,6 +677,13 @@ export async function receivingCommand(
         ),
         context,
       );
+      break;
+    }
+    case "listen": {
+      const options = parseOptions(args, {
+        values: ["interval", "max-polls", "endpoint"],
+      });
+      await listen(options, context);
       break;
     }
     case "get": {

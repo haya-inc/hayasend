@@ -40,9 +40,16 @@ or signed URLs into ordinary terminal logs:
 
 ```bash
 hayasend emails receiving list --limit 20
+hayasend emails receiving listen --interval 5
 hayasend emails receiving get recv_0123456789abcdef0123456789abcdef
 hayasend emails receiving attachments recv_0123456789abcdef0123456789abcdef
 ```
+
+`receiving listen` seeds existing mail without output, then emits each new
+message as a metadata-only NDJSON object. It does not print sender or recipient
+addresses, subject, body, filenames, headers, or download URLs. Use
+`--max-polls NUMBER` for a deterministic CI or agent step; omit it for
+continuous polling.
 
 Use `receiving get ID --include-content` only in a controlled terminal.
 Download raw MIME or a selected attachment directly to a private local file

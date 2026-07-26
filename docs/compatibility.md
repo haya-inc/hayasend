@@ -23,7 +23,7 @@ migration path. It does not claim full Resend API coverage.
 | Receiving           | list/retrieve                                   |        Implemented | opt-in Mail Manager deployment; bounded `data_uri` or `cid` HTML   |
 | Receiving           | `email.received` webhook                        |        Implemented | metadata only; signed and retried through SQS                      |
 | Receiving           | raw MIME and attachments                        |        Implemented | 15-minute S3 download URLs                                         |
-| Receiving           | CLI inspect/download                            |        Implemented | private summaries; bounded credential-free atomic downloads        |
+| Receiving           | CLI inspect/listen/download                     |        Implemented | private NDJSON summaries; bounded credential-free atomic downloads |
 | Receiving           | official SDK forward helper                     |        Implemented | raw MIME is parsed client-side, then sent through the normal API   |
 | Receiving           | automatic alias routing                         |            Planned | loop detection and ARC-aware policy remain v0.2 work               |
 | Templates           | create/get/list/update/publish/duplicate/delete |        Implemented | ID or alias; isolated draft/published snapshots                    |
