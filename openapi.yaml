@@ -1098,6 +1098,7 @@ components:
           $ref: "#/components/schemas/AddressList"
         headers:
           type: object
+          description: Custom headers. Message-ID is reserved for the delivery provider.
           additionalProperties:
             type: string
         tags:
@@ -1513,6 +1514,10 @@ components:
           format: date-time
         provider_id:
           type: string
+          description: HayaSend extension containing the delivery provider's identifier.
+        message_id:
+          type: string
+          description: Resend-compatible Message-ID assigned when the provider accepts the email; absent before provider acceptance.
         error:
           type: string
           description: Stable operational failure message with a category; never contains raw provider or network exception text.
@@ -1859,6 +1864,10 @@ components:
                 data:
                   type: object
                   additionalProperties: true
+                  properties:
+                    message_id:
+                      type: string
+                      description: Provider-assigned Message-ID; omitted for events emitted before provider acceptance.
     ApiScope:
       enum:
         - emails:send

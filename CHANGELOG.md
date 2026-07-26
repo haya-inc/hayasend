@@ -24,6 +24,8 @@ minor releases before v1.0.
   memory and DynamoDB adapters, with SNS event deduplication, exact
   recipient correlation, conservative message aggregates, sticky complaint and
   suppression safety, and no retained raw provider payloads.
+- Expose the provider-assigned Message-ID through sent-email retrieve/list
+  responses and provider-accepted outbound webhooks.
 
 ## 0.1.0 - 2026-07-26
 

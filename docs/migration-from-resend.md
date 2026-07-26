@@ -57,3 +57,31 @@ not backfilled. A restore is intentionally not an instant production rollback:
 it creates a new unpublished draft, which should be rendered and reviewed
 before an explicit conditional publish. The previously published snapshot
 continues serving sends during that review.
+
+## Preserve email threads
+
+After SES accepts an outbound message, HayaSend includes its provider-assigned
+`message_id` in sent-email retrieve/list responses and outbound email
+webhooks. Capture it from `email.sent` when immediate correlation matters,
+because the initial send response is returned while the message is still
+queued.
+
+Use that exact value in standard threading headers on a later send:
+
+```ts
+await resend.emails.send({
+  from: "Support <support@verified.example.com>",
+  to: "customer@example.net",
+  subject: "Re: Your request",
+  text: "Here is the update.",
+  headers: {
+    "In-Reply-To": originalMessageId,
+    References: originalMessageId,
+  },
+});
+```
+
+HayaSend does not invent a Message-ID for scheduled, suppressed, or failed
+messages that SES has not accepted. The `Message-ID` send header is reserved
+because SES assigns and overrides it; use `In-Reply-To` and `References` for
+threading instead.

@@ -15,6 +15,7 @@ const email: EmailRecord = {
   last_event: "sent",
   created_at: "2026-07-26T00:00:00.000Z",
   updated_at: "2026-07-26T00:00:01.000Z",
+  provider_id: "ses-message-id",
   request_hash: "hash",
   attempts: 1,
 };
@@ -198,7 +199,10 @@ describe("WebhookService", () => {
     ).resolves.toMatchObject({
       event: {
         type: "email.sent",
-        data: { email_id: email.id },
+        data: {
+          email_id: email.id,
+          message_id: "ses-message-id",
+        },
       },
     });
 
@@ -216,6 +220,66 @@ describe("WebhookService", () => {
       type: "deliver_webhook",
       webhook_id: created.webhook.id,
       delivery_id: replay.id,
+    });
+  });
+
+  it("omits message_id from events emitted before provider acceptance", async () => {
+    const store = new MemoryStore();
+    const queue = new CapturingJobQueue();
+    const service = new WebhookService(store, queue, {
+      validateEndpoint: async () => undefined,
+    });
+    await service.create({
+      endpoint: "https://example.com/hooks",
+      events: ["email.scheduled"],
+    });
+
+    await service.publish("email.scheduled", {
+      ...email,
+      provider_id: undefined,
+      status: "scheduled",
+      last_event: "scheduled",
+    });
+
+    const job = queue.jobs[0]?.job;
+    expect(job?.type).toBe("deliver_webhook");
+    if (!job || job.type !== "deliver_webhook") {
+      throw new Error("Expected a webhook delivery job.");
+    }
+    expect(job.event.data).not.toHaveProperty("message_id");
+  });
+
+  it.each([
+    "email.sent",
+    "email.delivered",
+    "email.delivery_delayed",
+    "email.opened",
+    "email.clicked",
+    "email.bounced",
+    "email.complained",
+    "email.failed",
+  ] as const)("includes message_id in provider-accepted %s events", async (type) => {
+    const store = new MemoryStore();
+    const queue = new CapturingJobQueue();
+    const service = new WebhookService(store, queue, {
+      validateEndpoint: async () => undefined,
+    });
+    await service.create({
+      endpoint: "https://example.com/hooks",
+      events: [type],
+    });
+
+    await service.publish(type, email);
+
+    expect(queue.jobs[0]?.job).toMatchObject({
+      type: "deliver_webhook",
+      event: {
+        type,
+        data: {
+          email_id: email.id,
+          message_id: "ses-message-id",
+        },
+      },
     });
   });
 

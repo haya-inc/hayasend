@@ -151,6 +151,11 @@ function validateInput(
     ensureSafeHeaderValue("reply_to", replyTo);
   }
   for (const [name, value] of Object.entries(input.headers ?? {})) {
+    if (name.toLowerCase() === "message-id") {
+      throw new ValidationError(
+        "Message-ID is assigned by the delivery provider.",
+      );
+    }
     ensureSafeHeaderValue("header name", name);
     ensureSafeHeaderValue(`header ${name}`, value);
   }

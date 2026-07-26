@@ -138,6 +138,7 @@ function publicEmail(record: EmailRecord) {
   }));
   const safeEmail = {
     ...email,
+    ...(email.provider_id ? { message_id: email.provider_id } : {}),
     ...(publicAttachments ? { attachments: publicAttachments } : {}),
   };
   return error ? { ...safeEmail, error } : safeEmail;
