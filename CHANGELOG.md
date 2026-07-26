@@ -6,7 +6,9 @@ minor releases before v1.0.
 
 ## Unreleased
 
-No unreleased changes.
+- Add a privacy-safe sent-email lifecycle CLI for listing and inspecting
+  metadata, explicitly revealing content, and confirmed cancellation or
+  rescheduling.
 
 ## 0.1.0 - 2026-07-26
 

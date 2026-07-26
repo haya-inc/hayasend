@@ -74,6 +74,50 @@ The lower-level `send` command accepts `--from`, `--to`, `--subject`, and
 `--text`. Both commands read the endpoint and key from the environment and
 accept `--endpoint` as a non-secret override.
 
+## Inspect and control sent email
+
+Use the lifecycle commands for canaries, support investigations, and queued
+message recovery:
+
+```bash
+npm run cli -- emails list --limit 20
+npm run cli -- emails list --after email_0123456789abcdef
+npm run cli -- emails get email_0123456789abcdef
+```
+
+`list` and `get` deliberately print an `email_summary`: opaque IDs, lifecycle
+state, timestamps, safe provider/error categories, aggregate recipient and
+attachment counts, and whether content exists. They omit sender and recipient
+addresses, subject, bodies, headers, tags, attachment filenames, and any
+unrecognized server fields. This makes the default output safer for terminals,
+CI logs, and support transcripts, but it is still operational metadata and
+should receive appropriate access controls.
+
+When controlled debugging truly requires the stored message, opt in:
+
+```bash
+npm run cli -- emails get email_0123456789abcdef --include-content
+```
+
+That response can contain all recipients, subject, HTML and text bodies,
+headers, tags, and attachment filenames. Do not redirect it into shared logs
+or paste it into public issues.
+
+Changing an accepted message requires a second acknowledgement:
+
+```bash
+npm run cli -- emails update email_0123456789abcdef \
+  --scheduled-at 'in 10 minutes' \
+  --yes
+npm run cli -- emails cancel email_0123456789abcdef --yes
+```
+
+Rescheduling is limited to queued or scheduled email and to a time within 30
+days. The CLI validates relative or ISO 8601 input locally and sends a
+canonical UTC timestamp. Cancellation and rescheduling make no API request
+without `--yes`. Read commands need `emails:read`; mutation commands need
+`emails:send`.
+
 ## Manage templates as code
 
 Keep a `hayasend.templates.json` manifest and its content files in the

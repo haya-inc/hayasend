@@ -74,6 +74,25 @@ version before restore. A not-found response can mean the version was pruned,
 expired, deleted with its template, or belongs to another template; do not
 bypass that boundary by editing DynamoDB directly.
 
+## Sent-email lifecycle
+
+Start an email investigation with `hayasend emails list` or
+`hayasend emails get ID`. Their default summaries exclude addresses, subject,
+bodies, headers, tags, and attachment filenames, so they are suitable for
+ordinary operational correlation using opaque email and request IDs. Keep even
+these summaries out of public tickets.
+
+Use `emails get ID --include-content` only in a controlled session when message
+content is necessary, and do not retain its output in shell transcripts. A
+key used only for investigation needs `emails:read`.
+
+To recover a queued or scheduled message, use
+`emails update ID --scheduled-at TIME --yes`; to stop it, use
+`emails cancel ID --yes`. Both require `emails:send`, refuse to contact the API
+without the acknowledgement, and retain the server's state-transition checks.
+Record the opaque ID and outcome, not the message content. Never redrive a raw
+Scheduler or worker DLQ envelope as a substitute for these operations.
+
 ## Alarms
 
 | Alarm | Immediate response |

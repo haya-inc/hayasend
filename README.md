@@ -29,7 +29,8 @@ account, and HayaSend never logs message bodies.
 - automatic hard-bounce and complaint suppressions plus manual suppression API
 - ISO 8601 and relative scheduling such as `in 10 minutes`, with
   EventBridge Scheduler for delays beyond 15 minutes
-- email retrieval, listing, cancellation, and rescheduling
+- email retrieval, listing, cancellation, and rescheduling, with a
+  privacy-safe lifecycle CLI
 - SES domain creation, DKIM record discovery, refresh, and deletion
 - signed webhooks with SQS retry, retained delivery history, manual replay,
   and a dead-letter queue
@@ -167,6 +168,17 @@ The command creates a hardened Compose file and `.env.hayasend.example`. Use
 [the CLI guide](docs/cli.md) for secret handling, template-as-code
 reconciliation, and real-send behavior. The compiled package exposes the same
 commands through its `hayasend` executable.
+
+Operators can inspect delivery state without printing recipient addresses,
+subjects, or bodies, then explicitly cancel or reschedule queued mail:
+
+```bash
+npm run cli -- emails list --limit 20
+npm run cli -- emails get email_0123456789abcdef
+npm run cli -- emails cancel email_0123456789abcdef --yes
+```
+
+Only `emails get ID --include-content` prints the complete stored record.
 
 ```bash
 curl http://localhost:8787/emails \

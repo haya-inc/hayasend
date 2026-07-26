@@ -37,6 +37,7 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] local preview inbox
 - template versions using React Email
 - [x] `hayasend init`, `doctor`, and end-to-end `test`
+- [x] privacy-safe sent-email lifecycle CLI
 - `hayasend deploy` and migration commands
 - OpenTelemetry exports and operational dashboard
 - Python, Go, and direct HTTP contract tests

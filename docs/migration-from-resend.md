@@ -19,6 +19,22 @@ const email = new Resend(process.env.HAYASEND_API_KEY, {
 Do not switch production traffic until suppression lists, AWS SES production
 access, alarms, dead-letter queue handling, and rollback have been verified.
 
+During the canary phase, inspect HayaSend without copying customer content into
+logs:
+
+```bash
+hayasend emails list --limit 20
+hayasend emails get email_0123456789abcdef
+```
+
+The default output is metadata-only. If rollback requires stopping a queued
+canary, use `hayasend emails cancel ID --yes`. Reschedule only after confirming
+the intended UTC time with
+`hayasend emails update ID --scheduled-at TIME --yes`. The migration operator
+needs `emails:read` for inspection and `emails:send` for these changes.
+`--include-content` is an exceptional debugging option and can reveal the
+complete message.
+
 The official SDK's inline base64 attachments continue to work. Files that
 would approach API Gateway's request limit should use HayaSend's
 `POST /attachments` HTTP extension and then be sent as
