@@ -1,14 +1,22 @@
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createRuntime } from "./runtime.js";
 
 export function startServer() {
   const config = loadConfig();
-  const app = createApp(createRuntime(config));
+  const bootstrapKey =
+    config.mode === "aws" && config.apiKeySecretArn
+      ? createSecretValueProvider(config.apiKeySecretArn)
+      : config.apiKey;
+  const app = createApp(createRuntime(config, bootstrapKey), {
+    localPreview: config.mode === "local",
+  });
   const server = serve({
     fetch: app.fetch,
+    hostname: config.host,
     port: config.port,
   });
   console.info(
@@ -16,7 +24,10 @@ export function startServer() {
       level: "info",
       message: "HayaSend listening",
       mode: config.mode,
-      url: `http://localhost:${config.port}`,
+      url: `http://${config.host}:${config.port}`,
+      ...(config.mode === "local"
+        ? { preview_url: `http://${config.host}:${config.port}/preview` }
+        : {}),
     }),
   );
   return server;

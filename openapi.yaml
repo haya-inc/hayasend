@@ -97,6 +97,356 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Id"
+  /templates:
+    post:
+      summary: Create a hosted email template draft
+      operationId: createTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplate"
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List hosted email templates
+      operationId: listTemplates
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+      responses:
+        "200":
+          description: Template page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TemplateListItem"
+  /templates/{identifier}:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    get:
+      summary: Retrieve a template by ID or alias
+      operationId: getTemplate
+      responses:
+        "200":
+          description: Current template draft and publication state
+          headers:
+            ETag:
+              description: Quoted current draft version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Create a new template draft version
+      operationId: updateTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplate"
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a template
+      operationId: deleteTemplate
+      responses:
+        "200":
+          description: Deleted template
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, id, deleted]
+                properties:
+                  object:
+                    const: template
+                  id:
+                    type: string
+                  deleted:
+                    const: true
+        "404":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/publish:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - name: If-Match
+        in: header
+        required: false
+        description: Publish only if this remains the current draft version ID.
+        schema:
+          type: string
+          pattern: '^"tmplv_[a-f0-9]{32}"$'
+    post:
+      summary: Publish the current template draft
+      operationId: publishTemplate
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "412":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    get:
+      summary: List retained immutable publications
+      description: Requires templates:read. Message bodies are omitted from list metadata.
+      operationId: listTemplateVersions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Published template version page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TemplateVersionMetadata"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+    get:
+      summary: Retrieve an immutable published template version
+      description: Requires templates:read.
+      operationId: getTemplateVersion
+      responses:
+        "200":
+          description: Retained published template content and provenance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}/render:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+    post:
+      summary: Render an immutable published template version without sending
+      description: Requires templates:read.
+      operationId: renderTemplateVersion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenderTemplateInput"
+      responses:
+        "200":
+          description: Rendered historical version
+          headers:
+            ETag:
+              description: Quoted rendered historical version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderedTemplate"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/versions/{versionId}/restore:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+      - $ref: "#/components/parameters/TemplateVersionId"
+      - $ref: "#/components/parameters/CurrentDraftMatch"
+    post:
+      summary: Copy an immutable publication into a new unpublished draft
+      description: Requires templates:write. This never publishes or changes the active sending version.
+      operationId: restoreTemplateVersion
+      responses:
+        "200":
+          description: Newly created draft identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateRestore"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "412":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/render:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    post:
+      summary: Render the current template draft without sending an email
+      operationId: renderTemplateDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenderTemplateInput"
+      responses:
+        "200":
+          description: Rendered current draft
+          headers:
+            ETag:
+              description: Quoted rendered draft version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderedTemplate"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    post:
+      summary: Duplicate a template into a new unpublished draft
+      operationId: duplicateTemplate
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
+  /emails/receiving:
+    get:
+      summary: List received emails
+      description: Requires the emails:read scope. Message bodies are omitted.
+      operationId: listReceivedEmails
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Received email page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReceivedEmailSummary"
+  /emails/receiving/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve a received email
+      description: Returns parsed content and a 15-minute URL for the original raw MIME message.
+      operationId: getReceivedEmail
+      parameters:
+        - name: html_format
+          in: query
+          description: Embed inline attachments as bounded data URIs or preserve cid references.
+          schema:
+            type: string
+            enum: [data_uri, cid]
+            default: data_uri
+      responses:
+        "200":
+          description: Received email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivedEmail"
+        "404":
+          $ref: "#/components/responses/Error"
+  /emails/receiving/{id}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: List received email attachments
+      operationId: listReceivedEmailAttachments
+      responses:
+        "200":
+          description: Attachment metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ReceivedEmailAttachmentDownload"
+  /emails/receiving/{id}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: attachmentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Retrieve a received email attachment
+      description: Returns metadata and a 15-minute download URL.
+      operationId: getReceivedEmailAttachment
+      responses:
+        "200":
+          description: Attachment download target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivedEmailAttachmentDownload"
+        "404":
+          $ref: "#/components/responses/Error"
   /emails/{id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
@@ -138,6 +488,52 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/CreatedId"
+  /attachments:
+    post:
+      summary: Create a direct attachment upload
+      description: Returns a 15-minute checksum-bound PUT URL. Reference the uploaded object by attachment_id within 24 hours.
+      operationId: createAttachmentUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentUploadRequest"
+      responses:
+        "200":
+          description: Direct upload target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentUpload"
+        "422":
+          $ref: "#/components/responses/Error"
+  /attachments/{id}/content:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+    put:
+      summary: Upload attachment content in local development mode
+      description: The AWS deployment returns a direct S3 URL instead. Clients should treat upload_url as opaque.
+      operationId: uploadLocalAttachmentContent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              contentMediaType: application/octet-stream
+              contentEncoding: binary
+      responses:
+        "204":
+          description: Content accepted
+        "422":
+          $ref: "#/components/responses/Error"
   /domains:
     post:
       summary: Add a sending domain
@@ -229,6 +625,8 @@ paths:
                 endpoint:
                   type: string
                   format: uri
+                  maxLength: 2048
+                  description: Public HTTPS URL in AWS mode; local mode also permits HTTP development endpoints.
                 events:
                   type: array
                   minItems: 1
@@ -280,12 +678,268 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Webhook"
+    patch:
+      summary: Update a webhook
+      operationId: updateWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                endpoint:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: Public HTTPS URL in AWS mode; local mode also permits HTTP development endpoints.
+                events:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: "#/components/schemas/WebhookEvent"
+                status:
+                  enum: [enabled, disabled]
+      responses:
+        "200":
+          description: Updated webhook identifier
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, id]
+                properties:
+                  object:
+                    const: webhook
+                  id:
+                    type: string
     delete:
       summary: Delete a webhook
       operationId: deleteWebhook
       responses:
         "200":
           $ref: "#/components/responses/Deleted"
+  /webhooks/{id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: List retained webhook deliveries
+      operationId: listWebhookDeliveries
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Webhook delivery page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/WebhookDeliverySummary"
+  /webhooks/{id}/deliveries/{deliveryId}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: deliveryId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Retrieve a retained webhook delivery and its event
+      operationId: getWebhookDelivery
+      responses:
+        "200":
+          description: Webhook delivery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+  /webhooks/{id}/deliveries/{deliveryId}/replay:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - name: deliveryId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Replay a retained event as a new webhook delivery
+      operationId: replayWebhookDelivery
+      responses:
+        "200":
+          description: Queued replay
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliverySummary"
+  /suppressions:
+    post:
+      summary: Add a suppression
+      operationId: createSuppression
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                reason:
+                  const: manual
+                  default: manual
+                detail:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Suppression
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Suppression"
+    get:
+      summary: List suppressions
+      operationId: listSuppressions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: Suppression page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Suppression"
+  /suppressions/{email}:
+    parameters:
+      - name: email
+        in: path
+        required: true
+        schema:
+          type: string
+          format: email
+    get:
+      summary: Retrieve a suppression
+      operationId: getSuppression
+      responses:
+        "200":
+          description: Suppression
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Suppression"
+    delete:
+      summary: Delete a suppression
+      operationId: deleteSuppression
+      responses:
+        "200":
+          $ref: "#/components/responses/Deleted"
+  /api-keys:
+    post:
+      summary: Create a scoped API key
+      description: The token is returned once and is never stored in plaintext.
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, scopes]
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+                scopes:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: "#/components/schemas/ApiScope"
+                expires_at:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: API key and one-time token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiKey"
+                  - type: object
+                    required: [token]
+                    properties:
+                      token:
+                        type: string
+    get:
+      summary: List API keys
+      operationId: listApiKeys
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        "200":
+          description: API key page without secret tokens
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ApiKey"
+  /api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: Retrieve an API key
+      operationId: getApiKey
+      responses:
+        "200":
+          description: API key metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+    delete:
+      summary: Revoke an API key
+      operationId: revokeApiKey
+      responses:
+        "200":
+          description: Revoked API key metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiKey"
+                  - type: object
+                    required: [revoked]
+                    properties:
+                      revoked:
+                        const: true
 components:
   securitySchemes:
     bearerAuth:
@@ -303,6 +957,35 @@ components:
       name: id
       in: path
       required: true
+      schema:
+        type: string
+    TemplateIdentifier:
+      name: identifier
+      in: path
+      required: true
+      description: Template ID or alias.
+      schema:
+        type: string
+        maxLength: 256
+    TemplateVersionId:
+      name: versionId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^tmplv_[a-f0-9]{32}$
+    CurrentDraftMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Restore only if this is still the current draft version ID.
+      schema:
+        type: string
+        pattern: '^"tmplv_[a-f0-9]{32}"$'
+    Before:
+      name: before
+      in: query
+      description: Return the page immediately before this resource ID.
       schema:
         type: string
     Limit:
@@ -325,6 +1008,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Id"
+    TemplateId:
+      description: Template identifier
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [object, id]
+            properties:
+              object:
+                const: template
+              id:
+                type: string
     Deleted:
       description: Resource deleted
       content:
@@ -363,10 +1058,25 @@ components:
     SendEmail:
       type: object
       additionalProperties: false
-      required: [from, to, subject]
-      anyOf:
-        - required: [html]
-        - required: [text]
+      required: [to]
+      oneOf:
+        - required: [from, subject]
+          not:
+            properties:
+              template: {}
+            required: [template]
+          anyOf:
+            - required: [html]
+            - required: [text]
+        - required: [template]
+          not:
+            anyOf:
+              - properties:
+                  html: {}
+                required: [html]
+              - properties:
+                  text: {}
+                required: [text]
       properties:
         from:
           type: string
@@ -378,6 +1088,8 @@ components:
           type: string
         text:
           type: string
+        template:
+          $ref: "#/components/schemas/TemplateReference"
         cc:
           $ref: "#/components/schemas/AddressList"
         bcc:
@@ -404,22 +1116,337 @@ components:
           type: array
           maxItems: 20
           items:
-            type: object
-            additionalProperties: false
-            required: [filename, content]
-            properties:
-              filename:
-                type: string
-              content:
-                type: string
-                contentEncoding: base64
-              content_type:
-                type: string
-              content_id:
-                type: string
-              content_disposition:
-                enum: [inline, attachment]
+            oneOf:
+              - $ref: "#/components/schemas/InlineAttachment"
+              - $ref: "#/components/schemas/UploadedAttachment"
         scheduled_at:
+          type: string
+    TemplateReference:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+          maxLength: 256
+          description: Published template ID or alias.
+        variables:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            oneOf:
+              - type: string
+                maxLength: 2000
+              - type: number
+    TemplateVariableInput:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [key, type]
+          properties:
+            key:
+              type: string
+              pattern: ^[A-Za-z0-9_]{1,50}$
+            type:
+              const: string
+            fallback_value:
+              type: [string, "null"]
+              maxLength: 2000
+        - type: object
+          additionalProperties: false
+          required: [key, type]
+          properties:
+            key:
+              type: string
+              pattern: ^[A-Za-z0-9_]{1,50}$
+            type:
+              const: number
+            fallback_value:
+              type: [number, "null"]
+    TemplateVariable:
+      type: object
+      required: [id, key, type, fallback_value, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          pattern: ^[A-Za-z0-9_]{1,50}$
+        type:
+          enum: [string, number]
+        fallback_value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateTemplate:
+      type: object
+      additionalProperties: false
+      required: [name, html]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        html:
+          type: string
+          description: HTML with optional triple-brace variables such as {{{NAME}}}.
+        text:
+          type: [string, "null"]
+        alias:
+          type: [string, "null"]
+          pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+          maxLength: 128
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          oneOf:
+            - $ref: "#/components/schemas/AddressList"
+            - type: "null"
+        variables:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/TemplateVariableInput"
+    UpdateTemplate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        html:
+          type: string
+        text:
+          type: [string, "null"]
+        alias:
+          type: [string, "null"]
+          pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+          maxLength: 128
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          oneOf:
+            - $ref: "#/components/schemas/AddressList"
+            - type: "null"
+        variables:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/TemplateVariableInput"
+    TemplateListItem:
+      type: object
+      required: [id, name, status, published_at, created_at, updated_at, alias]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          enum: [draft, published]
+        published_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        alias:
+          type: [string, "null"]
+    Template:
+      allOf:
+        - $ref: "#/components/schemas/TemplateListItem"
+        - type: object
+          required:
+            - object
+            - current_version_id
+            - from
+            - subject
+            - reply_to
+            - html
+            - text
+            - variables
+            - has_unpublished_versions
+          properties:
+            object:
+              const: template
+            current_version_id:
+              type: string
+            from:
+              type: [string, "null"]
+            subject:
+              type: [string, "null"]
+            reply_to:
+              type:
+                - array
+                - "null"
+              items:
+                type: string
+            html:
+              type: string
+            text:
+              type: [string, "null"]
+            variables:
+              type:
+                - array
+                - "null"
+              items:
+                $ref: "#/components/schemas/TemplateVariable"
+            has_unpublished_versions:
+              type: boolean
+    TemplateVersionMetadata:
+      type: object
+      required:
+        - object
+        - id
+        - template_id
+        - published_at
+        - expires_at
+        - actor
+        - source
+        - source_version_id
+      properties:
+        object:
+          const: template_version
+        id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
+        template_id:
+          type: string
+          pattern: ^tmpl_[a-f0-9]{32}$
+        published_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        actor:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        source:
+          enum: [api, cli]
+        source_version_id:
+          type: [string, "null"]
+          pattern: ^tmplv_[a-f0-9]{32}$
+    TemplateVersion:
+      unevaluatedProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TemplateVersionMetadata"
+        - type: object
+          required:
+            - name
+            - alias
+            - from
+            - subject
+            - reply_to
+            - html
+            - text
+            - variables
+          properties:
+            name:
+              type: string
+            alias:
+              type: [string, "null"]
+            from:
+              type: [string, "null"]
+            subject:
+              type: [string, "null"]
+            reply_to:
+              oneOf:
+                - $ref: "#/components/schemas/AddressList"
+                - type: "null"
+            html:
+              type: string
+            text:
+              type: [string, "null"]
+            variables:
+              type:
+                - array
+                - "null"
+              items:
+                $ref: "#/components/schemas/TemplateVariable"
+    TemplateRestore:
+      type: object
+      additionalProperties: false
+      required:
+        [object, template_id, source_version_id, current_version_id]
+      properties:
+        object:
+          const: template_restore
+        template_id:
+          type: string
+          pattern: ^tmpl_[a-f0-9]{32}$
+        source_version_id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
+        current_version_id:
+          type: string
+          pattern: ^tmplv_[a-f0-9]{32}$
+    RenderTemplateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          maxLength: 998
+          description: Optional sender override used only for this render.
+        subject:
+          type: string
+          maxLength: 998
+          description: Optional subject override used only for this render.
+        reply_to:
+          $ref: "#/components/schemas/AddressList"
+        variables:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            oneOf:
+              - type: string
+                maxLength: 2000
+              - type: number
+    RenderedTemplate:
+      type: object
+      additionalProperties: false
+      required:
+        [object, template_id, version_id, from, subject, reply_to, html, text]
+      properties:
+        object:
+          const: template_render
+        template_id:
+          type: string
+        version_id:
+          type: string
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+        html:
+          type: string
+        text:
           type: string
     AddressList:
       oneOf:
@@ -430,27 +1457,287 @@ components:
           items:
             type: string
     Email:
+      type: object
+      required:
+        [id, from, to, subject, status, last_event, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        html:
+          type: string
+        text:
+          type: string
+        cc:
+          type: array
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        reply_to:
+          type: array
+          items:
+            type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: object
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicAttachment"
+        scheduled_at:
+          type: string
+        status:
+          type: string
+        last_event:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        provider_id:
+          type: string
+        error:
+          type: string
+          description: Stable operational failure message with a category; never contains raw provider or network exception text.
+    ReceivedEmailSummary:
+      type: object
+      required:
+        - object
+        - id
+        - from
+        - to
+        - received_for
+        - bcc
+        - cc
+        - reply_to
+        - subject
+        - message_id
+        - attachments
+        - created_at
+      properties:
+        object:
+          const: email
+        id:
+          type: string
+          pattern: ^recv_[a-f0-9]{32}$
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        received_for:
+          type: array
+          description: SMTP envelope recipients accepted by the ingress.
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        cc:
+          type: array
+          items:
+            type: string
+        reply_to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        message_id:
+          type: string
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReceivedEmailAttachment"
+        created_at:
+          type: string
+          format: date-time
+        content_truncated:
+          type: boolean
+          description: True when structured body fields were bounded; use raw.download_url for complete MIME.
+    ReceivedEmail:
       allOf:
-        - $ref: "#/components/schemas/SendEmail"
+        - $ref: "#/components/schemas/ReceivedEmailSummary"
         - type: object
-          required: [id, status, last_event, created_at, updated_at]
+          required: [html, html_format, text, headers, raw]
           properties:
-            id:
+            html:
+              type: [string, "null"]
+            html_format:
               type: string
-            status:
-              type: string
-            last_event:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-            provider_id:
-              type: string
-            error:
-              type: string
+              enum: [data_uri, cid]
+              description: The inline-image representation actually returned.
+            text:
+              type: [string, "null"]
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+            raw:
+              $ref: "#/components/schemas/DownloadTarget"
+    ReceivedEmailAttachment:
+      type: object
+      required:
+        - id
+        - filename
+        - size
+        - content_type
+        - content_disposition
+        - content_id
+      properties:
+        id:
+          type: string
+          pattern: ^att_[a-f0-9]{32}$
+        filename:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        content_type:
+          type: string
+        content_disposition:
+          type: [string, "null"]
+          enum: [inline, attachment, null]
+        content_id:
+          type: [string, "null"]
+    DownloadTarget:
+      type: object
+      required: [download_url, expires_at]
+      properties:
+        download_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    ReceivedEmailAttachmentDownload:
+      allOf:
+        - $ref: "#/components/schemas/ReceivedEmailAttachment"
+        - $ref: "#/components/schemas/DownloadTarget"
+    InlineAttachment:
+      type: object
+      additionalProperties: false
+      required: [filename, content]
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+        content:
+          type: string
+          contentEncoding: base64
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    UploadedAttachment:
+      type: object
+      additionalProperties: false
+      required: [attachment_id]
+      properties:
+        attachment_id:
+          type: string
+          pattern: ^att_[a-f0-9]{32}$
+        filename:
+          type: string
+          maxLength: 255
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    PublicAttachment:
+      type: object
+      required: [filename]
+      properties:
+        attachment_id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        content_id:
+          type: string
+        content_disposition:
+          enum: [inline, attachment]
+    AttachmentUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [filename, content_type, size_bytes, checksum_sha256]
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+        content_type:
+          type: string
+          maxLength: 255
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 26214400
+        checksum_sha256:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+    AttachmentUpload:
+      type: object
+      required:
+        - id
+        - filename
+        - content_type
+        - size_bytes
+        - checksum_sha256
+        - upload_url
+        - upload_method
+        - upload_headers
+        - expires_at
+        - attachment_expires_at
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          type: string
+        upload_url:
+          type: string
+          format: uri
+        upload_method:
+          const: PUT
+        upload_headers:
+          type: object
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+        attachment_expires_at:
+          type: string
+          format: date-time
     Domain:
       type: object
       required: [id, name, status, region, records, created_at, updated_at]
@@ -495,6 +1782,7 @@ components:
         endpoint:
           type: string
           format: uri
+          maxLength: 2048
         events:
           type: array
           items:
@@ -504,6 +1792,131 @@ components:
         created_at:
           type: string
           format: date-time
+    WebhookDeliverySummary:
+      type: object
+      required:
+        - object
+        - id
+        - webhook_id
+        - event_type
+        - status
+        - attempts
+        - created_at
+        - updated_at
+        - expires_at
+      properties:
+        object:
+          const: webhook_delivery
+        id:
+          type: string
+        webhook_id:
+          type: string
+        event_type:
+          $ref: "#/components/schemas/WebhookEvent"
+        status:
+          enum: [pending, delivering, succeeded, failed, cancelled]
+        attempts:
+          type: integer
+          minimum: 0
+        response_status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        last_error:
+          type: string
+          maxLength: 500
+          description: HTTP status or stable operational failure message with a category; never contains a response body or raw exception text.
+        last_attempt_at:
+          type: string
+          format: date-time
+        replayed_from:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    WebhookDelivery:
+      allOf:
+        - $ref: "#/components/schemas/WebhookDeliverySummary"
+        - type: object
+          required: [event]
+          properties:
+            event:
+              type: object
+              additionalProperties: true
+              required: [type, created_at, data]
+              properties:
+                type:
+                  $ref: "#/components/schemas/WebhookEvent"
+                created_at:
+                  type: string
+                  format: date-time
+                data:
+                  type: object
+                  additionalProperties: true
+    ApiScope:
+      enum:
+        - emails:send
+        - emails:read
+        - templates:read
+        - templates:write
+        - domains:read
+        - domains:write
+        - webhooks:read
+        - webhooks:write
+        - suppressions:read
+        - suppressions:write
+        - api_keys:read
+        - api_keys:write
+    ApiKey:
+      type: object
+      required: [id, name, prefix, scopes, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiScope"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    Suppression:
+      type: object
+      required: [id, email, reason, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        reason:
+          enum: [bounce, complaint, manual]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        source_email_id:
+          type: string
+        detail:
+          type: string
     List:
       type: object
       required: [object, data, has_more]

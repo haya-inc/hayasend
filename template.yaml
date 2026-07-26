@@ -3,11 +3,65 @@ Transform: AWS::Serverless-2016-10-31
 Description: HayaSend - Resend-compatible email API on Amazon SES
 
 Parameters:
-  ApiKey:
+  BootstrapSecretArn:
     Type: String
-    NoEcho: true
-    MinLength: 16
-    Description: Bootstrap bearer key. Use a secret beginning with re_ for SDK compatibility.
+    Default: ""
+    AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+    Description: Optional ARN of an existing Secrets Manager secret containing a 32+ character bootstrap key.
+  EnableInbound:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Provision a public SES Mail Manager ingress endpoint and encrypted receiving storage.
+  InboundRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+    Description: Days to retain raw messages, parsed bodies, attachments, and receiving metadata.
+  InboundMaxMessageSizeBytes:
+    Type: Number
+    Default: 26214400
+    MinValue: 1
+    MaxValue: 41943040
+    Description: Maximum raw inbound message size accepted by the Mail Manager traffic policy.
+  InboundRecipientSuffixes:
+    Type: String
+    Default: "@example.invalid"
+    AllowedPattern: '^@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}(?:,@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}){0,9}$'
+    Description: Comma-separated envelope-recipient suffixes, including leading @, accepted by the public ingress (maximum 10).
+  InboundTlsPolicy:
+    Type: String
+    Default: OPTIONAL
+    AllowedValues:
+      - OPTIONAL
+      - REQUIRED
+      - FIPS
+    Description: STARTTLS policy for the public ingress. OPTIONAL offers the broadest internet deliverability.
+  WebhookDeliveryRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+    Description: Days to retain webhook event metadata and delivery attempts for inspection and replay.
+  TemplateHistoryRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to retain immutable published template versions before they expire.
+  TemplateHistoryLimit:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    MaxValue: 50
+    Description: Maximum retained published versions per template.
+
+Conditions:
+  CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
+  InboundEnabled: !Equals [!Ref EnableInbound, "true"]
 
 Globals:
   Function:
@@ -20,11 +74,24 @@ Globals:
     Environment:
       Variables:
         HAYASEND_MODE: aws
-        HAYASEND_API_KEY: !Ref ApiKey
+        HAYASEND_API_KEY_SECRET_ARN: !If
+          - CreateBootstrapSecret
+          - !Ref BootstrapSecret
+          - !Ref BootstrapSecretArn
         HAYASEND_TABLE_NAME: !Ref DataTable
         HAYASEND_QUEUE_URL: !Ref JobQueue
+        HAYASEND_QUEUE_ARN: !GetAtt JobQueue.Arn
         HAYASEND_PAYLOAD_BUCKET: !Ref PayloadBucket
         HAYASEND_CONFIGURATION_SET: !Ref ConfigurationSet
+        HAYASEND_SCHEDULER_GROUP_NAME: !Ref EmailScheduleGroup
+        HAYASEND_SCHEDULER_ROLE_ARN: !GetAtt SchedulerTargetRole.Arn
+        HAYASEND_SCHEDULER_DLQ_ARN: !GetAtt SchedulerDeadLetterQueue.Arn
+        HAYASEND_INBOUND_RAW_PREFIX: inbound/raw/
+        HAYASEND_INBOUND_RETENTION_DAYS: !Ref InboundRetentionDays
+        HAYASEND_INBOUND_MAX_MESSAGE_BYTES: !Ref InboundMaxMessageSizeBytes
+        HAYASEND_WEBHOOK_DELIVERY_RETENTION_DAYS: !Ref WebhookDeliveryRetentionDays
+        HAYASEND_TEMPLATE_HISTORY_RETENTION_DAYS: !Ref TemplateHistoryRetentionDays
+        HAYASEND_TEMPLATE_HISTORY_LIMIT: !Ref TemplateHistoryLimit
         NODE_OPTIONS: --enable-source-maps
 
 Resources:
@@ -53,6 +120,12 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
+      Environment:
+        Variables:
+          HAYASEND_INBOUND_BUCKET: !If
+            - InboundEnabled
+            - !Ref InboundBucket
+            - ""
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DataTable
@@ -63,11 +136,44 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
+                - secretsmanager:GetSecretValue
+              Resource: !If
+                - CreateBootstrapSecret
+                - !Ref BootstrapSecret
+                - !Ref BootstrapSecretArn
+            - Effect: Allow
+              Action:
                 - ses:CreateEmailIdentity
                 - ses:DeleteEmailIdentity
                 - ses:GetEmailIdentity
                 - ses:SendEmail
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+                - scheduler:UpdateSchedule
+              Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${EmailScheduleGroup}/*
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerTargetRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: scheduler.amazonaws.com
+        - !If
+          - InboundEnabled
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${InboundBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                Resource: !GetAtt InboundKey.Arn
+          - !Ref AWS::NoValue
       Events:
         Root:
           Type: HttpApi
@@ -111,6 +217,19 @@ Resources:
               Action:
                 - ses:SendEmail
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - scheduler:CreateSchedule
+                - scheduler:DeleteSchedule
+                - scheduler:UpdateSchedule
+              Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${EmailScheduleGroup}/*
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: !GetAtt SchedulerTargetRole.Arn
+              Condition:
+                StringEquals:
+                  iam:PassedToService: scheduler.amazonaws.com
       Events:
         Jobs:
           Type: SQS
@@ -148,6 +267,233 @@ Resources:
           Type: SNS
           Properties:
             Topic: !Ref SesEventTopic
+
+  InboundFunction:
+    Type: AWS::Serverless::Function
+    Condition: InboundEnabled
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/inbound.ts
+        Format: esm
+        Minify: true
+        OutExtension:
+          - .js=.mjs
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: .
+      Handler: src/aws/inbound.handler
+      Environment:
+        Variables:
+          HAYASEND_INBOUND_BUCKET: !Ref InboundBucket
+      MemorySize: 1024
+      Timeout: 120
+      EphemeralStorage:
+        Size: 1024
+      ReservedConcurrentExecutions: 5
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt InboundDeadLetterQueue.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt JobQueue.QueueName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt InboundDeadLetterQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub ${InboundBucket.Arn}/*
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:DescribeKey
+                - kms:Encrypt
+                - kms:GenerateDataKey
+              Resource: !GetAtt InboundKey.Arn
+
+  InboundKey:
+    Type: AWS::KMS::Key
+    Condition: InboundEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub Encryption key for ${AWS::StackName} inbound email content.
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: "*"
+
+  InboundBucket:
+    Type: AWS::S3::Bucket
+    Condition: InboundEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt InboundKey.Arn
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireInboundContent
+            Status: Enabled
+            ExpirationInDays: !Ref InboundRetentionDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: RemoveInboundDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  InboundBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: InboundEnabled
+    Properties:
+      Bucket: !Ref InboundBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt InboundBucket.Arn
+              - !Sub ${InboundBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  InboundRuleExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: InboundEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:mailmanager-rule-set/*
+      Policies:
+        - PolicyName: PersistAndProcessInboundEmail
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${InboundBucket.Arn}/inbound/raw/*
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:Encrypt
+                  - kms:GenerateDataKey*
+                Resource: !GetAtt InboundKey.Arn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt InboundFunction.Arn
+
+  InboundTrafficPolicy:
+    Type: AWS::SES::MailManagerTrafficPolicy
+    Condition: InboundEnabled
+    Properties:
+      DefaultAction: DENY
+      MaxMessageSizeBytes: !Ref InboundMaxMessageSizeBytes
+      PolicyStatements:
+        - Action: ALLOW
+          Conditions:
+            - IpExpression:
+                Evaluate:
+                  Attribute: SENDER_IP
+                Operator: CIDR_MATCHES
+                Values:
+                  - 0.0.0.0/0
+            - StringExpression:
+                Evaluate:
+                  Attribute: RECIPIENT
+                Operator: ENDS_WITH
+                Values: !Split [",", !Ref InboundRecipientSuffixes]
+        - Action: ALLOW
+          Conditions:
+            - Ipv6Expression:
+                Evaluate:
+                  Attribute: SENDER_IPV6
+                Operator: CIDR_MATCHES
+                Values:
+                  - ::/0
+            - StringExpression:
+                Evaluate:
+                  Attribute: RECIPIENT
+                Operator: ENDS_WITH
+                Values: !Split [",", !Ref InboundRecipientSuffixes]
+
+  InboundRuleSet:
+    Type: AWS::SES::MailManagerRuleSet
+    Condition: InboundEnabled
+    Properties:
+      Rules:
+        - Name: persist-and-notify
+          Actions:
+            - WriteToS3:
+                ActionFailurePolicy: DROP
+                RoleArn: !GetAtt InboundRuleExecutionRole.Arn
+                S3Bucket: !Ref InboundBucket
+                S3Prefix: inbound/raw/
+                S3SseKmsKeyId: !GetAtt InboundKey.Arn
+            - InvokeLambda:
+                ActionFailurePolicy: DROP
+                FunctionArn: !GetAtt InboundFunction.Arn
+                InvocationType: EVENT
+                RetryTimeMinutes: 60
+                RoleArn: !GetAtt InboundRuleExecutionRole.Arn
+
+  InboundIngressPoint:
+    Type: AWS::SES::MailManagerIngressPoint
+    Condition: InboundEnabled
+    Properties:
+      NetworkConfiguration:
+        PublicNetworkConfiguration:
+          IpType: DUAL_STACK
+      RuleSetId: !GetAtt InboundRuleSet.RuleSetId
+      TlsPolicy: !Ref InboundTlsPolicy
+      TrafficPolicyId: !GetAtt InboundTrafficPolicy.TrafficPolicyId
+      Type: OPEN
 
   DataTable:
     Type: AWS::DynamoDB::Table
@@ -200,6 +546,19 @@ Resources:
           - Id: ExpireEmailPayloads
             Status: Enabled
             ExpirationInDays: 45
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"
+            AllowedMethods:
+              - PUT
+            AllowedHeaders:
+              - content-type
+              - x-amz-checksum-sha256
+            ExposedHeaders:
+              - ETag
+              - x-amz-checksum-sha256
+            MaxAge: 300
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
@@ -209,8 +568,39 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  PayloadBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PayloadBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt PayloadBucket.Arn
+              - !Sub ${PayloadBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   DeadLetterQueue:
     Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  SchedulerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  InboundDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Condition: InboundEnabled
     Properties:
       KmsMasterKeyId: alias/aws/sqs
       MessageRetentionPeriod: 1209600
@@ -225,8 +615,243 @@ Resources:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 5
 
+  EmailScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+
+  SchedulerTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+                AWS:SourceArn: !GetAtt EmailScheduleGroup.Arn
+      Policies:
+        - PolicyName: DeliverScheduledEmailJob
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - !GetAtt JobQueue.Arn
+                  - !GetAtt SchedulerDeadLetterQueue.Arn
+
   SesEventTopic:
     Type: AWS::SNS::Topic
+
+  BootstrapSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateBootstrapSecret
+    Properties:
+      Description: !Sub Bootstrap administrator key for ${AWS::StackName}. Use only to issue scoped application keys.
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+
+  DeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend jobs have reached the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SchedulerDeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: EventBridge Scheduler could not deliver an email job.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SchedulerDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  InboundDeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: InboundEnabled
+    Properties:
+      AlarmDescription: HayaSend could not process an inbound email event.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt InboundDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SchedulerDroppedInvocationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: EventBridge Scheduler exhausted delivery retries.
+      Namespace: AWS/Scheduler
+      MetricName: InvocationDroppedCount
+      Dimensions:
+        - Name: ScheduleGroup
+          Value: !Ref EmailScheduleGroup
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend's oldest queued job is more than five minutes old.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt JobQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend returned an internal API error.
+      Namespace: HayaSend
+      MetricName: ApiErrors
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SendFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: HayaSend exhausted retries for an outbound message.
+      Namespace: HayaSend
+      MetricName: SendFailures
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  ComplaintAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Amazon SES reported a recipient complaint.
+      Namespace: HayaSend
+      MetricName: Complaints
+      Dimensions:
+        - Name: Service
+          Value: HayaSend
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  OperationsDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${AWS::StackName}-operations
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Email safety events",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 300,
+                "metrics": [
+                  ["HayaSend", "SuppressedEmails", "Service", "HayaSend"],
+                  [".", "PermanentBounces", ".", "."],
+                  [".", "Complaints", ".", "."],
+                  [".", "SendFailures", ".", "."],
+                  [".", "ApiErrors", ".", "."],
+                  [".", "JobFailures", ".", "."],
+                  [".", "SesEventProcessingErrors", ".", "."],
+                  [".", "InboundEmailsProcessed", ".", "."],
+                  [".", "InboundProcessingErrors", ".", "."]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Queue health",
+                "region": "${AWS::Region}",
+                "stat": "Maximum",
+                "period": 60,
+                "metrics": [
+                  ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${JobQueue.QueueName}"],
+                  [".", "ApproximateNumberOfMessagesVisible", ".", "${DeadLetterQueue.QueueName}"],
+                  [".", "ApproximateNumberOfMessagesVisible", ".", "${SchedulerDeadLetterQueue.QueueName}"],
+                  ["AWS/Scheduler", "TargetErrorCount", "ScheduleGroup", "${EmailScheduleGroup}"],
+                  ["AWS/Scheduler", "InvocationDroppedCount", "ScheduleGroup", "${EmailScheduleGroup}"]
+                ]
+              }
+            }
+          ]
+        }
 
   SesEventTopicPolicy:
     Type: AWS::SNS::TopicPolicy
@@ -276,11 +901,38 @@ Outputs:
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
   QueueArn:
     Value: !GetAtt JobQueue.Arn
+  EmailScheduleGroupName:
+    Value: !Ref EmailScheduleGroup
   DeadLetterQueueUrl:
     Value: !Ref DeadLetterQueue
+  SchedulerDeadLetterQueueUrl:
+    Value: !Ref SchedulerDeadLetterQueue
   TableName:
     Value: !Ref DataTable
   PayloadBucketName:
     Value: !Ref PayloadBucket
+  InboundBucketName:
+    Description: Dedicated KMS-encrypted receiving bucket. Empty when inbound receiving is disabled.
+    Value: !If
+      - InboundEnabled
+      - !Ref InboundBucket
+      - ""
+  InboundMxRecord:
+    Description: Set an MX record with priority 10 to this value only after configuring receiving webhooks.
+    Value: !If
+      - InboundEnabled
+      - !GetAtt InboundIngressPoint.ARecord
+      - ""
   ConfigurationSetName:
     Value: !Ref ConfigurationSet
+  BootstrapSecretArn:
+    Description: Retrieve this secret to issue least-privilege application keys.
+    Value: !If
+      - CreateBootstrapSecret
+      - !Ref BootstrapSecret
+      - !Ref BootstrapSecretArn
+  AlarmTopicArn:
+    Description: Subscribe an operational notification endpoint to this topic.
+    Value: !Ref AlarmTopic
+  OperationsDashboardName:
+    Value: !Ref OperationsDashboard

@@ -10,26 +10,34 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] SES transport and domain verification
 - [x] delivery events and signed webhook retries
 - [x] serverless AWS SAM deployment
-- [ ] API-key records with scopes and rotation
-- [ ] suppression-list enforcement before enqueue
-- [ ] EventBridge Scheduler for long schedules
-- [ ] presigned S3 attachment uploads beyond the API Gateway payload limit
-- [ ] deployment integration test in a dedicated AWS test account
+- [x] API-key records with scopes, expiry, and revocation
+- [x] suppression-list enforcement before enqueue
+- [x] EventBridge Scheduler for long schedules
+- [x] presigned S3 attachment uploads beyond the API Gateway payload limit
+- [ ] first successful deployment integration run in a dedicated AWS test
+  account (OIDC deploy/test/delete workflow is ready)
+- [x] bootstrap-key storage in Secrets Manager
 
 ## v0.2 — Receive and forward
 
-- SES Mail Manager ingress endpoint and traffic policies
-- encrypted S3 raw-message storage with configurable expiry
-- `email.received` webhook and temporary attachment URLs
-- alias routing and catch-all rules
-- forwarding that rewrites sender headers safely
-- loop detection, duplicate suppression, and ARC preservation
+- [x] SES Mail Manager ingress endpoint and traffic policies
+- [x] encrypted S3 raw-message storage with configurable expiry
+- [x] `email.received` webhook and temporary attachment URLs
+- [x] deterministic receipt duplicate suppression
+- [x] explicit received-message forwarding through the official Node SDK
+- [ ] alias routing and catch-all rules
+- [ ] automatic forwarding that rewrites sender headers safely
+- [ ] loop detection and ARC preservation
 
 ## v0.3 — Developer workflow
 
-- local preview inbox
+- [x] hardened local container quickstart
+- [x] signed, multi-platform container and SBOM release automation
+- [ ] first signed public release
+- [x] local preview inbox
 - template versions using React Email
-- `hayasend init`, `deploy`, `doctor`, `test`, and migration commands
+- [x] `hayasend init`, `doctor`, and end-to-end `test`
+- `hayasend deploy` and migration commands
 - OpenTelemetry exports and operational dashboard
 - Python, Go, and direct HTTP contract tests
 

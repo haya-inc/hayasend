@@ -4,3 +4,7 @@ extends:
 rules:
   no-server-example.com: off
   operation-4xx-response: off
+  # Resend's canonical receiving and sent-email routes overlap structurally:
+  # /emails/receiving/{id} and /emails/{id}/cancel. Hono resolves the static
+  # "receiving" route first, and the behavior is covered by HTTP tests.
+  no-ambiguous-paths: off

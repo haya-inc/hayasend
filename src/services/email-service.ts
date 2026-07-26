@@ -4,19 +4,26 @@ import {
   NotFoundError,
   ValidationError,
 } from "../core/errors.js";
-import { delaySecondsUntil, parseScheduledAt } from "../core/schedule.js";
+import { safeFailureMessage } from "../core/error-telemetry.js";
+import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
+import { emitCountMetric } from "../core/metrics.js";
 import type {
   CreateEmailResult,
   EmailRecord,
   EmailStatus,
+  IdempotencyClaim,
   Page,
   SendEmailInput,
+  SuppressionRecord,
   WebhookEventType,
 } from "../core/types.js";
-import type { JobQueue } from "../ports/job-queue.js";
+import type { EmailScheduler } from "../ports/email-scheduler.js";
 import type { MailTransport } from "../ports/mail-transport.js";
 import type { Store } from "../ports/store.js";
+import type { AttachmentService } from "./attachment-service.js";
+import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
+import type { TemplateService } from "./template-service.js";
 
 const FINAL_STATUSES = new Set<EmailStatus>([
   "sent",
@@ -35,17 +42,26 @@ function ensureSafeHeaderValue(label: string, value: string) {
   if (/[\r\n]/.test(value)) {
     throw new ValidationError(`${label} must not contain line breaks.`);
   }
+  if (Buffer.byteLength(value, "utf8") > 998) {
+    throw new ValidationError(`${label} must not exceed 998 bytes.`);
+  }
 }
 
-function validateInput(input: SendEmailInput) {
+function validateInput(
+  input: SendEmailInput,
+): asserts input is SendEmailInput & { from: string; subject: string } {
+  if (input.template) {
+    throw new ValidationError(
+      "Template input must be resolved before sending.",
+    );
+  }
+  if (!input.from || !input.subject) {
+    throw new ValidationError("from and subject are required.");
+  }
   if (!input.html && !input.text) {
     throw new ValidationError("Either html or text is required.");
   }
-  const recipients = [
-    ...input.to,
-    ...(input.cc ?? []),
-    ...(input.bcc ?? []),
-  ];
+  const recipients = [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])];
   if (recipients.length === 0 || recipients.length > 50) {
     throw new ValidationError(
       "An email must have between 1 and 50 recipients.",
@@ -56,33 +72,34 @@ function validateInput(input: SendEmailInput) {
   recipients.forEach((recipient) =>
     ensureSafeHeaderValue("recipient", recipient),
   );
+  for (const replyTo of input.reply_to ?? []) {
+    ensureSafeHeaderValue("reply_to", replyTo);
+  }
   for (const [name, value] of Object.entries(input.headers ?? {})) {
     ensureSafeHeaderValue("header name", name);
     ensureSafeHeaderValue(`header ${name}`, value);
   }
-  const attachmentBytes = (input.attachments ?? []).reduce(
-    (total, attachment) =>
-      total + Buffer.byteLength(attachment.content, "base64"),
-    0,
-  );
-  if (attachmentBytes > 6 * 1024 * 1024) {
-    throw new ValidationError(
-      "Decoded attachment content must not exceed 6 MiB.",
-    );
-  }
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > 9 * 1024 * 1024) {
-    throw new ValidationError(
-      "The serialized request must not exceed 9 MiB.",
-    );
+    throw new ValidationError("The serialized request must not exceed 9 MiB.");
   }
+}
+
+interface PreparedEmail {
+  record: EmailRecord;
+  idempotency: IdempotencyClaim | undefined;
+  scheduledAt: string | undefined;
+  suppressedRecipients: SuppressionRecord[];
 }
 
 export class EmailService {
   constructor(
     private readonly store: Store,
-    private readonly queue: JobQueue,
+    private readonly scheduler: EmailScheduler,
     private readonly transport: MailTransport,
     private readonly webhooks: WebhookService,
+    private readonly suppressions: SuppressionService,
+    private readonly attachments: AttachmentService,
+    private readonly templates?: TemplateService,
   ) {}
 
   async create(
@@ -90,25 +107,93 @@ export class EmailService {
     idempotencyKey?: string,
     now = new Date(),
   ): Promise<CreateEmailResult> {
+    return this.commitPreparedEmail(
+      await this.prepareEmail(input, idempotencyKey, now),
+      now,
+    );
+  }
+
+  async createBatch(
+    inputs: SendEmailInput[],
+    idempotencyKey?: string,
+  ): Promise<CreateEmailResult[]> {
+    if (inputs.length === 0 || inputs.length > 100) {
+      throw new ValidationError(
+        "A batch must contain between 1 and 100 emails.",
+      );
+    }
+    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 9 * 1024 * 1024) {
+      throw new ValidationError(
+        "The serialized batch request must not exceed 9 MiB.",
+      );
+    }
+    const now = new Date();
+    const prepared = await Promise.all(
+      inputs.map((input, index) =>
+        this.prepareEmail(
+          input,
+          idempotencyKey ? `${idempotencyKey}:${index}` : undefined,
+          now,
+        ),
+      ),
+    );
+    return Promise.all(
+      prepared.map((email) => this.commitPreparedEmail(email, now)),
+    );
+  }
+
+  private async prepareEmail(
+    input: SendEmailInput,
+    idempotencyKey: string | undefined,
+    now: Date,
+  ): Promise<PreparedEmail> {
+    const templateRequestHash = input.template ? requestHash(input) : undefined;
+    if (input.template) {
+      if (!this.templates) {
+        throw new ValidationError("Hosted templates are unavailable.");
+      }
+      input = await this.templates.resolveForSend(input);
+    }
     validateInput(input);
     const scheduledAt = parseScheduledAt(input.scheduled_at, now);
-    const normalized: SendEmailInput = {
-      ...input,
+    const resolvedAttachments = await this.attachments.resolve(
+      input.attachments,
+      Buffer.byteLength(input.html ?? "", "utf8") +
+        Buffer.byteLength(input.text ?? "", "utf8"),
+      now,
+    );
+    const suppressedRecipients = await this.suppressions.findSuppressed([
+      ...input.to,
+      ...(input.cc ?? []),
+      ...(input.bcc ?? []),
+    ]);
+    const { attachments: _inputAttachments, ...emailInput } = input;
+    const normalized = {
+      ...emailInput,
       to: [...new Set(input.to)],
       ...(input.cc ? { cc: [...new Set(input.cc)] } : {}),
       ...(input.bcc ? { bcc: [...new Set(input.bcc)] } : {}),
-      ...(input.reply_to
-        ? { reply_to: [...new Set(input.reply_to)] }
-        : {}),
+      ...(input.reply_to ? { reply_to: [...new Set(input.reply_to)] } : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+      ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
     };
-    const hash = requestHash(normalized);
+    const hash = templateRequestHash ?? requestHash(normalized);
     const timestamp = now.toISOString();
     const record: EmailRecord = {
       ...normalized,
       id: createId("email"),
-      status: scheduledAt ? "scheduled" : "queued",
-      last_event: scheduledAt ? "scheduled" : "queued",
+      status:
+        suppressedRecipients.length > 0
+          ? "suppressed"
+          : scheduledAt
+            ? "scheduled"
+            : "queued",
+      last_event:
+        suppressedRecipients.length > 0
+          ? "suppressed"
+          : scheduledAt
+            ? "scheduled"
+            : "queued",
       created_at: timestamp,
       updated_at: timestamp,
       request_hash: hash,
@@ -121,36 +206,50 @@ export class EmailService {
           expires_at: Math.floor(now.getTime() / 1_000) + 86_400,
         }
       : undefined;
-    const created = await this.store.createEmail(record, idempotency);
-    if (!created.replayed) {
-      await this.queue.enqueue(
-        { type: "send_email", email_id: record.id },
-        delaySecondsUntil(scheduledAt, now),
-      );
-      if (scheduledAt) {
-        await this.webhooks.publish("email.scheduled", record);
-      }
-    }
-    return created;
+    return {
+      record,
+      idempotency,
+      scheduledAt,
+      suppressedRecipients,
+    };
   }
 
-  async createBatch(
-    inputs: SendEmailInput[],
-    idempotencyKey?: string,
-  ): Promise<CreateEmailResult[]> {
-    if (inputs.length === 0 || inputs.length > 100) {
-      throw new ValidationError(
-        "A batch must contain between 1 and 100 emails.",
+  private async commitPreparedEmail(
+    {
+      record,
+      idempotency,
+      scheduledAt,
+      suppressedRecipients,
+    }: PreparedEmail,
+    now: Date,
+  ): Promise<CreateEmailResult> {
+    const created = await this.store.createEmail(record, idempotency);
+    if (!created.replayed) {
+      if (suppressedRecipients.length > 0) {
+        emitCountMetric("SuppressedEmails");
+        await this.webhooks.publish("email.suppressed", record, {
+          suppressed_recipients: suppressedRecipients.map(
+            (suppression) => suppression.email,
+          ),
+        });
+      } else {
+        await this.scheduler.schedule(record.id, scheduledAt, now);
+      }
+      if (scheduledAt && suppressedRecipients.length === 0) {
+        await this.webhooks.publish("email.scheduled", record);
+      }
+    } else if (
+      created.record.status === "scheduled" &&
+      created.record.scheduled_at &&
+      secondsUntil(created.record.scheduled_at, now) > 900
+    ) {
+      await this.scheduler.schedule(
+        created.record.id,
+        created.record.scheduled_at,
+        now,
       );
     }
-    return Promise.all(
-      inputs.map((input, index) =>
-        this.create(
-          input,
-          idempotencyKey ? `${idempotencyKey}:${index}` : undefined,
-        ),
-      ),
-    );
+    return created;
   }
 
   async get(id: string): Promise<EmailRecord> {
@@ -161,10 +260,7 @@ export class EmailService {
     return record;
   }
 
-  async list(
-    limit: number,
-    cursor?: string,
-  ): Promise<Page<EmailRecord>> {
+  async list(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
     return this.store.listEmails(limit, cursor);
   }
 
@@ -175,14 +271,19 @@ export class EmailService {
         `Email ${id} cannot be canceled from status ${record.status}.`,
       );
     }
-    const updated = await this.store.updateEmail(id, {
-      status: "canceled",
-      last_event: "canceled",
-      updated_at: new Date().toISOString(),
-    });
+    const updated = await this.store.updateEmail(
+      id,
+      {
+        status: "canceled",
+        last_event: "canceled",
+        updated_at: new Date().toISOString(),
+      },
+      ["queued", "scheduled"],
+    );
     if (!updated) {
       throw new NotFoundError("Email");
     }
+    await this.scheduler.cancel(id);
     return updated;
   }
 
@@ -194,19 +295,31 @@ export class EmailService {
       );
     }
     const parsed = parseScheduledAt(scheduledAt);
-    const updated = await this.store.updateEmail(id, {
-      scheduled_at: parsed,
-      status: "scheduled",
-      last_event: "scheduled",
-      updated_at: new Date().toISOString(),
-    });
+    if (!parsed) {
+      throw new ValidationError("scheduled_at is required.");
+    }
+    const updated = await this.store.updateEmail(
+      id,
+      {
+        scheduled_at: parsed,
+        status: "scheduled",
+        last_event: "scheduled",
+        updated_at: new Date().toISOString(),
+      },
+      ["queued", "scheduled"],
+    );
     if (!updated) {
       throw new NotFoundError("Email");
     }
-    await this.queue.enqueue(
-      { type: "send_email", email_id: id },
-      delaySecondsUntil(parsed),
-    );
+    await this.scheduler.reschedule(id, parsed);
+    const current = await this.store.getEmail(id);
+    if (
+      current?.status === "scheduled" &&
+      current.scheduled_at &&
+      current.scheduled_at !== parsed
+    ) {
+      await this.scheduler.reschedule(id, current.scheduled_at);
+    }
     return updated;
   }
 
@@ -215,48 +328,100 @@ export class EmailService {
     if (!record || FINAL_STATUSES.has(record.status)) {
       return;
     }
-    const delay = delaySecondsUntil(record.scheduled_at);
-    if (delay > 0) {
-      await this.queue.enqueue(
-        { type: "send_email", email_id: id },
-        delay,
-      );
+    const delay = secondsUntil(record.scheduled_at);
+    if (record.scheduled_at && delay > 0) {
+      await this.scheduler.reschedule(id, record.scheduled_at);
       return;
     }
 
-    const sending = await this.store.claimEmailForSend(
-      id,
-      attempt,
-      new Date(),
-    );
+    const suppressedRecipients = await this.suppressions.findSuppressed([
+      ...record.to,
+      ...(record.cc ?? []),
+      ...(record.bcc ?? []),
+    ]);
+    if (suppressedRecipients.length > 0) {
+      const suppressed = await this.store.updateEmail(
+        id,
+        {
+          status: "suppressed",
+          last_event: "suppressed",
+          updated_at: new Date().toISOString(),
+        },
+        ["queued", "scheduled"],
+      );
+      if (suppressed) {
+        emitCountMetric("SuppressedEmails");
+        await this.webhooks.publish("email.suppressed", suppressed, {
+          suppressed_recipients: suppressedRecipients.map(
+            (recipient) => recipient.email,
+          ),
+        });
+      }
+      return;
+    }
+
+    const sending = await this.store.claimEmailForSend(id, attempt, new Date());
     if (!sending) {
       return;
     }
 
     try {
-      const result = await this.transport.send(sending);
-      const sent = await this.store.updateEmail(id, {
-        status: "sent",
-        last_event: "sent",
-        provider_id: result.provider_id,
-        updated_at: new Date().toISOString(),
-        error: undefined,
-        send_lease_until: undefined,
-      });
+      const sendable = sending.attachments
+        ? {
+            ...sending,
+            attachments: await Promise.all(
+              sending.attachments.map(async (attachment) => ({
+                filename: attachment.filename,
+                content: Buffer.from(
+                  await this.attachments.read(attachment),
+                ).toString("base64"),
+                ...(attachment.content_type
+                  ? { content_type: attachment.content_type }
+                  : {}),
+                ...(attachment.content_id
+                  ? { content_id: attachment.content_id }
+                  : {}),
+                ...(attachment.content_disposition
+                  ? {
+                      content_disposition: attachment.content_disposition,
+                    }
+                  : {}),
+              })),
+            ),
+          }
+        : sending;
+      const result = await this.transport.send(sendable);
+      const sent = await this.store.updateEmail(
+        id,
+        {
+          status: "sent",
+          last_event: "sent",
+          provider_id: result.provider_id,
+          updated_at: new Date().toISOString(),
+          error: undefined,
+          send_lease_until: undefined,
+        },
+        ["sending"],
+      );
       if (sent) {
         await this.webhooks.publish("email.sent", sent);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = safeFailureMessage("Email delivery failed", error);
       const finalAttempt = attempt >= 3;
-      const failed = await this.store.updateEmail(id, {
-        status: finalAttempt ? "failed" : "queued",
-        last_event: finalAttempt ? "failed" : "retrying",
-        updated_at: new Date().toISOString(),
-        error: message,
-        send_lease_until: undefined,
-      });
+      const failed = await this.store.updateEmail(
+        id,
+        {
+          status: finalAttempt ? "failed" : "queued",
+          last_event: finalAttempt ? "failed" : "retrying",
+          updated_at: new Date().toISOString(),
+          error: message,
+          send_lease_until: undefined,
+        },
+        ["sending"],
+      );
       if (finalAttempt) {
+        emitCountMetric("SendFailures");
         if (failed) {
           await this.webhooks.publish("email.failed", failed, {
             error: message,

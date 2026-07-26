@@ -8,10 +8,16 @@ The self-hosted transactional path remains Apache-2.0:
 - AWS deployment templates;
 - SES transport and event normalization;
 - queues, retries, idempotency, and webhooks;
+- hosted templates, React Email interoperability, template-as-code
+  reconciliation, safe version publishing, and bounded restore-to-draft
+  history;
 - inbound and forwarding primitives when implemented;
 - security fixes and documented upgrade paths.
 
 The project must remain genuinely useful without a Haya commercial service.
+The [reproducible AWS cost model](aws-costs.md) exposes the self-hosting
+assumptions and service charges instead of using opaque “contact sales”
+pricing.
 
 ## Services Haya can sell
 
@@ -22,6 +28,7 @@ source restrictions:
 - production deployment and security hardening;
 - deliverability and sender-reputation operations;
 - monitoring, incident response, backups, and upgrades;
+- template migration, review workflows, and retention-policy design;
 - multi-account fleet management;
 - compliance evidence and support commitments;
 - a future hosted control plane that never needs to inspect message content.

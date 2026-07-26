@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="HayaSend is Resend-compatible, AWS-native email infrastructure that runs in your own account."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self'; form-action 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f4f0e6" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="HayaSend — Own the path to delivery" />
+    <meta
+      property="og:description"
+      content="A modern transactional email API backed by Amazon SES and deployed into your AWS account."
+    />
+    <meta
+      property="og:url"
+      content="https://haya-inc.github.io/hayasend/"
+    />
+    <link rel="canonical" href="https://haya-inc.github.io/hayasend/" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>HayaSend — Own the path to delivery</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="HayaSend home">
+        <svg
+          class="brand-mark"
+          viewBox="0 0 40 40"
+          role="img"
+          aria-label="HayaSend"
+        >
+          <path d="M7 9h7v9h12V9h7v22h-7v-7H14v7H7z" />
+          <path class="brand-spark" d="m30 3 2 4 4 2-4 2-2 4-2-4-4-2 4-2z" />
+        </svg>
+        <span>HayaSend</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#why">Why HayaSend</a>
+        <a href="#templates">Templates</a>
+        <a href="#support">Support</a>
+        <a
+          class="nav-github"
+          href="https://github.com/haya-inc/hayasend"
+          aria-label="HayaSend on GitHub"
+        >
+          GitHub
+          <span aria-hidden="true">↗</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="status-dot" aria-hidden="true"></span>
+            Apache-2.0 · early alpha
+          </p>
+          <h1>Your email infrastructure. <em>In your AWS account.</em></h1>
+          <p class="hero-lede">
+            Keep the developer experience of a modern email API while Amazon
+            SES handles delivery. Your queues, metadata, and message payloads
+            remain under your control.
+          </p>
+          <div class="hero-actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/haya-inc/hayasend#run-locally"
+            >
+              Run locally
+              <span aria-hidden="true">→</span>
+            </a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/haya-inc/hayasend"
+            >
+              View source
+            </a>
+          </div>
+          <ul class="hero-facts" aria-label="Key properties">
+            <li>Official Resend Node + Python SDKs</li>
+            <li>Single-tenant by default</li>
+            <li>No message bodies in logs</li>
+          </ul>
+        </div>
+
+        <div class="route-visual" aria-label="HayaSend delivery architecture">
+          <div class="route-heading">
+            <span>Delivery path</span>
+            <span class="route-live">owned</span>
+          </div>
+          <div class="route-node route-node-app">
+            <span class="route-index">01</span>
+            <div>
+              <strong>Your application</strong>
+              <span>Resend SDK or HTTP</span>
+            </div>
+          </div>
+          <div class="route-line" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="route-node route-node-haya">
+            <span class="route-index">02</span>
+            <div>
+              <strong>HayaSend</strong>
+              <span>Your AWS account</span>
+            </div>
+          </div>
+          <div class="route-detail">
+            <span>DynamoDB</span>
+            <span>SQS</span>
+            <span>EventBridge</span>
+          </div>
+          <div class="route-line" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="route-node route-node-ses">
+            <span class="route-index">03</span>
+            <div>
+              <strong>Amazon SES</strong>
+              <span>Delivery and events</span>
+            </div>
+          </div>
+          <p class="route-note">
+            Haya has no control plane in the default data path.
+          </p>
+        </div>
+      </section>
+
+      <section class="signal-strip" aria-label="Core capabilities">
+        <p>Transactional sending</p>
+        <p>Hosted templates</p>
+        <p>Inbound email</p>
+        <p>Signed webhooks</p>
+        <p>Scoped API keys</p>
+      </section>
+
+      <section class="section sdk-section" id="why">
+        <div class="section-intro">
+          <p class="section-number">01 / Familiar</p>
+          <h2>Use the interface your team already knows.</h2>
+          <p>
+            Point official Resend SDKs at HayaSend. Node and Python work
+            without forks; the compatibility layer covers transactional
+            sends, batches, scheduling, domains, webhooks, receiving, and
+            hosted templates.
+          </p>
+          <a
+            class="text-link"
+            href="https://github.com/haya-inc/hayasend/blob/main/docs/compatibility.md"
+          >
+            Read the compatibility matrix
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <div class="code-window">
+          <div class="code-window-bar">
+            <span>send.ts</span>
+            <button
+              class="copy-button"
+              type="button"
+              data-copy-target="sdk-code"
+              aria-label="Copy SDK example"
+            >
+              Copy
+            </button>
+          </div>
+          <pre id="sdk-code"><code><span class="code-keyword">import</span> { Resend } <span class="code-keyword">from</span> <span class="code-string">"resend"</span>;
+
+<span class="code-keyword">const</span> email = <span class="code-keyword">new</span> Resend(
+  process.env.<span class="code-property">HAYASEND_API_KEY</span>,
+  { baseUrl: process.env.<span class="code-property">HAYASEND_BASE_URL</span> },
+);
+
+<span class="code-keyword">await</span> email.emails.<span class="code-function">send</span>({
+  from: <span class="code-string">"Product &lt;hello@example.com&gt;"</span>,
+  to: <span class="code-string">"person@example.net"</span>,
+  subject: <span class="code-string">"Welcome"</span>,
+  text: <span class="code-string">"Your account is ready."</span>,
+});</code></pre>
+          <p class="copy-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="section ownership-section">
+        <div class="section-intro">
+          <p class="section-number">02 / Owned</p>
+          <h2>Operational control without building a mail platform.</h2>
+        </div>
+        <div class="principles">
+          <article>
+            <span>Data</span>
+            <h3>Your account is the boundary.</h3>
+            <p>
+              Message payloads use private encrypted S3 storage. Metadata,
+              idempotency claims, and templates use DynamoDB. HayaSend never
+              logs message bodies.
+            </p>
+          </article>
+          <article>
+            <span>Delivery</span>
+            <h3>Queues make failure visible.</h3>
+            <p>
+              SQS retries, dead-letter queues, send leases, suppression checks,
+              and signed webhook history expose the real delivery lifecycle.
+            </p>
+          </article>
+          <article>
+            <span>Access</span>
+            <h3>Least privilege is built in.</h3>
+            <p>
+              Issue hashed keys for sending, reading, templates, domains, or
+              webhooks. Keep the bootstrap administrator secret out of
+              application runtimes.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section template-section" id="templates">
+        <div class="template-stage">
+          <div class="template-copy">
+            <p class="section-number">03 / Reviewable</p>
+            <h2>Treat transactional templates like production code.</h2>
+            <p>
+              Reconcile repository-owned manifests into isolated drafts.
+              Render with the same rules used for sending. Publish only the
+              exact version your team reviewed.
+            </p>
+          </div>
+          <ol class="template-flow">
+            <li>
+              <span>01</span>
+              <div>
+                <strong>Push a draft</strong>
+                <code>hayasend templates push</code>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <strong>Render without sending</strong>
+                <code>hayasend templates render welcome</code>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <strong>Publish the reviewed version</strong>
+                <code>hayasend templates push --publish</code>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <p class="template-footnote">
+          Draft variables are typed and bounded. HTML values are escaped.
+          Concurrent edits fail conditional publication instead of silently
+          replacing production.
+        </p>
+      </section>
+
+      <section class="section quickstart-section" id="quickstart">
+        <div class="quickstart-copy">
+          <p class="section-number">04 / Local first</p>
+          <h2>Inspect the first send before it leaves your machine.</h2>
+          <p>
+            The hardened local container binds to loopback and includes an
+            isolated preview inbox. No AWS credentials are required.
+          </p>
+        </div>
+        <div class="quickstart-command">
+          <div>
+            <span class="terminal-prompt" aria-hidden="true">$</span>
+            <code id="quickstart-code">docker compose up --build</code>
+          </div>
+          <button
+            class="copy-button copy-button-light"
+            type="button"
+            data-copy-target="quickstart-code"
+            aria-label="Copy Docker quickstart command"
+          >
+            Copy
+          </button>
+          <p class="copy-status" role="status" aria-live="polite"></p>
+        </div>
+        <a
+          class="text-link text-link-light"
+          href="https://github.com/haya-inc/hayasend#run-locally"
+        >
+          Open the full quickstart
+          <span aria-hidden="true">↗</span>
+        </a>
+      </section>
+
+      <section class="section boundary-section">
+        <div>
+          <p class="section-number">Built in public</p>
+          <h2>The useful product stays open.</h2>
+        </div>
+        <div class="boundary-copy">
+          <p>
+            The self-hosted transactional path is Apache-2.0. Security fixes,
+            API compatibility, deployment templates, queues, webhooks,
+            receiving, and hosted templates are not held behind a paid plan.
+          </p>
+          <p>
+            Haya can earn by taking operational responsibility: migration,
+            deployment, deliverability, hardening, incident response,
+            upgrades, and future managed operations.
+          </p>
+          <a
+            class="text-link"
+            href="https://github.com/haya-inc/hayasend/blob/main/docs/commercial.md"
+          >
+            See the commercial boundary
+            <span aria-hidden="true">↗</span>
+          </a>
+          <a
+            class="text-link"
+            href="https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md"
+          >
+            Model the AWS bill
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="support-section" id="support">
+        <div class="support-inner">
+          <p class="section-number section-number-light">Need accountability?</p>
+          <h2>Own the infrastructure.<br />Bring in help when it matters.</h2>
+          <p>
+            Community support is free and best-effort. Haya, Inc. plans
+            commercial migration, AWS hardening, deliverability, and
+            operational support for teams that need a named owner.
+          </p>
+          <div class="support-actions">
+            <a
+              class="button button-light"
+              href="https://github.com/haya-inc/hayasend/discussions"
+            >
+              Start a public discussion
+              <span aria-hidden="true">↗</span>
+            </a>
+            <a
+              class="support-link"
+              href="https://github.com/haya-inc/hayasend/blob/main/SUPPORT.md"
+            >
+              Read support policy
+            </a>
+          </div>
+          <small>
+            Do not include credentials, AWS account identifiers, recipient
+            data, or raw messages in public discussions.
+          </small>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand brand-footer" href="#top">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M7 9h7v9h12V9h7v22h-7v-7H14v7H7z" />
+          <path class="brand-spark" d="m30 3 2 4 4 2-4 2-2 4-2-4-4-2 4-2z" />
+        </svg>
+        <span>HayaSend</span>
+      </a>
+      <p>
+        Independent software by Haya, Inc. Not affiliated with or endorsed by
+        Resend.
+      </p>
+      <div>
+        <a href="https://github.com/haya-inc/hayasend/blob/main/LICENSE">
+          Apache-2.0
+        </a>
+        <a href="https://github.com/haya-inc/hayasend/blob/main/SECURITY.md">
+          Security
+        </a>
+        <a href="https://github.com/haya-inc/hayasend">GitHub</a>
+      </div>
+    </footer>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

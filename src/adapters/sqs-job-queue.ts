@@ -1,4 +1,5 @@
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { safeErrorCategory } from "../core/error-telemetry.js";
 import type { Job } from "../core/types.js";
 import type { JobQueue } from "../ports/job-queue.js";
 
@@ -39,7 +40,7 @@ export class LocalJobQueue implements JobQueue {
             level: "error",
             message: "Local job failed",
             job_type: job.type,
-            error: error instanceof Error ? error.message : String(error),
+            error_type: safeErrorCategory(error),
           }),
         );
       }

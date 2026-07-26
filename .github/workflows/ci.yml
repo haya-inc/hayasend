@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
@@ -23,12 +23,17 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - name: Validate CloudFormation
+        run: |
+          python -m pip install --disable-pip-version-check cfn-lint==1.53.2
+          cfn-lint template.yaml
       - name: Validate OpenAPI
         run: npx --yes @redocly/cli@2.12.5 lint openapi.yaml
       - name: Bundle Lambda entry points
         run: >
           npx esbuild
           src/aws/api.ts
+          src/aws/inbound.ts
           src/aws/worker.ts
           src/aws/ses-events.ts
           --bundle
@@ -36,3 +41,94 @@ jobs:
           --target=node22
           --format=esm
           --outdir=/tmp/hayasend-esbuild
+      - name: Build local container
+        run: |
+          docker build --check .
+          docker build \
+            --build-arg VERSION=ci \
+            --build-arg REVISION=${{ github.sha }} \
+            --tag hayasend:ci \
+            .
+      - name: Smoke-test hardened local container
+        run: |
+          docker run --detach \
+            --name hayasend-ci \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --publish 127.0.0.1:8787:8787 \
+            hayasend:ci
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8787/healthz > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              docker logs hayasend-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.Config.User}}' hayasend-ci)" = "node"
+          curl --fail --silent http://127.0.0.1:8787/emails \
+            --header 'Authorization: Bearer re_hayasend_dev' \
+            --header 'Content-Type: application/json' \
+            --header 'Idempotency-Key: container-smoke' \
+            --data '{"from":"Smoke <sender@example.com>","to":"recipient@example.net","subject":"Container smoke test","text":"Read-only local mode works."}' \
+            | grep --quiet '"id":"email_'
+      - name: Stop local container
+        if: always()
+        run: docker rm --force hayasend-ci || true
+
+  python-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: tests/sdk/python-requirements.txt
+      - run: npm ci
+      - name: Install the official Resend Python SDK
+        run: >
+          python -m pip install
+          --disable-pip-version-check
+          --only-binary=:all:
+          --require-hashes
+          --requirement tests/sdk/python-requirements.txt
+      - name: Exercise Python SDK compatibility
+        env:
+          HAYASEND_API_KEY: re_hayasend_dev
+          HAYASEND_BASE_URL: http://127.0.0.1:8787
+        run: |
+          set -euo pipefail
+
+          if HAYASEND_BASE_URL=http://api.resend.com:80 \
+            python tests/sdk/python_resend_compat.py \
+            2> "$RUNNER_TEMP/python-sdk-endpoint-guard.log"; then
+            echo "The SDK compatibility test accepted a production endpoint."
+            exit 1
+          fi
+          grep --quiet "loopback" "$RUNNER_TEMP/python-sdk-endpoint-guard.log"
+
+          npm run dev > "$RUNNER_TEMP/hayasend-python-sdk.log" 2>&1 &
+          hayasend_server_pid=$!
+          trap 'kill "$hayasend_server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent "$HAYASEND_BASE_URL/healthz" > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              cat "$RUNNER_TEMP/hayasend-python-sdk.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          python tests/sdk/python_resend_compat.py
