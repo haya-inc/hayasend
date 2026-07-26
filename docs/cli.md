@@ -136,6 +136,28 @@ It omits sender and recipient addresses, subject, Message-ID, bodies, headers,
 attachment filenames, unrecognized server fields, and signed URLs. These
 summaries still reveal operational metadata and require `emails:read`.
 
+Stream only messages received after the command starts:
+
+```bash
+npm run cli -- emails receiving listen
+npm run cli -- emails receiving listen --interval 10
+npm run cli -- emails receiving listen --max-polls 3
+```
+
+`listen` seeds the newest retained ID without printing it, waits five seconds
+by default, and writes one compact JSON object per new message to stdout in
+oldest-first order. The output has the same metadata-only fields as `list`;
+warnings use stderr so stdout remains valid NDJSON. `--interval` accepts
+2–3600 seconds. `--max-polls` makes a run finite for agents and CI; omit it for
+continuous monitoring.
+
+Each polling tick evaluates at most five 100-message pages. If more mail is
+waiting, the CLI retains the returned continuation cursor and up to 5,000
+unseen summaries, resumes on the next tick, and prints nothing until it can
+preserve chronological order. It exits instead of dropping a backlog above
+that bound, and stops after five consecutive API failures. A partial page
+sequence is kept and retried from the failed cursor.
+
 Explicitly opt into the validated complete record only in a controlled
 terminal:
 
@@ -173,8 +195,8 @@ or validation failure leaves no partial output. Success prints only the
 canonical path, byte count, and SHA-256.
 
 The CLI intentionally requires a user-selected `--output` rather than trusting
-a message-supplied filename. `listen` and `forward` are not CLI commands yet;
-the official Node SDK forwarding helper remains compatible as documented in
+a message-supplied filename. `forward` is not a CLI command yet; the official
+Node SDK forwarding helper remains compatible as documented in
 [the migration guide](migration-from-resend.md).
 
 ## Manage templates as code

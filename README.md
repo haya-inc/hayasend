@@ -37,7 +37,8 @@ account, and HayaSend never logs message bodies.
 - SES delivery, delay, bounce, complaint, open, click, and failure events
 - opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
   deterministic duplicate suppression, `email.received` webhooks, and
-  Resend-shaped content, attachment retrieval, and SDK-assisted forwarding
+  Resend-shaped content, privacy-safe CLI streaming, attachment retrieval,
+  and SDK-assisted forwarding
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
@@ -184,6 +185,7 @@ Received-message inspection follows the same privacy boundary:
 
 ```bash
 npm run cli -- emails receiving list --limit 20
+npm run cli -- emails receiving listen --interval 5
 npm run cli -- emails receiving get recv_0123456789abcdef0123456789abcdef
 npm run cli -- emails receiving attachments \
   recv_0123456789abcdef0123456789abcdef
@@ -194,10 +196,12 @@ npm run cli -- emails receiving raw \
 
 The default list/get output omits addresses, subject, message ID, body,
 headers, attachment filenames, and signed URLs. Use `get ID --include-content`
-only in a controlled terminal. Attachment and raw downloads are capped at
-25 MiB, never forward the API key, reject redirects and unexpected hosts,
-write private files atomically, and refuse overwrite unless `--force` is
-explicit. See the [CLI guide](docs/cli.md#inspect-and-download-received-email).
+only in a controlled terminal. `listen` emits the same metadata-only summary
+as one-line JSON, making it safe to pipe into an agent or local automation.
+Attachment and raw downloads are capped at 25 MiB, never forward the API key,
+reject redirects and unexpected hosts, write private files atomically, and
+refuse overwrite unless `--force` is explicit. See the
+[CLI guide](docs/cli.md#inspect-and-download-received-email).
 
 ```bash
 curl http://localhost:8787/emails \

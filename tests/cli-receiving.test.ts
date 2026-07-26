@@ -106,6 +106,26 @@ function receivedRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function listenRecord(index: number, overrides: Record<string, unknown> = {}) {
+  return receivedRecord({
+    id: `recv_${index.toString(16).padStart(32, "0")}`,
+    from: `Private Sender ${index} <private-${index}@example.com>`,
+    to: [`private-recipient-${index}@example.net`],
+    received_for: [`private-alias-${index}@example.net`],
+    bcc: [],
+    cc: [],
+    reply_to: [],
+    subject: `Private subject ${index}`,
+    message_id: `<private-${index}@example.com>`,
+    attachments: [],
+    content_truncated: false,
+    html: `Private HTML ${index}`,
+    text: `Private text ${index}`,
+    headers: { "x-private-sequence": String(index) },
+    ...overrides,
+  });
+}
+
 describe("received-email CLI", () => {
   it("lists and retrieves privacy-safe summaries by default", async () => {
     const capture = capturingIo();
@@ -178,6 +198,380 @@ describe("received-email CLI", () => {
       "http://localhost:8787/emails/receiving?limit=20&after=recv%2Fprevious",
       `http://localhost:8787/emails/receiving/${RECEIVED_ID}?html_format=cid`,
     ]);
+  });
+
+  it("listens for new email in chronological, secret-free NDJSON", async () => {
+    const capture = capturingIo();
+    const seed = listenRecord(1);
+    const older = listenRecord(2, {
+      created_at: "2030-01-01T00:00:01.000Z",
+    });
+    const newer = listenRecord(3, {
+      created_at: "2030-01-01T00:00:02.000Z",
+    });
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      return requests.length === 1
+        ? jsonResponse({
+            object: "list",
+            data: [seed],
+            has_more: true,
+            next_cursor: "ignored-seed-cursor",
+          })
+        : jsonResponse({
+            object: "list",
+            data: [newer, older, seed],
+            has_more: false,
+          });
+    });
+    const sleep = vi.fn(async () => undefined);
+
+    await runCli(
+      [
+        "emails",
+        "receiving",
+        "listen",
+        "--interval",
+        "2",
+        "--max-polls",
+        "1",
+      ],
+      { fetch: fetchMock, io: capture.io, sleep },
+    );
+
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(2_000);
+    expect(requests).toEqual([
+      "http://localhost:8787/emails/receiving?limit=1",
+      "http://localhost:8787/emails/receiving?limit=100",
+    ]);
+    expect(capture.logs.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({
+        object: "received_email_summary",
+        id: older.id,
+      }),
+      expect.objectContaining({
+        object: "received_email_summary",
+        id: newer.id,
+      }),
+    ]);
+    expect(capture.io.error).not.toHaveBeenCalled();
+    const output = capture.logs.join("\n");
+    for (const privateValue of [
+      "Private Sender",
+      "private-recipient",
+      "private-alias",
+      "Private subject",
+      "Private HTML",
+      "Private text",
+      "x-private-sequence",
+    ]) {
+      expect(output).not.toContain(privateValue);
+    }
+  });
+
+  it("continues a bounded multipage backlog on the next poll", async () => {
+    const capture = capturingIo();
+    const seed = listenRecord(1);
+    const unseen = Array.from({ length: 501 }, (_, index) =>
+      listenRecord(index + 2),
+    );
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (requests.length === 1) {
+        return jsonResponse({
+          object: "list",
+          data: [seed],
+          has_more: false,
+        });
+      }
+      const page = requests.length - 2;
+      if (page < 5) {
+        return jsonResponse({
+          object: "list",
+          data: unseen.slice(page * 100, page * 100 + 100),
+          has_more: true,
+          next_cursor: `cursor-${page + 1}`,
+        });
+      }
+      return jsonResponse({
+        object: "list",
+        data: [unseen[500], seed],
+        has_more: false,
+      });
+    });
+    const sleep = vi.fn(async () => undefined);
+
+    await runCli(
+      [
+        "emails",
+        "receiving",
+        "listen",
+        "--interval",
+        "2",
+        "--max-polls",
+        "2",
+      ],
+      { fetch: fetchMock, io: capture.io, sleep },
+    );
+
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(requests).toHaveLength(7);
+    expect(requests.at(-1)).toBe(
+      "http://localhost:8787/emails/receiving?limit=100&after=cursor-5",
+    );
+    expect(capture.logs).toHaveLength(501);
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toMatchObject({
+      id: unseen[500]?.id,
+    });
+    expect(JSON.parse(capture.logs.at(-1) ?? "{}")).toMatchObject({
+      id: unseen[0]?.id,
+    });
+    expect(
+      new Set(
+        capture.logs.map(
+          (line) => (JSON.parse(line) as { id: string }).id,
+        ),
+      ).size,
+    ).toBe(501);
+    expect(capture.io.error).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({
+        object: "listen_warning",
+        code: "page_cap_reached",
+        pending_count: 500,
+      }),
+    );
+  });
+
+  it("preserves partial pages and retries the same cursor after failure", async () => {
+    const capture = capturingIo();
+    const seed = listenRecord(1);
+    const newer = listenRecord(3);
+    const older = listenRecord(2);
+    let requestNumber = 0;
+    const urls: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      requestNumber += 1;
+      urls.push(String(input));
+      if (requestNumber === 1) {
+        return jsonResponse({
+          object: "list",
+          data: [seed],
+          has_more: false,
+        });
+      }
+      if (requestNumber === 2) {
+        return jsonResponse({
+          object: "list",
+          data: [newer],
+          has_more: true,
+          next_cursor: "resume-here",
+        });
+      }
+      if (requestNumber === 3) {
+        throw new Error(
+          "private-recipient@example.net private subject signed-url",
+        );
+      }
+      return jsonResponse({
+        object: "list",
+        data: [older, seed],
+        has_more: false,
+      });
+    });
+
+    await runCli(
+      [
+        "emails",
+        "receiving",
+        "listen",
+        "--max-polls",
+        "2",
+      ],
+      {
+        fetch: fetchMock,
+        io: capture.io,
+        sleep: async () => undefined,
+      },
+    );
+
+    expect(urls.slice(-2)).toEqual([
+      "http://localhost:8787/emails/receiving?limit=100&after=resume-here",
+      "http://localhost:8787/emails/receiving?limit=100&after=resume-here",
+    ]);
+    expect(capture.logs.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({ id: older.id }),
+      expect.objectContaining({ id: newer.id }),
+    ]);
+    expect(capture.io.error).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({
+        object: "listen_warning",
+        code: "poll_failed",
+        consecutive_failures: 1,
+      }),
+    );
+    expect(JSON.stringify(capture.io.error.mock.calls)).not.toContain(
+      "private-recipient",
+    );
+  });
+
+  it("fails after five sanitized polling failures", async () => {
+    const capture = capturingIo();
+    let requestNumber = 0;
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      requestNumber += 1;
+      if (requestNumber === 1) {
+        return jsonResponse({
+          object: "list",
+          data: [listenRecord(1)],
+          has_more: false,
+        });
+      }
+      throw new Error("private sender, subject, and signed URL");
+    });
+
+    await expect(
+      runCli(
+        [
+          "emails",
+          "receiving",
+          "listen",
+          "--max-polls",
+          "5",
+        ],
+        {
+          fetch: fetchMock,
+          io: capture.io,
+          sleep: async () => undefined,
+        },
+      ),
+    ).rejects.toThrow(
+      "Receiving listen stopped after 5 consecutive API failures.",
+    );
+    expect(capture.logs).toEqual([]);
+    expect(capture.io.error).toHaveBeenCalledTimes(5);
+    expect(JSON.stringify(capture.io.error.mock.calls)).not.toContain(
+      "private sender",
+    );
+  });
+
+  it("fails closed on invalid listen options and cursors", async () => {
+    const capture = capturingIo();
+    const fetchMock = vi.fn<typeof fetch>();
+    await expect(
+      runCli(
+        [
+          "emails",
+          "receiving",
+          "listen",
+          "--interval",
+          "1",
+          "--max-polls",
+          "1",
+        ],
+        { fetch: fetchMock, io: capture.io },
+      ),
+    ).rejects.toThrow("--interval must be an integer from 2 to 3600");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      runCli(
+        [
+          "emails",
+          "receiving",
+          "listen",
+          "--max-polls",
+          "1",
+        ],
+        {
+          fetch: vi.fn<typeof fetch>(async () => {
+            throw new Error("private sender, subject, and signed URL");
+          }),
+          io: capture.io,
+        },
+      ),
+    ).rejects.toThrow("Receiving listen could not connect to HayaSend.");
+
+    let requestNumber = 0;
+    await expect(
+      runCli(
+        [
+          "emails",
+          "receiving",
+          "listen",
+          "--max-polls",
+          "1",
+        ],
+        {
+          fetch: vi.fn<typeof fetch>(async () => {
+            requestNumber += 1;
+            return requestNumber === 1
+              ? jsonResponse({
+                  object: "list",
+                  data: [listenRecord(1)],
+                  has_more: false,
+                })
+              : jsonResponse({
+                  object: "list",
+                  data: [listenRecord(2)],
+                  has_more: true,
+                });
+          }),
+          io: capture.io,
+          sleep: async () => undefined,
+        },
+      ),
+    ).rejects.toThrow("invalid receiving pagination cursor");
+    expect(capture.logs).toEqual([]);
+    expect(capture.io.error).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly before buffering more than 5000 unseen messages", async () => {
+    const capture = capturingIo();
+    let requestNumber = 0;
+    await expect(
+      runCli(
+        [
+          "emails",
+          "receiving",
+          "listen",
+          "--max-polls",
+          "11",
+        ],
+        {
+          fetch: vi.fn<typeof fetch>(async () => {
+            requestNumber += 1;
+            if (requestNumber === 1) {
+              return jsonResponse({
+                object: "list",
+                data: [listenRecord(1)],
+                has_more: false,
+              });
+            }
+            const page = requestNumber - 2;
+            const pageSize = page === 50 ? 1 : 100;
+            return jsonResponse({
+              object: "list",
+              data: Array.from({ length: pageSize }, (_, offset) =>
+                listenRecord(page * 100 + offset + 2),
+              ),
+              has_more: true,
+              next_cursor: `cursor-${page + 1}`,
+            });
+          }),
+          io: capture.io,
+          sleep: async () => undefined,
+        },
+      ),
+    ).rejects.toThrow(
+      "Receiving listen backlog exceeds 5000 messages",
+    );
+    expect(requestNumber).toBe(52);
+    expect(capture.logs).toEqual([]);
+    expect(capture.io.error).toHaveBeenCalledTimes(10);
   });
 
   it("reveals only validated fields after explicit content opt-in", async () => {

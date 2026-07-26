@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a privacy-safe `emails receiving listen` NDJSON stream with bounded,
+  resumable pagination and fail-loud backlog handling for agents and CI.
 - Add privacy-safe received-email CLI inspection plus bounded, credential-free,
   atomic raw-MIME and attachment downloads.
 - Add a privacy-safe sent-email lifecycle CLI for listing and inspecting

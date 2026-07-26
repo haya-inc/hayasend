@@ -4,9 +4,11 @@ import { receivingCommand } from "./cli-receiving.js";
 interface EmailCommandContext {
   baseUrl: string;
   cwd: string;
+  error(message: string): void;
   fetch: typeof fetch;
   log(message: string): void;
   request(path: string, init?: RequestInit): Promise<unknown>;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 interface ParsedOptions {
