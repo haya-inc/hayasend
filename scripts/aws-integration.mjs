@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
 import { normalizeApiGatewayBaseUrl } from "./aws-integration-safety.mjs";
 
 function requiredEnvironment(name) {
@@ -234,6 +233,7 @@ try {
     JSON.stringify({
       ok: true,
       service: "hayasend",
+      recovery_email_id: recoveryEmailId,
       checks: [
         "health",
         "scoped_api_keys",
@@ -249,15 +249,6 @@ try {
       ],
     }),
   );
-  if (process.env.HAYASEND_EVIDENCE_FILE) {
-    writeFileSync(
-      process.env.HAYASEND_EVIDENCE_FILE,
-      `${JSON.stringify({
-        recovery_email_id: recoveryEmailId,
-      })}\n`,
-      { mode: 0o600 },
-    );
-  }
 } finally {
   if (applicationKey && created.emailId) {
     await bestEffort("scheduled email", () =>

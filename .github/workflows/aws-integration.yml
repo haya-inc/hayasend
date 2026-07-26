@@ -176,8 +176,8 @@ jobs:
           HAYASEND_BASE_URL="$API_BASE_URL" \
           HAYASEND_EXPECTED_API_ID="$HTTP_API_ID" \
           HAYASEND_BOOTSTRAP_KEY="$bootstrap_key" \
-          HAYASEND_EVIDENCE_FILE="$RUNNER_TEMP/hayasend-aws-evidence.json" \
-          node scripts/aws-integration.mjs
+          node scripts/aws-integration.mjs \
+            | tee "$RUNNER_TEMP/hayasend-aws-evidence.json"
 
       - name: Prove durable outbox recovery
         shell: bash
