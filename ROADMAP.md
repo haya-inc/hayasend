@@ -1,8 +1,10 @@
 # Roadmap
 
 The roadmap is ordered by user risk, not by feature count.
+The evidence gates, adapter contract, and current draft disposition are in the
+[production semantics and Cloudflare proof](docs/execution-plan.md) plan.
 
-## v0.1 — Transactional foundation
+## Release gate — AWS beta
 
 - [x] Resend-compatible single and batch send endpoints
 - [x] official Resend Node SDK contract test
@@ -15,42 +17,57 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] EventBridge Scheduler for long schedules
 - [x] presigned S3 attachment uploads beyond the API Gateway payload limit
 - [ ] first successful deployment integration run in a dedicated AWS test
-  account (OIDC deploy/test/delete workflow is ready)
+      account (OIDC deploy/test/delete workflow is ready)
 - [x] bootstrap-key storage in Secrets Manager
+- [ ] protected-main merge, exact-main CodeQL, signed release, provenance, and
+      live project site
 
-## v0.2 — Receive and forward
+No post-v0.1 draft merges into the frozen release candidate.
 
-- [x] SES Mail Manager ingress endpoint and traffic policies
-- [x] encrypted S3 raw-message storage with configurable expiry
-- [x] `email.received` webhook and temporary attachment URLs
-- [x] deterministic receipt duplicate suppression
-- [x] explicit received-message forwarding through the official Node SDK
-- [ ] alias routing and catch-all rules
-- [ ] automatic forwarding that rewrites sender headers safely
-- [ ] loop detection and ARC preservation
+## Now — Production semantics
 
-## v0.3 — Developer workflow
+- versioned provider capability and compatibility contract
+- transactional outbox with automatic reconciliation
+- immutable recipient, attempt, and provider-event ledger
+- deterministic aggregates under duplicate and out-of-order events
+- permanent/retryable provider failure classification
+- fault-injection and per-adapter conformance reports
+- safe deploy, doctor, upgrade, rollback, and recovery evidence
+- scoped credentials, cost/rate controls, and content-private operations
 
-- [x] hardened local container quickstart
-- [x] signed, multi-platform container and SBOM release automation
-- [ ] first signed public release
-- [x] local preview inbox
-- template versions using React Email
-- [x] `hayasend init`, `doctor`, and end-to-end `test`
-- `hayasend deploy` and migration commands
-- OpenTelemetry exports and operational dashboard
-- Python, Go, and direct HTTP contract tests
+## Next — Cloudflare and FolioMCP proof
 
-## v1 — Supported operations
+- Workers runtime using the same public API
+- D1 metadata/outbox, R2 payloads, and Queues/DLQ
+- Cloudflare Email Sending transport and recipient event normalization
+- capability-aware 50-recipient and 5 MiB validation
+- plan-first deploy, doctor, upgrade, rollback, and cost evidence
+- identical shared conformance and fault-injection suite
+- provider switch without application-code changes
+- controlled non-critical FolioMCP dogfood
 
-- stable compatibility contract and upgrade policy
-- multi-account and multi-region management
-- SSO, audit exports, and configurable retention
-- backup, restore, disaster-recovery, and load-test evidence
-- published community and commercial support levels
+Cloudflare Email Sending is currently Beta. HayaSend will keep that status
+visible until both Cloudflare's service status and HayaSend's evidence justify
+changing it.
 
-## Later
+## Then — Agent-safe policy
 
-Contacts, broadcasts, journeys, and marketing automation are intentionally
-deferred. They require consent, unsubscribe, suppression, abuse, and regional
-compliance controls that should not be rushed.
+- actor, application, agent, and intent identity
+- draft, send, and external-send permission separation
+- recipient/domain allowlists and deny rules
+- hourly/daily send and cost budgets
+- approval gates for sensitive, external, attachment, and high-volume sends
+- sandbox sink, preview, kill switch, and immutable audit
+- MCP only as an interface over enforced policy
+
+## Parked until the proof is complete
+
+- inbound alias routing, automatic forwarding, and ARC preservation
+- more language SDK gates beyond the shared provider conformance work
+- visual template-product expansion
+- contacts, broadcasts, journeys, and marketing automation
+- managed multi-tenant content data plane
+- SMS, push, chat, or a general notification workflow builder
+
+The existing AWS receiving implementation remains supported, but it does not
+set the order of new work.
