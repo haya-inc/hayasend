@@ -4,6 +4,32 @@ This runbook is the minimum operating procedure for an AWS deployment.
 For disposable end-to-end validation, use the
 [dedicated-account integration workflow](aws-integration-testing.md).
 
+## Deployment principal
+
+The plan-first CLI needs read access for:
+
+- `sts:GetCallerIdentity`;
+- `ses:GetAccount`;
+- `cloudformation:DescribeStacks`.
+
+`--apply` additionally reads CloudFormation change sets and failure events
+through `cloudformation:ListChangeSets`,
+`cloudformation:DescribeChangeSet`, and
+`cloudformation:DescribeStackEvents`. It uses ordinary SAM deployment
+operations, including artifact-bucket access and CloudFormation change-set
+creation/execution. The deployment principal must be authorized for every
+resource type in `template.yaml`; `CAPABILITY_IAM` is always explicit.
+HayaSend does not ship a broad administrator policy disguised as a
+least-privilege policy. Derive the deployment role from the checked-in
+template, organizational permission boundaries, Region, and enabled inbound
+features, then review it through the same infrastructure process as other
+production roles.
+
+The CLI never reads the bootstrap secret value, edits DNS, or passes
+credentials as command-line arguments. Its JSON output contains account IDs,
+principal and resource ARNs, domain suffixes, and stack outputs, so retain it
+as operational metadata rather than posting it publicly.
+
 ## After deployment
 
 1. Subscribe the on-call destination to the `AlarmTopicArn` stack output and

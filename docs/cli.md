@@ -166,6 +166,89 @@ values.
 The deployment key needs `templates:read` and `templates:write`. Keep those
 scopes out of the application runtime key.
 
+## Plan and deploy to AWS
+
+Run the AWS workflow from a HayaSend checkout. The first invocation is a
+non-mutating plan:
+
+```bash
+npm run cli -- deploy aws \
+  --account 123456789012 \
+  --region ap-northeast-1 \
+  --stack hayasend
+```
+
+`--account` is required even when the AWS CLI already has credentials. The CLI
+calls STS and stops before reading SES or CloudFormation if the authenticated
+account differs. `--region` can instead come from `AWS_REGION` or
+`AWS_DEFAULT_REGION`; `--profile` selects a named AWS profile.
+
+The plan:
+
+1. verifies the AWS and SAM CLIs;
+2. reads caller identity, SES production/sending state and quota, and the
+   existing CloudFormation stack;
+3. refuses a stack that is not in a stable terminal state;
+4. runs `sam validate --lint` and `sam build` in a temporary directory using an
+   empty SAM configuration, so repository or user defaults cannot silently
+   change the plan;
+5. prints the template SHA-256, effective parameters, tags, current stack
+   state, and exact apply command as newline-delimited JSON. Plan mode emits
+   one JSON object; apply mode emits one object per review or result event.
+   Every event currently has `schema_version: 1`.
+
+It makes no AWS writes. The principal ARN, account ID, resource ARNs, domains,
+and stack outputs are not credentials, but they are still infrastructure
+identifiers; do not paste plan output into a public issue.
+
+Apply only after reviewing the plan:
+
+```bash
+npm run cli -- deploy aws \
+  --account 123456789012 \
+  --region ap-northeast-1 \
+  --stack hayasend \
+  --tag Environment=production \
+  --apply
+```
+
+Apply performs another clean validation and build, uploads SAM artifacts, and
+creates an unexecuted CloudFormation change set. It snapshots the existing
+change-set IDs first, then accepts exactly one new ARN; concurrent deployment
+activity causes a refusal. The CLI retrieves and prints the resource actions
+for that ARN before execution.
+
+Any removal, indeterminate `Dynamic` action, known or unknown replacement,
+delete policy, or replace policy stops before execution. The unexecuted change
+set remains available for inspection. If every destructive action is intended,
+rerun the same inputs with both `--apply` and
+`--allow-destructive-changes`. This is an explicit acknowledgement, not a way
+to suppress the printed plan.
+
+Existing stack parameters and non-AWS tags are carried forward unless the
+command explicitly overrides them. Parameters removed from the current
+template are not replayed. Supported overrides are:
+
+- `--bootstrap-secret-arn ARN`;
+- `--enable-inbound` or `--disable-inbound`;
+- `--inbound-recipient-suffixes @example.com,@example.org`;
+- `--inbound-retention-days 1..30`;
+- `--inbound-max-message-bytes 1..41943040`;
+- `--inbound-tls-policy OPTIONAL|REQUIRED|FIPS`;
+- `--webhook-retention-days 1..30`;
+- repeatable `--tag KEY=VALUE`.
+
+Enabling inbound receiving requires explicit non-`.invalid` recipient
+suffixes. An existing bootstrap secret ARN must belong to the expected account
+and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
+
+After execution, the CLI waits for CloudFormation, reads the API URL, bootstrap
+secret ARN, alarm topic, dashboard, and optional inbound MX target, then prints
+the next `hayasend doctor` step. It does not retrieve or print the bootstrap
+secret and never creates DNS records. If CloudFormation fails, the error
+includes redacted recent stack events for recovery. Follow the
+[operations runbook](operations.md) before retrying.
+
 ## Send a hosted template
 
 The CLI supports the same `--template` and repeatable `--var KEY=VALUE` shape
@@ -186,7 +269,8 @@ optional overrides of the published defaults.
 
 ## Scope
 
-The alpha CLI deliberately does not install dependencies, modify application
-source, or deploy AWS resources. `deploy` and migration commands remain on the
-roadmap; until then, use the reviewed SAM commands in the main README and the
-operations runbook.
+The alpha CLI deliberately does not install dependencies or modify application
+source. AWS deployment reuses the checked-in SAM template and ordinary
+CloudFormation change sets; the reviewed manual SAM commands in the main
+README remain a supported fallback. Migration automation remains on the
+roadmap.

@@ -22,3 +22,6 @@ minor releases before v1.0.
   covering send, retrieve, list, and batch operations.
 - Publish an evidence-based v0.1 beta milestone and a labeled public roadmap
   with a bounded first contribution.
+- Add a plan-first AWS deployment CLI that pins the target account, reports
+  SES readiness, creates an inspectable CloudFormation change set only with
+  `--apply`, and refuses destructive changes without a second acknowledgement.

@@ -273,6 +273,39 @@ Requirements:
 - an SES-enabled AWS Region
 - SES production access before sending to unverified recipients
 
+Start with the non-mutating deployment plan. The explicit account ID prevents
+an authenticated shell from silently targeting the wrong account:
+
+```bash
+aws_account_id="$(aws sts get-caller-identity --query Account --output text)"
+npm run cli -- deploy aws \
+  --account "$aws_account_id" \
+  --region ap-northeast-1 \
+  --stack hayasend
+```
+
+The plan validates the tools and template, performs a clean temporary SAM
+build, reports SES production access and sending quota, and renders every
+parameter and tag. It does not upload artifacts, create a change set, or alter
+AWS. After reviewing it, repeat the command with `--apply`:
+
+```bash
+npm run cli -- deploy aws \
+  --account "$aws_account_id" \
+  --region ap-northeast-1 \
+  --stack hayasend \
+  --apply
+```
+
+Apply creates but does not immediately execute a CloudFormation change set.
+HayaSend retrieves the exact new change-set ARN, prints its resource changes,
+and refuses removals, indeterminate actions, or possible replacements unless
+`--allow-destructive-changes` is also present. It never changes DNS. See the
+[CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
+preservation, failure recovery, and output privacy.
+
+The underlying manual SAM workflow remains supported:
+
 ```bash
 cp samconfig.toml.example samconfig.toml
 sam build

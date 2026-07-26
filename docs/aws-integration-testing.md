@@ -5,6 +5,12 @@ dedicated AWS account, exercises the live API, and deletes the stack and its
 retained data resources. It is intentionally manual and never runs for pull
 requests from forks.
 
+Before creating resources, the workflow runs `hayasend deploy aws` in
+non-mutating plan mode. It then repeats the exact account, Region, stack, and
+tags with explicit `--apply`. This proves account pinning, SES and stack
+preflight, clean SAM validation/build, creation of an unexecuted change set,
+change-set inspection, and execution by the retrieved change-set ARN.
+
 ## Safety boundary
 
 Use an AWS account that contains no production resources or data. Enable an

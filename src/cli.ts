@@ -5,6 +5,11 @@ import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  defaultCommandRunner,
+  deployAws,
+  type CommandRunner,
+} from "./cli-aws-deploy.js";
+import {
   loadTemplateManifest,
   parseRemoteTemplate,
   parseTemplateVariables,
@@ -26,6 +31,7 @@ interface CliDependencies {
   env: NodeJS.ProcessEnv;
   fetch: typeof fetch;
   io: CliIo;
+  runCommand: CommandRunner;
 }
 
 const defaultDependencies: CliDependencies = {
@@ -33,6 +39,7 @@ const defaultDependencies: CliDependencies = {
   env: process.env,
   fetch,
   io: console,
+  runCommand: defaultCommandRunner,
 };
 
 function flags(args: string[], name: string): string[] {
@@ -766,6 +773,90 @@ async function testSend(args: string[], dependencies: CliDependencies) {
   );
 }
 
+async function deployCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  const target = args[0] ?? "";
+  if (target !== "aws") {
+    throw new Error(
+      `Unknown deploy target: ${target || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: [
+      "account",
+      "region",
+      "stack",
+      "profile",
+      "bootstrap-secret-arn",
+      "inbound-retention-days",
+      "inbound-max-message-bytes",
+      "inbound-recipient-suffixes",
+      "inbound-tls-policy",
+      "webhook-retention-days",
+    ],
+    booleans: [
+      "apply",
+      "allow-destructive-changes",
+      "enable-inbound",
+      "disable-inbound",
+    ],
+    repeatable: ["tag"],
+  });
+  const account = flag(args, "account");
+  if (!account) {
+    throw new Error("deploy aws requires --account.");
+  }
+  const enableInbound = hasFlag(args, "enable-inbound");
+  const disableInbound = hasFlag(args, "disable-inbound");
+  if (enableInbound && disableInbound) {
+    throw new Error(
+      "--enable-inbound and --disable-inbound cannot be combined.",
+    );
+  }
+  const region = flag(args, "region");
+  const stack = flag(args, "stack");
+  const profile = flag(args, "profile");
+  const bootstrapSecretArn = flag(args, "bootstrap-secret-arn");
+  const inboundRetentionDays = flag(args, "inbound-retention-days");
+  const inboundMaxMessageBytes = flag(args, "inbound-max-message-bytes");
+  const inboundRecipientSuffixes = flag(
+    args,
+    "inbound-recipient-suffixes",
+  );
+  const inboundTlsPolicy = flag(args, "inbound-tls-policy");
+  const webhookRetentionDays = flag(args, "webhook-retention-days");
+  await deployAws(
+    {
+      account,
+      ...(region ? { region } : {}),
+      ...(stack ? { stack } : {}),
+      ...(profile ? { profile } : {}),
+      apply: hasFlag(args, "apply"),
+      allowDestructiveChanges: hasFlag(args, "allow-destructive-changes"),
+      ...(enableInbound
+        ? { enableInbound: true }
+        : disableInbound
+          ? { enableInbound: false }
+          : {}),
+      ...(bootstrapSecretArn ? { bootstrapSecretArn } : {}),
+      ...(inboundRetentionDays ? { inboundRetentionDays } : {}),
+      ...(inboundMaxMessageBytes ? { inboundMaxMessageBytes } : {}),
+      ...(inboundRecipientSuffixes ? { inboundRecipientSuffixes } : {}),
+      ...(inboundTlsPolicy ? { inboundTlsPolicy } : {}),
+      ...(webhookRetentionDays ? { webhookRetentionDays } : {}),
+      tags: flags(args, "tag"),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -775,6 +866,12 @@ Commands:
 
   dev
       Start HayaSend from source in local mode.
+
+  deploy aws --account ACCOUNT_ID [--region REGION] [--stack NAME]
+      Validate tools, identity, SES readiness, the SAM template, and a local
+      build without changing AWS. Add --apply to create, inspect, and execute
+      an exact CloudFormation change set. Destructive changes require the
+      additional --allow-destructive-changes acknowledgement.
 
   doctor [--endpoint URL]
       Check HayaSend identity, health, authentication, and preview availability.
@@ -803,6 +900,7 @@ Commands:
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
+  AWS_REGION            Default Region for deploy aws
 `);
 }
 
@@ -827,6 +925,9 @@ export async function runCli(
     case "dev":
       validateOptions(args, {});
       startServer();
+      break;
+    case "deploy":
+      await deployCommand(args.slice(1), dependencies);
       break;
     case "doctor":
       validateOptions(args, { values: ["endpoint"] });
