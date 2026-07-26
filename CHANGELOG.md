@@ -6,6 +6,10 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Document a threat-modeled, staged inbound alias-routing proposal with
+  verified route ownership and destinations, truthful sender authentication,
+  signed loop traces, no-send evaluation, bounded fan-out, suppression and
+  recovery behavior, and an explicit ARC approval boundary.
 - Add a source-linked AWS cost model with Virginia and Tokyo price snapshots,
   explicit workload formulas, SES plan separation, optional inbound costs, and
   a CLI for substituting operator assumptions.
