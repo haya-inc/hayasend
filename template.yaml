@@ -125,6 +125,7 @@ Resources:
           - .js=.cjs
         Sourcemap: true
         Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
@@ -209,6 +210,7 @@ Resources:
           - .js=.cjs
         Sourcemap: true
         Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/worker.handler
@@ -265,6 +267,7 @@ Resources:
           - .js=.cjs
         Sourcemap: true
         Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/ses-events.handler
@@ -293,6 +296,7 @@ Resources:
           - .js=.cjs
         Sourcemap: true
         Target: node24
+        UseNpmCi: true
     Properties:
       CodeUri: .
       Handler: src/aws/inbound.handler
