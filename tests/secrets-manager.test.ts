@@ -79,4 +79,26 @@ describe("Secrets Manager bootstrap provider", () => {
     });
     expect(unavailableProvider).not.toHaveBeenCalled();
   });
+
+  it("rejects malformed scoped keys before external lookups", async () => {
+    const store = new MemoryStore();
+    const getApiKey = vi.spyOn(store, "getApiKey");
+    const bootstrapProvider = vi.fn(async () => secret);
+    const service = new ApiKeyService(store, bootstrapProvider);
+    const malformed = [
+      `re_hs_key_${"a".repeat(2_048)}.short`,
+      `re_hs_key_${"a".repeat(32)}.short`,
+      `re_hs_key_${"g".repeat(32)}.${"a".repeat(43)}`,
+      `re_hs_key_${"a".repeat(32)}.${"a".repeat(42)}!`,
+    ];
+
+    for (const token of malformed) {
+      await expect(service.authenticate(token)).rejects.toMatchObject({
+        status: 401,
+        name: "validation_error",
+      });
+    }
+    expect(getApiKey).not.toHaveBeenCalled();
+    expect(bootstrapProvider).not.toHaveBeenCalled();
+  });
 });

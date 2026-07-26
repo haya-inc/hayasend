@@ -6,15 +6,18 @@ minor releases before v1.0.
 
 ## Unreleased
 
+No unreleased changes.
+
+## 0.1.0 - 2026-07-26
+
 - Replace raw provider, network, queue, and parser failure text in application
   logs and retained failure fields with stable operational categories; issue
   server-generated request IDs for safe API correlation.
 - Add a source-linked AWS cost model with Virginia and Tokyo price snapshots,
   explicit workload formulas, SES plan separation, optional inbound costs, and
   a CLI for substituting operator assumptions.
-
-## 0.1.0 - 2026-07-26
-
+- Reject malformed scoped API keys before any DynamoDB or Secrets Manager
+  lookup so unauthenticated input cannot turn storage limits into API errors.
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS
   deployment foundation.
 - Add Resend-compatible hosted templates with aliases, typed variables,
