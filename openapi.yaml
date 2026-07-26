@@ -1515,6 +1515,7 @@ components:
           type: string
         error:
           type: string
+          description: Stable operational failure message with a category; never contains raw provider or network exception text.
     ReceivedEmailSummary:
       type: object
       required:
@@ -1824,6 +1825,7 @@ components:
         last_error:
           type: string
           maxLength: 500
+          description: HTTP status or stable operational failure message with a category; never contains a response body or raw exception text.
         last_attempt_at:
           type: string
           format: date-time

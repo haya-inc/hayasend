@@ -407,7 +407,10 @@ and delivery semantics.
 
 ## Security and privacy
 
-- Message bodies are never written to application logs.
+- Application logs never include message bodies, addresses, subjects, webhook
+  URLs, credentials, or external provider and network error text. Failure
+  entries use opaque identifiers, allowlisted operational metadata, and stable
+  error categories.
 - Local mode is development-only and has no persistence.
 - AWS mode stores metadata in DynamoDB and message bodies and attachments in
   a private, encrypted S3 bucket with a 45-day lifecycle.
@@ -423,9 +426,11 @@ and delivery semantics.
 - Webhook requests use timestamped HMAC-SHA256 signatures and Resend-compatible
   `svix-*` headers.
 - Webhook history never stores email bodies, attachments, signing secrets, or
-  response bodies. Retained event metadata can contain addresses and subjects,
-  expires after the configured 1–30 day window, and is filtered from API reads
-  immediately at expiry while DynamoDB completes asynchronous deletion.
+  response bodies. Its failure field contains only an HTTP status or stable
+  operational category, never an external exception string. Retained event
+  metadata can contain addresses and subjects, expires after the configured
+  1–30 day window, and is filtered from API reads immediately at expiry while
+  DynamoDB completes asynchronous deletion.
 - AWS-mode webhook registration and delivery require public HTTPS and reject
   private, loopback, link-local, and reserved IPv4/IPv6 destinations; delivery
   revalidates DNS at connection time and never follows redirects.

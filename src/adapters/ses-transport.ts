@@ -95,9 +95,8 @@ export class ConsoleMailTransport implements MailTransport {
         message: "Local email accepted",
         email_id: email.id,
         provider_id: providerId,
-        from: email.from,
-        to: email.to,
-        subject: email.subject,
+        recipient_count:
+          email.to.length + (email.cc?.length ?? 0) + (email.bcc?.length ?? 0),
       }),
     );
     return { provider_id: providerId };

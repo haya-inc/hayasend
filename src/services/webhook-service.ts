@@ -1,4 +1,5 @@
 import { createId, createWebhookSecret, signWebhook } from "../core/crypto.js";
+import { safeFailureMessage } from "../core/error-telemetry.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import {
   assertPublicWebhookEndpoint,
@@ -53,12 +54,6 @@ function deliverySummary(
 ): WebhookDeliverySummary {
   const { event: _event, ...summary } = delivery;
   return { object: "webhook_delivery", ...summary };
-}
-
-function safeDeliveryError(error: unknown) {
-  return (error instanceof Error ? error.message : String(error))
-    .replaceAll(/[\r\n\t]/g, " ")
-    .slice(0, 500);
 }
 
 export class WebhookService {
@@ -361,7 +356,7 @@ export class WebhookService {
       await this.store.updateWebhookDelivery(deliveryId, {
         status: "failed",
         attempts,
-        last_error: safeDeliveryError(error),
+        last_error: safeFailureMessage("Webhook delivery failed", error),
         last_attempt_at: attemptedAt,
         updated_at: this.now().toISOString(),
         response_status: undefined,
@@ -440,7 +435,7 @@ export class WebhookService {
       const updatedAt = this.now().toISOString();
       await this.store.updateWebhookDelivery(delivery.id, {
         status: "failed",
-        last_error: safeDeliveryError(error),
+        last_error: safeFailureMessage("Webhook enqueue failed", error),
         updated_at: updatedAt,
       });
       throw error;

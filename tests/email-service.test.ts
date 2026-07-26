@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/adapters/memory-store.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
@@ -68,7 +68,9 @@ function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const transport = new StubTransport();
-  const webhooks = new WebhookService(store, queue);
+  const webhooks = new WebhookService(store, queue, {
+    validateEndpoint: async () => undefined,
+  });
   const suppressions = new SuppressionService(store);
   const attachments = new AttachmentService(
     store,
@@ -93,6 +95,7 @@ function fixture() {
     suppressions,
     templates,
     transport,
+    webhooks,
   };
 }
 
@@ -177,8 +180,33 @@ describe("EmailService", () => {
     );
     await expect(store.getEmail(created.record.id)).resolves.toMatchObject({
       status: "failed",
-      error: "temporary provider failure",
+      error: "Email delivery failed (application_error).",
     });
+  });
+
+  it("does not persist or publish sensitive provider error text", async () => {
+    const { queue, service, store, transport, webhooks } = fixture();
+    const sensitive =
+      "recipient@example.net private body re_secret_token https://example.com/hook";
+    transport.failures = 3;
+    vi.spyOn(transport, "send").mockRejectedValue(new Error(sensitive));
+    await webhooks.create({
+      endpoint: "https://example.com/hook",
+      events: ["email.failed"],
+    });
+    const created = await service.create(input);
+
+    await expect(service.processSend(created.record.id, 3)).resolves.toBe(
+      undefined,
+    );
+
+    const stored = await store.getEmail(created.record.id);
+    expect(stored?.error).toBe("Email delivery failed (application_error).");
+    const serializedJobs = JSON.stringify(queue.jobs);
+    expect(serializedJobs).toContain(
+      "Email delivery failed (application_error).",
+    );
+    expect(serializedJobs).not.toContain(sensitive);
   });
 
   it("understands Resend-style relative scheduling", async () => {

@@ -78,13 +78,13 @@ bypass that boundary by editing DynamoDB directly.
 
 | Alarm | Immediate response |
 |---|---|
-| Dead-letter queue contains a job | Inspect the job type and error logs before redrive |
+| Dead-letter queue contains a job | Use the allowlisted job type, opaque message ID, and error category to inspect the source service before redrive |
 | Scheduler dead-letter queue contains an invocation | Inspect Scheduler target permissions and the original email ID; do not redrive the envelope directly into the job queue |
 | Scheduler invocation dropped | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions |
 | Inbound dead-letter queue contains an event | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event |
 | Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
-| API internal error | Use `x-request-id` to correlate API logs |
-| Send retries exhausted | Inspect SES response, account state, identity, and configuration set |
+| API internal error | Use the response's server-generated `x-request-id` to correlate API logs |
+| Send retries exhausted | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics |
 | Complaint received | Confirm suppression creation and review the originating traffic |
 
 ## Attachment uploads
@@ -105,6 +105,16 @@ authorization errors against those separate IAM roles.
 
 Never copy raw message bodies, recipient lists, API keys, or webhook secrets
 into tickets.
+
+Application logs and retained failure fields intentionally use stable
+categories such as `application_error`, `invalid_data`, `network_dns`,
+`network_refused`, `network_reset`, `provider_rejected`,
+`provider_throttled`, `provider_unavailable`, and `timeout`. They do not
+contain provider exception strings. Correlate an API failure with the
+server-generated response `x-request-id`, or an asynchronous failure with its
+opaque email or queue message ID. Inspect SES, Lambda, SQS, DNS, and CloudTrail
+under controlled access for the underlying detail; do not paste that detail
+back into CloudWatch logs or public issues.
 
 ## Inbound receiving
 

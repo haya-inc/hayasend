@@ -6,6 +6,9 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Replace raw provider, network, queue, and parser failure text in application
+  logs and retained failure fields with stable operational categories; issue
+  server-generated request IDs for safe API correlation.
 - Add a source-linked AWS cost model with Virginia and Tokyo price snapshots,
   explicit workload formulas, SES plan separation, optional inbound costs, and
   a CLI for substituting operator assumptions.

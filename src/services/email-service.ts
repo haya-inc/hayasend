@@ -4,6 +4,7 @@ import {
   NotFoundError,
   ValidationError,
 } from "../core/errors.js";
+import { safeFailureMessage } from "../core/error-telemetry.js";
 import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
 import { emitCountMetric } from "../core/metrics.js";
 import type {
@@ -364,7 +365,7 @@ export class EmailService {
         await this.webhooks.publish("email.sent", sent);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = safeFailureMessage("Email delivery failed", error);
       const finalAttempt = attempt >= 3;
       const failed = await this.store.updateEmail(
         id,

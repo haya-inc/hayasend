@@ -264,6 +264,25 @@ describe("HayaSend CLI", () => {
     ).rejects.toThrow("did not identify itself as HayaSend");
   });
 
+  it("does not echo a non-JSON endpoint response", async () => {
+    const sensitive =
+      "recipient@example.net private body re_secret_token https://user:pass@example.com";
+    const operation = runCli(["doctor"], {
+      fetch: vi.fn<typeof fetch>(async () =>
+        new Response(sensitive, {
+          status: 502,
+          headers: { "content-type": "text/plain" },
+        }),
+      ),
+      io: capturingIo().io,
+    });
+
+    await expect(operation).rejects.toThrow(
+      "Expected a JSON response from HayaSend (HTTP 502).",
+    );
+    await expect(operation).rejects.not.toThrow(sensitive);
+  });
+
   it("sends and retrieves an explicit end-to-end test message", async () => {
     const capture = capturingIo();
     let subject = "";
