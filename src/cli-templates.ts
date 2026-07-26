@@ -102,6 +102,7 @@ export interface DesiredTemplate {
 export interface RemoteTemplate extends DesiredTemplate {
   id: string;
   object: "template";
+  current_version_id: string;
   status: "draft" | "published";
   has_unpublished_versions: boolean;
 }
@@ -110,6 +111,7 @@ const remoteTemplateSchema = z
   .object({
     object: z.literal("template"),
     id: z.string().min(1),
+    current_version_id: z.string().min(1),
     alias: z.string().min(1),
     name: z.string(),
     html: z.string(),
@@ -295,6 +297,7 @@ export function parseRemoteTemplate(value: unknown): RemoteTemplate {
   return {
     object: parsed.data.object,
     id: parsed.data.id,
+    current_version_id: parsed.data.current_version_id,
     alias: parsed.data.alias,
     name: parsed.data.name,
     html: parsed.data.html,

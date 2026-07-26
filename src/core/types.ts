@@ -92,21 +92,18 @@ interface EmailAttachmentPresentation {
   content_disposition?: "inline" | "attachment" | undefined;
 }
 
-export interface InlineEmailAttachmentInput
-  extends EmailAttachmentPresentation {
+export interface InlineEmailAttachmentInput extends EmailAttachmentPresentation {
   filename: string;
   content: string;
 }
 
-export interface UploadedEmailAttachmentInput
-  extends EmailAttachmentPresentation {
+export interface UploadedEmailAttachmentInput extends EmailAttachmentPresentation {
   attachment_id: string;
   filename?: string | undefined;
 }
 
 export type EmailAttachmentInput =
-  | InlineEmailAttachmentInput
-  | UploadedEmailAttachmentInput;
+  InlineEmailAttachmentInput | UploadedEmailAttachmentInput;
 
 export interface EmailAttachment extends EmailAttachmentPresentation {
   filename: string;
@@ -224,11 +221,10 @@ export interface SendEmailInput {
   scheduled_at?: string | undefined;
 }
 
-export interface EmailRecord
-  extends Omit<
-    SendEmailInput,
-    "attachments" | "template" | "from" | "subject"
-  > {
+export interface EmailRecord extends Omit<
+  SendEmailInput,
+  "attachments" | "template" | "from" | "subject"
+> {
   from: string;
   subject: string;
   attachments?: EmailAttachment[] | undefined;
@@ -298,6 +294,17 @@ export interface PublicTemplate {
   has_unpublished_versions: boolean;
 }
 
+export interface RenderedTemplate {
+  object: "template_render";
+  template_id: string;
+  version_id: string;
+  from: string | null;
+  subject: string | null;
+  reply_to: string[] | null;
+  html: string;
+  text: string;
+}
+
 export type TemplateListItem = Pick<
   PublicTemplate,
   | "id"
@@ -364,11 +371,7 @@ export interface PublicWebhookEndpoint {
 }
 
 export type WebhookDeliveryStatus =
-  | "pending"
-  | "delivering"
-  | "succeeded"
-  | "failed"
-  | "cancelled";
+  "pending" | "delivering" | "succeeded" | "failed" | "cancelled";
 
 export interface WebhookDeliveryRecord {
   id: string;

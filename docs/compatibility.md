@@ -30,6 +30,7 @@ migration path. It does not claim full Resend API coverage.
 | Templates           | React Email                                     |        Implemented | official SDK renders locally with `@react-email/render`            |
 | Templates           | CLI list/get/publish/send                       |        Implemented | Resend-shaped commands and repeatable `--var` values               |
 | Templates           | manifest reconciliation                         | HayaSend extension | dry-run, drifted drafts only, and explicit publication             |
+| Templates           | draft render/conditional publish                | HayaSend extension | no-send preview and version-bound promotion                        |
 | Templates           | full historical rollback                        |            Planned | current draft and published snapshots are retained today           |
 | Contacts/broadcasts | marketing APIs                                  | Not planned for v1 | compliance work required                                           |
 

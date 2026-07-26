@@ -9,6 +9,107 @@ function fixture() {
 }
 
 describe("TemplateService", () => {
+  it("renders the current draft without publishing or sending it", async () => {
+    const { service } = fixture();
+    const created = await service.create({
+      name: "Draft preview",
+      alias: "draft-preview",
+      subject: "Hello {{{NAME}}}",
+      html: "<h1>Hello {{{NAME}}}</h1><p>Total: {{{TOTAL}}}</p>",
+      variables: [
+        { key: "NAME", type: "string" },
+        { key: "TOTAL", type: "number", fallback_value: 42 },
+      ],
+    });
+
+    const before = await service.get(created.id);
+    await expect(
+      service.renderDraft("draft-preview", {
+        from: "Preview <preview@example.com>",
+        variables: { NAME: "Ada & Lin" },
+      }),
+    ).resolves.toEqual({
+      object: "template_render",
+      template_id: created.id,
+      version_id: before.current_version_id,
+      from: "Preview <preview@example.com>",
+      subject: "Hello Ada & Lin",
+      reply_to: null,
+      html: "<h1>Hello Ada &amp; Lin</h1><p>Total: 42</p>",
+      text: "HELLO ADA & LIN\n\nTotal: 42",
+    });
+    await expect(service.get(created.id)).resolves.toEqual(before);
+    await expect(
+      service.resolveForSend({
+        to: ["person@example.net"],
+        template: { id: created.id, variables: { NAME: "Ada" } },
+      }),
+    ).rejects.toThrow("is not published");
+  });
+
+  it("applies render validation to draft variables and expanded headers", async () => {
+    const { service } = fixture();
+    const created = await service.create({
+      name: "Validated preview",
+      subject: "{{{SUBJECT}}}",
+      html: "<p>{{{NAME}}}</p>",
+      variables: [
+        { key: "NAME", type: "string" },
+        { key: "SUBJECT", type: "string" },
+      ],
+    });
+
+    await expect(
+      service.renderDraft(created.id, {
+        variables: { NAME: "Ada" },
+      }),
+    ).rejects.toThrow("SUBJECT requires a value");
+    await expect(
+      service.renderDraft(created.id, {
+        variables: {
+          NAME: "Ada",
+          SUBJECT: "Hello\r\nBcc: victim@example.net",
+        },
+      }),
+    ).rejects.toThrow("must not contain line breaks");
+    await expect(
+      service.renderDraft(created.id, {
+        variables: { NAME: "Ada", SUBJECT: "Hello", UNKNOWN: "value" },
+      }),
+    ).rejects.toThrow("UNKNOWN is not declared");
+  });
+
+  it("conditionally publishes only the draft version that was reviewed", async () => {
+    const { service } = fixture();
+    const created = await service.create({
+      name: "Reviewed draft",
+      html: "<p>First</p>",
+    });
+    const reviewed = await service.get(created.id);
+    await service.update(created.id, { html: "<p>Changed</p>" });
+
+    await expect(
+      service.publish(
+        created.id,
+        new Date("2030-01-01T00:00:00.000Z"),
+        reviewed.current_version_id,
+      ),
+    ).rejects.toThrow("changed after it was reviewed");
+    await expect(service.get(created.id)).resolves.toMatchObject({
+      status: "draft",
+      published_at: null,
+    });
+
+    const current = await service.get(created.id);
+    await expect(
+      service.publish(
+        created.id,
+        new Date("2030-01-01T00:01:00.000Z"),
+        current.current_version_id,
+      ),
+    ).resolves.toEqual({ object: "template", id: created.id });
+  });
+
   it("keeps the published version stable while a new draft is edited", async () => {
     const { service } = fixture();
     const created = await service.create(

@@ -302,6 +302,7 @@ async function pushTemplates(args: string[], dependencies: CliDependencies) {
   }> = [];
   for (const plan of plans) {
     let id = plan.remote?.id;
+    let versionId = plan.remote?.current_version_id;
     if (!dryRun && plan.actions.includes("create")) {
       id = idFromResponse(
         await request("/templates", args, dependencies, {
@@ -324,12 +325,27 @@ async function pushTemplates(args: string[], dependencies: CliDependencies) {
       );
     }
     if (!dryRun && plan.actions.includes("publish")) {
+      if (plan.actions.includes("create") || plan.actions.includes("update")) {
+        const reviewed = parseRemoteTemplate(
+          await request(templatePath(plan.desired.alias), args, dependencies),
+        );
+        if (!templatesMatch(plan.desired, reviewed)) {
+          throw new Error(
+            `Template ${plan.desired.alias} changed during reconciliation; refusing to publish it.`,
+          );
+        }
+        id = reviewed.id;
+        versionId = reviewed.current_version_id;
+      }
       id = idFromResponse(
         await request(
           `${templatePath(id ?? plan.desired.alias)}/publish`,
           args,
           dependencies,
-          { method: "POST" },
+          {
+            method: "POST",
+            headers: versionId ? { "if-match": `"${versionId}"` } : {},
+          },
         ),
       );
     }
@@ -416,24 +432,66 @@ async function templateCommand(args: string[], dependencies: CliDependencies) {
       break;
     case "publish":
       validateOptions(args, {
-        values: ["endpoint"],
+        values: ["version", "endpoint"],
         positionals: 1,
       });
+      {
+        const version = flag(args, "version");
+        if (version && !/^tmplv_[a-f0-9]{32}$/.test(version)) {
+          throw new Error(
+            "--version must contain a HayaSend template version ID.",
+          );
+        }
+        dependencies.io.log(
+          JSON.stringify(
+            await request(
+              `${templatePath(
+                positional(args, 1, "Template ID or alias"),
+              )}/publish`,
+              args,
+              dependencies,
+              {
+                method: "POST",
+                headers: version ? { "if-match": `"${version}"` } : {},
+              },
+            ),
+            null,
+            2,
+          ),
+        );
+      }
+      break;
+    case "render": {
+      validateOptions(args, {
+        values: ["from", "subject", "endpoint"],
+        repeatable: ["var"],
+        positionals: 1,
+      });
+      const from = flag(args, "from");
+      const subject = flag(args, "subject");
       dependencies.io.log(
         JSON.stringify(
           await request(
             `${templatePath(
               positional(args, 1, "Template ID or alias"),
-            )}/publish`,
+            )}/render`,
             args,
             dependencies,
-            { method: "POST" },
+            {
+              method: "POST",
+              body: JSON.stringify({
+                variables: parseTemplateVariables(flags(args, "var")),
+                ...(from ? { from } : {}),
+                ...(subject ? { subject } : {}),
+              }),
+            },
           ),
           null,
           2,
         ),
       );
       break;
+    }
     default:
       throw new Error(
         `Unknown templates command: ${command}. Run hayasend help.`,
@@ -738,8 +796,9 @@ Commands:
 
   templates list [--limit NUMBER] [--after ID | --before ID] [--endpoint URL]
   templates get ID_OR_ALIAS [--endpoint URL]
-  templates publish ID_OR_ALIAS [--endpoint URL]
-      Inspect or explicitly publish hosted templates.
+  templates render ID_OR_ALIAS [--var KEY=VALUE] [--from ADDRESS] [--subject TEXT]
+  templates publish ID_OR_ALIAS [--version VERSION_ID] [--endpoint URL]
+      Inspect, render a draft without sending, or explicitly publish templates.
 
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787

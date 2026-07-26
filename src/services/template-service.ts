@@ -3,11 +3,13 @@ import { createId } from "../core/crypto.js";
 import {
   ConflictError,
   NotFoundError,
+  PreconditionFailedError,
   ValidationError,
 } from "../core/errors.js";
 import type {
   Page,
   PublicTemplate,
+  RenderedTemplate,
   SendEmailInput,
   TemplateListItem,
   TemplateRecord,
@@ -61,11 +63,17 @@ export interface UpdateTemplateInput {
   variables?: TemplateVariableInput[] | undefined;
 }
 
-interface ResolvedSendEmailInput
-  extends Omit<
-    SendEmailInput,
-    "from" | "subject" | "template" | "html" | "text" | "reply_to"
-  > {
+export interface RenderTemplateInput {
+  from?: string | undefined;
+  subject?: string | undefined;
+  reply_to?: string[] | undefined;
+  variables?: Record<string, string | number> | undefined;
+}
+
+interface ResolvedSendEmailInput extends Omit<
+  SendEmailInput,
+  "from" | "subject" | "template" | "html" | "text" | "reply_to"
+> {
   from: string;
   subject: string;
   html?: string | undefined;
@@ -288,6 +296,111 @@ function renderValue(
   });
 }
 
+function ensureSafeRenderedHeader(label: string, value: string) {
+  if (/[\r\n]/.test(value)) {
+    throw new ValidationError(
+      `Rendered template ${label} must not contain line breaks.`,
+    );
+  }
+  if (Buffer.byteLength(value, "utf8") > 998) {
+    throw new ValidationError(
+      `Rendered template ${label} must not exceed 998 bytes.`,
+    );
+  }
+}
+
+function renderTemplateVersion(
+  version: TemplateVersion,
+  input: RenderTemplateInput,
+  operation: "render" | "send",
+) {
+  const provided = input.variables ?? {};
+  if (Object.keys(provided).length > 50) {
+    throw new ValidationError(
+      `A template ${operation} may provide at most 50 variables.`,
+    );
+  }
+  const definitions = new Map(
+    version.variables.map((variable) => [variable.key, variable]),
+  );
+  for (const key of Object.keys(provided)) {
+    if (!definitions.has(key)) {
+      throw new ValidationError(`Template variable ${key} is not declared.`);
+    }
+  }
+  const values = new Map<string, string | number>();
+  for (const variable of version.variables) {
+    const value = provided[variable.key] ?? variable.fallback_value;
+    if (value === null || value === undefined) {
+      throw new ValidationError(
+        `Template variable ${variable.key} requires a value.`,
+      );
+    }
+    if (typeof value !== variable.type) {
+      throw new ValidationError(
+        `Template variable ${variable.key} must be a ${variable.type}.`,
+      );
+    }
+    if (typeof value === "string" && value.length > 2_000) {
+      throw new ValidationError(
+        `Template variable ${variable.key} must not exceed 2000 characters.`,
+      );
+    }
+    if (
+      typeof value === "number" &&
+      (!Number.isFinite(value) || !Number.isSafeInteger(value))
+    ) {
+      throw new ValidationError(
+        `Template variable ${variable.key} must be a finite safe integer.`,
+      );
+    }
+    values.set(variable.key, value);
+  }
+  const from = input.from ?? renderValue(version.from, values);
+  const subject = input.subject ?? renderValue(version.subject, values);
+  const templateReplyTo = version.reply_to?.map(
+    (address) => renderValue(address, values) ?? address,
+  );
+  const replyTo = input.reply_to ?? templateReplyTo;
+  const html = renderValue(version.html, values, true) ?? version.html;
+  if (Buffer.byteLength(html, "utf8") > MAX_RENDERED_TEMPLATE_BYTES) {
+    throw new ValidationError(
+      `Rendered template content must not exceed ${MAX_RENDERED_TEMPLATE_BYTES} bytes.`,
+    );
+  }
+  const text =
+    version.text === undefined
+      ? convert(html, {
+          wordwrap: false,
+          limits: {
+            ellipsis: "…",
+            maxBaseElements: 1,
+            maxChildNodes: 50_000,
+            maxDepth: 100,
+            maxInputLength: MAX_RENDERED_TEMPLATE_BYTES,
+          },
+        })
+      : (renderValue(version.text, values) ?? "");
+  if (
+    Buffer.byteLength(html, "utf8") + Buffer.byteLength(text, "utf8") >
+    MAX_RENDERED_TEMPLATE_BYTES
+  ) {
+    throw new ValidationError(
+      `Rendered template content must not exceed ${MAX_RENDERED_TEMPLATE_BYTES} bytes.`,
+    );
+  }
+  if (from) {
+    ensureSafeRenderedHeader("from", from);
+  }
+  if (subject) {
+    ensureSafeRenderedHeader("subject", subject);
+  }
+  for (const address of replyTo ?? []) {
+    ensureSafeRenderedHeader("reply_to", address);
+  }
+  return { from, subject, reply_to: replyTo, html, text };
+}
+
 export class TemplateService {
   constructor(private readonly store: Store) {}
 
@@ -397,8 +510,17 @@ export class TemplateService {
   async publish(
     identifier: string,
     now = new Date(),
+    expectedDraftVersionId?: string,
   ): Promise<{ object: "template"; id: string }> {
     const current = await this.getRecord(identifier);
+    if (
+      expectedDraftVersionId !== undefined &&
+      current.draft.id !== expectedDraftVersionId
+    ) {
+      throw new PreconditionFailedError(
+        "Template draft changed after it was reviewed; render and publish the current version.",
+      );
+    }
     if (current.published?.id === current.draft.id) {
       return { object: "template", id: current.id };
     }
@@ -464,6 +586,24 @@ export class TemplateService {
     return { object: "template", id: current.id, deleted: true };
   }
 
+  async renderDraft(
+    identifier: string,
+    input: RenderTemplateInput,
+  ): Promise<RenderedTemplate> {
+    const record = await this.getRecord(identifier);
+    const rendered = renderTemplateVersion(record.draft, input, "render");
+    return {
+      object: "template_render",
+      template_id: record.id,
+      version_id: record.draft.id,
+      from: rendered.from ?? null,
+      subject: rendered.subject ?? null,
+      reply_to: rendered.reply_to ?? null,
+      html: rendered.html,
+      text: rendered.text,
+    };
+  }
+
   async resolveForSend(input: SendEmailInput): Promise<ResolvedSendEmailInput> {
     if (!input.template) {
       if (!input.from || !input.subject) {
@@ -479,56 +619,24 @@ export class TemplateService {
         `Template ${input.template.id} is not published.`,
       );
     }
-    const provided = input.template.variables ?? {};
-    if (Object.keys(provided).length > 50) {
-      throw new ValidationError(
-        "A template send may provide at most 50 variables.",
-      );
-    }
-    const definitions = new Map(
-      version.variables.map((variable) => [variable.key, variable]),
+    const rendered = renderTemplateVersion(
+      version,
+      {
+        ...(input.from ? { from: input.from } : {}),
+        ...(input.subject ? { subject: input.subject } : {}),
+        ...(input.reply_to ? { reply_to: input.reply_to } : {}),
+        ...(input.template.variables
+          ? { variables: input.template.variables }
+          : {}),
+      },
+      "send",
     );
-    for (const key of Object.keys(provided)) {
-      if (!definitions.has(key)) {
-        throw new ValidationError(`Template variable ${key} is not declared.`);
-      }
-    }
-    const values = new Map<string, string | number>();
-    for (const variable of version.variables) {
-      const value = provided[variable.key] ?? variable.fallback_value;
-      if (value === null || value === undefined) {
-        throw new ValidationError(
-          `Template variable ${variable.key} requires a value.`,
-        );
-      }
-      if (typeof value !== variable.type) {
-        throw new ValidationError(
-          `Template variable ${variable.key} must be a ${variable.type}.`,
-        );
-      }
-      if (typeof value === "string" && value.length > 2_000) {
-        throw new ValidationError(
-          `Template variable ${variable.key} must not exceed 2000 characters.`,
-        );
-      }
-      if (
-        typeof value === "number" &&
-        (!Number.isFinite(value) || !Number.isSafeInteger(value))
-      ) {
-        throw new ValidationError(
-          `Template variable ${variable.key} must be a finite safe integer.`,
-        );
-      }
-      values.set(variable.key, value);
-    }
-    const from = input.from ?? renderValue(version.from, values);
-    const subject = input.subject ?? renderValue(version.subject, values);
-    if (!from) {
+    if (!rendered.from) {
       throw new ValidationError(
         "from is required because the template has no default sender.",
       );
     }
-    if (!subject) {
+    if (!rendered.subject) {
       throw new ValidationError(
         "subject is required because the template has no default subject.",
       );
@@ -542,44 +650,15 @@ export class TemplateService {
       reply_to: _replyTo,
       ...rest
     } = input;
-    const templateReplyTo = version.reply_to?.map(
-      (address) => renderValue(address, values) ?? address,
-    );
-    const replyTo = input.reply_to ?? templateReplyTo;
-    const html = renderValue(version.html, values, true) ?? version.html;
-    if (Buffer.byteLength(html, "utf8") > MAX_RENDERED_TEMPLATE_BYTES) {
-      throw new ValidationError(
-        `Rendered template content must not exceed ${MAX_RENDERED_TEMPLATE_BYTES} bytes.`,
-      );
-    }
-    const text =
-      version.text === undefined
-        ? convert(html, {
-            wordwrap: false,
-            limits: {
-              ellipsis: "…",
-              maxBaseElements: 1,
-              maxChildNodes: 50_000,
-              maxDepth: 100,
-              maxInputLength: MAX_RENDERED_TEMPLATE_BYTES,
-            },
-          })
-        : renderValue(version.text, values);
-    if (
-      Buffer.byteLength(html, "utf8") + Buffer.byteLength(text ?? "", "utf8") >
-      MAX_RENDERED_TEMPLATE_BYTES
-    ) {
-      throw new ValidationError(
-        `Rendered template content must not exceed ${MAX_RENDERED_TEMPLATE_BYTES} bytes.`,
-      );
-    }
     return {
       ...rest,
-      from,
-      subject,
-      html,
-      ...(text !== undefined ? { text } : {}),
-      ...(replyTo !== undefined ? { reply_to: replyTo } : {}),
+      from: rendered.from,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      ...(rendered.reply_to !== undefined
+        ? { reply_to: rendered.reply_to }
+        : {}),
     };
   }
 

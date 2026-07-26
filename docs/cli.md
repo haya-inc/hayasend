@@ -120,13 +120,18 @@ The default command never changes the version used by production sends. Review
 the drafts and publish them with a second, explicit invocation:
 
 ```bash
+npm run cli -- templates render welcome --var NAME=Ada
 npm run cli -- templates push --publish
 ```
 
 `--publish` promotes every created, updated, or already-unpublished draft in
 the manifest. If a create or update succeeds but its publish fails, production
 continues using the previous published snapshot; rerunning the same command
-resumes reconciliation. Use `--file PATH` for a differently named manifest.
+resumes reconciliation. Before each promotion, the CLI rereads the remote
+draft, verifies that it exactly matches the manifest, and conditionally
+publishes that version. A concurrent edit stops the command instead of
+publishing unreviewed content. Use `--file PATH` for a differently named
+manifest.
 
 Aliases are mandatory because they are stable identities across deployments.
 Content paths must be relative and resolve inside the manifest directory,
@@ -142,8 +147,21 @@ Inspect and promote an individual template with the Resend-shaped commands:
 ```bash
 npm run cli -- templates list --limit 20
 npm run cli -- templates get welcome
-npm run cli -- templates publish welcome
+npm run cli -- templates render welcome --var NAME=Ada
+npm run cli -- templates publish welcome \
+  --version tmplv_0123456789abcdef0123456789abcdef
 ```
+
+`render` evaluates the current draft with the production variable rules,
+HTML escaping, header checks, output limits, and HTML-to-text conversion. It
+returns HTML, text, rendered defaults, and the exact `version_id` without
+queueing or sending an email. `publish --version` fails if that version is no
+longer current. Omitting `--version` retains compatibility with ordinary
+Resend-style publication, while managed workflows should always use it.
+
+Use synthetic render variables: command-line values can be visible in shell
+history and process listings. The render response can also contain the supplied
+values.
 
 The deployment key needs `templates:read` and `templates:write`. Keep those
 scopes out of the application runtime key.

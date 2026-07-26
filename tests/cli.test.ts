@@ -66,6 +66,7 @@ function remoteTemplate(overrides: Record<string, unknown> = {}) {
   return {
     object: "template",
     id: "tmpl_1234567890abcdef1234567890abcdef",
+    current_version_id: "tmplv_1234567890abcdef1234567890abcdef",
     alias: "welcome",
     name: "Welcome",
     html: "<p>Welcome, {{{NAME}}}</p>\n",
@@ -422,16 +423,28 @@ describe("HayaSend CLI", () => {
     await writeTemplateProject(directory);
     const capture = capturingIo();
     const requests: Array<{ method: string; url: string }> = [];
+    let reads = 0;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const method = init?.method ?? "GET";
       const url = String(input);
       requests.push({ method, url });
       if (method === "GET") {
+        reads += 1;
         return jsonResponse(
-          remoteTemplate({
-            subject: "An obsolete subject",
-            has_unpublished_versions: true,
-          }),
+          reads === 1
+            ? remoteTemplate({
+                subject: "An obsolete subject",
+                has_unpublished_versions: true,
+              })
+            : remoteTemplate({
+                current_version_id: "tmplv_abcdefabcdefabcdefabcdefabcdefab",
+                has_unpublished_versions: true,
+              }),
+        );
+      }
+      if (url.endsWith("/publish")) {
+        expect(new Headers(init?.headers).get("if-match")).toBe(
+          '"tmplv_abcdefabcdefabcdefabcdefabcdefab"',
         );
       }
       return jsonResponse({
@@ -456,6 +469,10 @@ describe("HayaSend CLI", () => {
         url:
           "http://localhost:8787/templates/" +
           "tmpl_1234567890abcdef1234567890abcdef",
+      },
+      {
+        method: "GET",
+        url: "http://localhost:8787/templates/welcome",
       },
       {
         method: "POST",
@@ -601,11 +618,21 @@ describe("HayaSend CLI", () => {
     });
   });
 
-  it("lists, retrieves, and explicitly publishes templates", async () => {
+  it("lists, retrieves, renders, and explicitly publishes templates", async () => {
     const capture = capturingIo();
     const requests: string[] = [];
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       requests.push(`${init?.method ?? "GET"} ${String(input)}`);
+      if (String(input).endsWith("/render")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          variables: { NAME: "Ada", ORDER_ID: 42 },
+        });
+      }
+      if (String(input).endsWith("/publish")) {
+        expect(new Headers(init?.headers).get("if-match")).toBe(
+          '"tmplv_1234567890abcdef1234567890abcdef"',
+        );
+      }
       return jsonResponse(
         init?.method === "POST"
           ? { object: "template", id: "tmpl_123" }
@@ -621,14 +648,36 @@ describe("HayaSend CLI", () => {
       fetch: fetchMock,
       io: capture.io,
     });
-    await runCli(["templates", "publish", "welcome/one"], {
-      fetch: fetchMock,
-      io: capture.io,
-    });
+    await runCli(
+      [
+        "templates",
+        "render",
+        "welcome/one",
+        "--var",
+        "NAME=Ada",
+        "--var",
+        "ORDER_ID=42",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(
+      [
+        "templates",
+        "publish",
+        "welcome/one",
+        "--version",
+        "tmplv_1234567890abcdef1234567890abcdef",
+      ],
+      {
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
 
     expect(requests).toEqual([
       "GET http://localhost:8787/templates?limit=10&after=tmpl_previous",
       "GET http://localhost:8787/templates/welcome%2Fone",
+      "POST http://localhost:8787/templates/welcome%2Fone/render",
       "POST http://localhost:8787/templates/welcome%2Fone/publish",
     ]);
     await expect(

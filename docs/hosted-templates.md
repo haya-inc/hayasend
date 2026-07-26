@@ -116,8 +116,26 @@ Publishing remains a separate opt-in boundary:
 ```bash
 npm run cli -- templates push --dry-run
 npm run cli -- templates push
+npm run cli -- templates render order-confirmation \
+  --var ORDER_ID=42 \
+  --var PRODUCT=Laptop
 npm run cli -- templates push --publish
 ```
+
+The render operation uses the current draft but never queues or sends a
+message. Its response includes the exact draft `version_id`. A direct
+publication can pass that value through the `If-Match` header, or through the
+CLI's `publish --version`, to prevent a concurrent edit from being promoted:
+
+```bash
+curl -X POST \
+  "$HAYASEND_BASE_URL/templates/order-confirmation/publish" \
+  -H "Authorization: Bearer $HAYASEND_API_KEY" \
+  -H 'If-Match: "tmplv_0123456789abcdef0123456789abcdef"'
+```
+
+`templates push --publish` performs this reread, content comparison, and
+conditional publication automatically.
 
 See the [CLI guide](cli.md#manage-templates-as-code) for the manifest format,
 JSON Schema, CI behavior, and path-safety rules.

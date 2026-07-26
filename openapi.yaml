@@ -144,6 +144,12 @@ paths:
       responses:
         "200":
           description: Current template draft and publication state
+          headers:
+            ETag:
+              description: Quoted current draft version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
           content:
             application/json:
               schema:
@@ -191,6 +197,13 @@ paths:
   /templates/{identifier}/publish:
     parameters:
       - $ref: "#/components/parameters/TemplateIdentifier"
+      - name: If-Match
+        in: header
+        required: false
+        description: Publish only if this remains the current draft version ID.
+        schema:
+          type: string
+          pattern: '^"tmplv_[a-f0-9]{32}"$'
     post:
       summary: Publish the current template draft
       operationId: publishTemplate
@@ -200,6 +213,39 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+        "412":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/render:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    post:
+      summary: Render the current template draft without sending an email
+      operationId: renderTemplateDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenderTemplateInput"
+      responses:
+        "200":
+          description: Rendered current draft
+          headers:
+            ETag:
+              description: Quoted rendered draft version ID.
+              schema:
+                type: string
+                pattern: '^"tmplv_[a-f0-9]{32}"$'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderedTemplate"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
           $ref: "#/components/responses/Error"
   /templates/{identifier}/duplicate:
     parameters:
@@ -1143,6 +1189,54 @@ components:
                 $ref: "#/components/schemas/TemplateVariable"
             has_unpublished_versions:
               type: boolean
+    RenderTemplateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          maxLength: 998
+          description: Optional sender override used only for this render.
+        subject:
+          type: string
+          maxLength: 998
+          description: Optional subject override used only for this render.
+        reply_to:
+          $ref: "#/components/schemas/AddressList"
+        variables:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            oneOf:
+              - type: string
+                maxLength: 2000
+              - type: number
+    RenderedTemplate:
+      type: object
+      additionalProperties: false
+      required:
+        [object, template_id, version_id, from, subject, reply_to, html, text]
+      properties:
+        object:
+          const: template_render
+        template_id:
+          type: string
+        version_id:
+          type: string
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+        html:
+          type: string
+        text:
+          type: string
     AddressList:
       oneOf:
         - type: string

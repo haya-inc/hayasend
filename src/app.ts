@@ -23,6 +23,7 @@ import {
   domainSchema,
   paginationSchema,
   receivedEmailQuerySchema,
+  renderTemplateSchema,
   sendEmailSchema,
   suppressionSchema,
   templatePaginationSchema,
@@ -86,6 +87,19 @@ function validationCallback(result: {
       `Request validation failed: ${JSON.stringify(result.error?.issues ?? [])}`,
     );
   }
+}
+
+function parseTemplateVersionMatch(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const match = /^"(tmplv_[a-f0-9]{32})"$/.exec(value);
+  if (!match?.[1]) {
+    throw new ValidationError(
+      "If-Match must contain a quoted HayaSend template version ID.",
+    );
+  }
+  return match[1];
 }
 
 function publicEmail(record: EmailRecord) {
@@ -376,10 +390,13 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   app.get(
     "/templates/:identifier",
     requireScope("templates:read"),
-    async (context) =>
-      context.json(
-        await services.templateService.get(context.req.param("identifier")),
-      ),
+    async (context) => {
+      const template = await services.templateService.get(
+        context.req.param("identifier"),
+      );
+      context.header("etag", `"${template.current_version_id}"`);
+      return context.json(template);
+    },
   );
 
   app.patch(
@@ -396,12 +413,34 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   );
 
   app.post(
+    "/templates/:identifier/render",
+    requireScope("templates:read"),
+    zValidator("json", renderTemplateSchema, validationCallback),
+    async (context) => {
+      const rendered = await services.templateService.renderDraft(
+        context.req.param("identifier"),
+        context.req.valid("json"),
+      );
+      context.header("etag", `"${rendered.version_id}"`);
+      return context.json(rendered);
+    },
+  );
+
+  app.post(
     "/templates/:identifier/publish",
     requireScope("templates:write"),
-    async (context) =>
-      context.json(
-        await services.templateService.publish(context.req.param("identifier")),
-      ),
+    async (context) => {
+      const expectedVersion = parseTemplateVersionMatch(
+        context.req.header("if-match"),
+      );
+      return context.json(
+        await services.templateService.publish(
+          context.req.param("identifier"),
+          new Date(),
+          expectedVersion,
+        ),
+      );
+    },
   );
 
   app.post(

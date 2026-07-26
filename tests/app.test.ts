@@ -150,6 +150,79 @@ describe("HTTP API", () => {
     expect(unauthorized.status).toBe(401);
   });
 
+  it("renders a template draft with read scope without queueing an email", async () => {
+    const { queue, request, transport } = fixture();
+    const created = await request("/templates", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Preview",
+        alias: "preview",
+        from: "Product <hello@example.com>",
+        subject: "Hello {{{NAME}}}",
+        html: "<p>Hello {{{NAME}}}</p>",
+        variables: [{ key: "NAME", type: "string" }],
+      }),
+    });
+    expect(created.status).toBe(200);
+
+    const keyResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "template reviewer",
+        scopes: ["templates:read"],
+      }),
+    });
+    const key = (await keyResponse.json()) as { token: string };
+    const rendered = await request(
+      "/templates/preview/render",
+      {
+        method: "POST",
+        body: JSON.stringify({ variables: { NAME: "Ada & Lin" } }),
+      },
+      key.token,
+    );
+
+    expect(rendered.status).toBe(200);
+    expect(rendered.headers.get("etag")).toMatch(/^"tmplv_[a-f0-9]{32}"$/);
+    await expect(rendered.json()).resolves.toMatchObject({
+      object: "template_render",
+      from: "Product <hello@example.com>",
+      subject: "Hello Ada & Lin",
+      html: "<p>Hello Ada &amp; Lin</p>",
+      text: "Hello Ada & Lin",
+    });
+    expect(queue.jobs).toHaveLength(0);
+    expect(transport.sent).toHaveLength(0);
+    const forbiddenPublish = await request(
+      "/templates/preview/publish",
+      { method: "POST" },
+      key.token,
+    );
+    expect(forbiddenPublish.status).toBe(403);
+
+    const retrieved = await request("/templates/preview");
+    const reviewed = (await retrieved.json()) as {
+      current_version_id: string;
+    };
+    expect(retrieved.headers.get("etag")).toBe(
+      `"${reviewed.current_version_id}"`,
+    );
+    await request("/templates/preview", {
+      method: "PATCH",
+      body: JSON.stringify({ subject: "A newer draft" }),
+    });
+    const stalePublish = await request("/templates/preview/publish", {
+      method: "POST",
+      headers: { "if-match": `"${reviewed.current_version_id}"` },
+    });
+    expect(stalePublish.status).toBe(412);
+    const malformedVersion = await request("/templates/preview/publish", {
+      method: "POST",
+      headers: { "if-match": "not-a-version" },
+    });
+    expect(malformedVersion.status).toBe(422);
+  });
+
   it("exposes the preview only when local preview mode is enabled", async () => {
     const regular = fixture();
     const protectedPreview = await regular.app.request("/preview");

@@ -39,6 +39,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class PreconditionFailedError extends AppError {
+  constructor(message: string) {
+    super(412, "precondition_failed", message);
+  }
+}
+
 export class InvalidStateError extends AppError {
   constructor(message: string) {
     super(409, "invalid_state", message);

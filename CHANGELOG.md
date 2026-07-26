@@ -14,3 +14,5 @@ minor releases before v1.0.
 - Add a safe template-as-code CLI with manifest validation, dry-run planning,
   idempotent draft reconciliation, explicit publication, and hosted-template
   sends.
+- Add no-send draft rendering and optional version-bound publication so a
+  concurrently changed draft cannot be promoted after review.

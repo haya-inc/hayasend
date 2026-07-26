@@ -277,6 +277,20 @@ export const updateTemplateSchema = z
     { message: "At least one template field is required." },
   );
 
+export const renderTemplateSchema = z
+  .object({
+    from: address.optional(),
+    subject: safeString.max(998).optional(),
+    reply_to: recipientList.optional(),
+    variables: z
+      .record(
+        z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+        z.union([z.string().max(2_000), z.number().finite().safe()]),
+      )
+      .optional(),
+  })
+  .strict();
+
 export const apiKeySchema = z
   .object({
     name: z.string().trim().min(1).max(100),
