@@ -26,6 +26,10 @@ minor releases before v1.0.
   suppression safety, and no retained raw provider payloads.
 - Expose the provider-assigned Message-ID through sent-email retrieve/list
   responses and provider-accepted outbound webhooks.
+- Enforce the published OpenAPI error and validation contract with pinned,
+  loopback-only property-based CI; malformed JSON and percent-encoded
+  suppression paths now return public client errors instead of internal
+  errors.
 
 ## 0.1.0 - 2026-07-26
 
