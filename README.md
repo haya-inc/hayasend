@@ -305,6 +305,12 @@ and refuses removals, indeterminate actions, or possible replacements unless
 [CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
 preservation, failure recovery, and output privacy.
 
+Before choosing a Region or comparing hosted alternatives, review the
+[reproducible AWS cost model](docs/aws-costs.md). It separates SES charges
+from HayaSend infrastructure, shows list price and recurring free allowances
+for 10,000 and 1,000,000 monthly messages in Virginia and Tokyo, and includes
+a CLI for substituting your own traffic assumptions.
+
 The underlying manual SAM workflow remains supported:
 
 ```bash

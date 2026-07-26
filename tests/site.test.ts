@@ -26,6 +26,9 @@ describe("project site", () => {
     expect(html).toContain('<main id="main">');
     expect(html).toContain('aria-label="Primary navigation"');
     expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toContain(
+      "https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md",
+    );
   });
 
   it("keeps public URLs and the Pages artifact aligned", async () => {

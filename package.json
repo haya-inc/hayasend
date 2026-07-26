@@ -19,6 +19,7 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
     "cli": "tsx src/cli.ts",
+    "cost:estimate": "node scripts/aws-cost-model.mjs",
     "dev": "tsx src/server.ts",
     "doctor": "tsx src/cli.ts doctor",
     "start": "node dist/server.js",

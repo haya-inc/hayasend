@@ -6,6 +6,10 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a source-linked AWS cost model with Virginia and Tokyo price snapshots,
+  explicit workload formulas, SES plan separation, optional inbound costs, and
+  a CLI for substituting operator assumptions.
+
 ## 0.1.0 - 2026-07-26
 
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS

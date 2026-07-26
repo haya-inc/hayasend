@@ -15,6 +15,9 @@ The self-hosted transactional path remains Apache-2.0:
 - security fixes and documented upgrade paths.
 
 The project must remain genuinely useful without a Haya commercial service.
+The [reproducible AWS cost model](aws-costs.md) exposes the self-hosting
+assumptions and service charges instead of using opaque “contact sales”
+pricing.
 
 ## Services Haya can sell
 

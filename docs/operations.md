@@ -3,6 +3,9 @@
 This runbook is the minimum operating procedure for an AWS deployment.
 For disposable end-to-end validation, use the
 [dedicated-account integration workflow](aws-integration-testing.md).
+Budget the selected Region and retention policy with the
+[AWS cost model](aws-costs.md), then replace its assumptions with observed
+Cost Explorer and CloudWatch usage after deployment.
 
 ## Deployment principal
 
