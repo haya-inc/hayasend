@@ -142,6 +142,19 @@ If a received email is visible in S3 but absent from the API:
 Never paste the raw MIME into logs or issue trackers. Use object identifiers
 and request IDs during diagnosis.
 
+## Ambiguous send acceptance
+
+If `POST /emails` or `POST /emails/batch` fails after the request reached
+HayaSend, retry the identical payload with the same idempotency key. HayaSend
+returns the original email ID and re-dispatches a stored `queued` or
+`scheduled` record, repairing a failure between persistence and SQS or
+Scheduler acceptance. A replay can create a duplicate SQS job, which the
+worker lease and final-state check normally collapse.
+
+Do not change the payload or generate a new key during this recovery. A
+different payload conflicts with the existing claim, while a new key creates
+a different email and can result in two deliveries.
+
 ## Dead-letter queue
 
 1. Pause the producer if the failure is systemic.

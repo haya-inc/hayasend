@@ -3,7 +3,7 @@ import { MemoryStore } from "../src/adapters/memory-store.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
-import type { EmailRecord } from "../src/core/types.js";
+import type { EmailRecord, EmailStatus } from "../src/core/types.js";
 import type {
   MailTransport,
   MailTransportResult,
@@ -35,6 +35,7 @@ class RecordingEmailScheduler implements EmailScheduler {
     emailId: string;
     scheduledAt: string;
   }> = [];
+  scheduleFailures = 0;
   onFirstReschedule?: () => Promise<void>;
 
   constructor(private readonly queueScheduler: QueueEmailScheduler) {}
@@ -44,6 +45,10 @@ class RecordingEmailScheduler implements EmailScheduler {
     scheduledAt?: string,
     now?: Date,
   ): Promise<void> {
+    if (this.scheduleFailures > 0) {
+      this.scheduleFailures -= 1;
+      throw new Error("temporary scheduler failure");
+    }
     await this.queueScheduler.schedule(emailId, scheduledAt, now);
   }
 
@@ -125,7 +130,7 @@ describe("EmailService", () => {
   });
 
   it("keeps a template send idempotent across later publications", async () => {
-    const { queue, service, templates } = fixture();
+    const { queue, service, templates, transport } = fixture();
     const template = await templates.create({
       name: "Idempotent template",
       from: "sender@example.com",
@@ -154,6 +159,116 @@ describe("EmailService", () => {
         html: "<p>One</p>",
       },
     });
+    expect(queue.jobs).toHaveLength(2);
+
+    await Promise.all([
+      service.processSend(first.record.id),
+      service.processSend(first.record.id),
+    ]);
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  it("repairs an immediate dispatch failure through idempotent replay", async () => {
+    const { queue, scheduler, service, store } = fixture();
+    scheduler.scheduleFailures = 1;
+
+    await expect(
+      service.create(input, "repair-immediate"),
+    ).rejects.toThrow("temporary scheduler failure");
+    const storedAfterFailure = await store.listEmails(100);
+    expect(storedAfterFailure.data).toHaveLength(1);
+    expect(storedAfterFailure.data[0]).toMatchObject({
+      status: "queued",
+      attempts: 0,
+    });
+    expect(queue.jobs).toHaveLength(0);
+
+    const replay = await service.create(input, "repair-immediate");
+
+    expect(replay).toMatchObject({
+      replayed: true,
+      record: {
+        id: storedAfterFailure.data[0]?.id,
+        status: "queued",
+      },
+    });
+    expect(queue.jobs).toEqual([
+      {
+        job: {
+          type: "send_email",
+          email_id: storedAfterFailure.data[0]?.id,
+        },
+        delaySeconds: 0,
+      },
+    ]);
+    await expect(store.listEmails(100)).resolves.toMatchObject({
+      data: [{ id: storedAfterFailure.data[0]?.id }],
+    });
+  });
+
+  it("repairs a short scheduled dispatch with its stored delay", async () => {
+    const { queue, scheduler, service, store } = fixture();
+    const now = new Date("2026-07-26T00:00:00.000Z");
+    const scheduledAt = "2026-07-26T00:10:00.000Z";
+    const scheduledInput = { ...input, scheduled_at: scheduledAt };
+    scheduler.scheduleFailures = 1;
+
+    await expect(
+      service.create(scheduledInput, "repair-short-schedule", now),
+    ).rejects.toThrow("temporary scheduler failure");
+    const storedAfterFailure = await store.listEmails(100);
+    expect(storedAfterFailure.data).toHaveLength(1);
+    expect(queue.jobs).toHaveLength(0);
+
+    const replay = await service.create(
+      scheduledInput,
+      "repair-short-schedule",
+      now,
+    );
+
+    expect(replay).toMatchObject({
+      replayed: true,
+      record: {
+        id: storedAfterFailure.data[0]?.id,
+        status: "scheduled",
+        scheduled_at: scheduledAt,
+      },
+    });
+    expect(queue.jobs).toEqual([
+      {
+        job: {
+          type: "send_email",
+          email_id: storedAfterFailure.data[0]?.id,
+        },
+        delaySeconds: 600,
+      },
+    ]);
+  });
+
+  it.each<EmailStatus>([
+    "sending",
+    "sent",
+    "delivered",
+    "delivery_delayed",
+    "opened",
+    "clicked",
+    "bounced",
+    "complained",
+    "failed",
+    "canceled",
+    "suppressed",
+  ])("does not redispatch a replayed %s record", async (status) => {
+    const { queue, service, store } = fixture();
+    const created = await service.create(input, `final-${status}`);
+    expect(queue.jobs).toHaveLength(1);
+    await store.updateEmail(created.record.id, {
+      status,
+      last_event: status,
+    });
+
+    const replay = await service.create(input, `final-${status}`);
+
+    expect(replay.replayed).toBe(true);
     expect(queue.jobs).toHaveLength(1);
   });
 

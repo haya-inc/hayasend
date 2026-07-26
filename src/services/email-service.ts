@@ -242,9 +242,9 @@ export class EmailService {
         await this.webhooks.publish("email.scheduled", record);
       }
     } else if (
-      created.record.status === "scheduled" &&
-      created.record.scheduled_at &&
-      secondsUntil(created.record.scheduled_at, now) > 900
+      created.record.status === "queued" ||
+      (created.record.status === "scheduled" &&
+        created.record.scheduled_at !== undefined)
     ) {
       await this.scheduler.schedule(
         created.record.id,

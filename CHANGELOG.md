@@ -8,6 +8,8 @@ minor releases before v1.0.
 
 - Stop retrying permanent SES request rejections while preserving retries for
   throttling, provider availability, network, timeout, and unknown failures.
+- Repair missing SQS or EventBridge dispatch when an identical idempotent
+  replay finds a stored queued or scheduled email.
 
 ## 0.1.0 - 2026-07-26
 

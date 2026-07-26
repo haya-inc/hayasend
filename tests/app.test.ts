@@ -504,7 +504,7 @@ describe("HTTP API", () => {
     });
   });
 
-  it("replays identical idempotent requests without a second job", async () => {
+  it("replays identical idempotent requests with the same id and a repair job", async () => {
     const { queue, request } = fixture();
     const init = {
       method: "POST",
@@ -518,7 +518,7 @@ describe("HTTP API", () => {
       id: string;
     };
     expect(second.id).toBe(first.id);
-    expect(queue.jobs).toHaveLength(1);
+    expect(queue.jobs).toHaveLength(2);
 
     const conflict = await request("/emails", {
       ...init,

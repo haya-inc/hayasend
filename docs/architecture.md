@@ -41,6 +41,12 @@ Scheduler names are derived from email IDs. Rescheduling replaces the same
 one-time schedule, cancellation deletes it, and stale SQS deliveries reload
 the current DynamoDB record before doing any work.
 
+If persistence succeeds but SQS or Scheduler dispatch fails, an identical
+request with the same idempotency key re-dispatches the stored non-final email
+using its stored schedule. This can create a duplicate SQS job when the first
+dispatch actually succeeded but its response was lost. The worker lease and
+final-state check are designed for that at-least-once condition.
+
 There is still an unavoidable narrow failure window if SES accepts a message
 and the worker stops before recording the provider ID. A later retry can
 produce a duplicate. HayaSend documents this at-least-once boundary instead
