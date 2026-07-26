@@ -25,9 +25,9 @@ The roadmap is ordered by user risk, not by feature count.
 - [x] `email.received` webhook and temporary attachment URLs
 - [x] deterministic receipt duplicate suppression
 - [x] explicit received-message forwarding through the official Node SDK
-- [ ] alias routing and catch-all rules
-- [ ] automatic forwarding that rewrites sender headers safely
-- [ ] loop detection and ARC preservation
+- [ ] [alias routing and catch-all rules](docs/inbound-routing-design.md)
+- [ ] automatic forwarding with truthful outer sender authentication
+- [ ] signed loop detection and separately approved ARC policy
 
 ## v0.3 — Developer workflow
 

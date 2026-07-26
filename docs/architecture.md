@@ -151,5 +151,7 @@ A manual replay creates a new delivery record and message ID, links it through
 - one bootstrap administrator key per deployment;
 - payload retention is fixed at 45 days;
 - template publication history is bounded to 1–50 versions and 1–365 days;
-- inbound forwarding, alias routing, and ARC preservation are not implemented;
+- automatic inbound alias routing and ARC preservation are not implemented;
+  the [proposed routing design](inbound-routing-design.md) requires a
+  no-send shadow evaluator and separate approval before delivery is enabled;
 - no deployment test has run in a dedicated AWS account.

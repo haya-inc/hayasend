@@ -154,8 +154,13 @@ fields are bounded to keep responses below API Gateway limits; when
 
 This foundation is catch-all at the Mail Manager ingress. Explicit SDK-assisted
 forwarding is supported, but automatic alias routing, loop detection, and
-ARC-aware forwarding policy remain v0.2 work. Do not point a production mailbox
-domain at HayaSend until those behaviors match the intended mail flow.
+ARC-aware forwarding policy remain v0.2 work. The proposed
+[inbound alias routing design](inbound-routing-design.md) defines the ownership,
+destination verification, message transformation, authentication, loop,
+failure, privacy, and staged approval boundaries. It is documentation only;
+no automatic route exists yet. Do not point a production mailbox domain at
+HayaSend until those behaviors are implemented and match the intended mail
+flow.
 
 AWS references:
 
