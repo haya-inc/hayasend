@@ -37,8 +37,8 @@ function transactionCanceled(): Error {
 
 class TransactionalDynamoMemory {
   private items = new Map<string, Record<string, unknown>>();
-  private ledgerQueryBarrier?: Promise<void>;
-  private releaseLedgerQueryBarrier?: () => void;
+  private ledgerQueryBarrier: Promise<void> | undefined;
+  private releaseLedgerQueryBarrier: (() => void) | undefined;
   private ledgerQueriesRemaining = 0;
   transactionCancellations = 0;
 
