@@ -42,6 +42,15 @@ application. A separate black-box gate points the official Resend Python SDK's
 `api_url` at a loopback HayaSend server and verifies send, retrieve, list, and
 batch behavior without an SDK fork.
 
+A third black-box gate runs the official Schemathesis v4.24.3 container,
+pinned by OCI digest, against all 46 operations in the published OpenAPI
+contract. Deterministic positive and negative generation verifies that
+unknown inputs do not produce server errors and that status codes, content
+types, and response bodies match the contract. The target guard accepts only
+a loopback origin, generated webhook registrations are confined to a
+non-delivering loopback endpoint, and the ephemeral test container does not
+export request or response bodies.
+
 Compatibility bugs should include the SDK name and version, the smallest safe
 payload that reproduces the issue, and the expected response shape.
 

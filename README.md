@@ -50,7 +50,8 @@ implemented provider today. HayaSend never logs message bodies.
 - local in-memory development mode
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
-- compatibility tests against the official Resend Node and Python SDKs
+- compatibility tests against the official Resend Node and Python SDKs plus
+  property-based direct HTTP contract tests
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
 The dedicated-account deployment gate is documented in

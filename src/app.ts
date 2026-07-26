@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
+import { HTTPException } from "hono/http-exception";
 import { PREVIEW_CSS, PREVIEW_HTML, PREVIEW_JS } from "./preview.js";
 import {
   AppError,
@@ -103,6 +104,15 @@ function parseTemplateVersionMatch(value: string | undefined) {
     );
   }
   return match[1];
+}
+
+function parseIdempotencyKey(value: string | undefined) {
+  if (value !== undefined && (value.length === 0 || [...value].length > 256)) {
+    throw new ValidationError(
+      "Idempotency-Key must contain between 1 and 256 characters.",
+    );
+  }
+  return value;
 }
 
 function templateVersionId(value: string) {
@@ -358,7 +368,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       const input = context.req.valid("json");
       const result = await services.emailService.create(
         input,
-        context.req.header("idempotency-key"),
+        parseIdempotencyKey(context.req.header("idempotency-key")),
       );
       return context.json({ id: result.record.id });
     },
@@ -371,7 +381,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     async (context) => {
       const results = await services.emailService.createBatch(
         context.req.valid("json"),
-        context.req.header("idempotency-key"),
+        parseIdempotencyKey(context.req.header("idempotency-key")),
       );
       return context.json({
         data: results.map(({ record }) => ({ id: record.id })),
@@ -800,7 +810,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     async (context) =>
       context.json(
         await services.suppressionService.get(
-          decodeURIComponent(context.req.param("email")),
+          context.req.param("email"),
         ),
       ),
   );
@@ -809,7 +819,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     "/suppressions/:email",
     requireScope("suppressions:write"),
     async (context) => {
-      const email = decodeURIComponent(context.req.param("email"));
+      const email = context.req.param("email");
       await services.suppressionService.delete(email);
       return context.json({ object: "suppression", email, deleted: true });
     },
@@ -876,6 +886,10 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     const appError =
       error instanceof AppError
         ? error
+        : error instanceof HTTPException &&
+            error.status === 400 &&
+            error.message === "Malformed JSON in request body"
+          ? new ValidationError(error.message)
         : new AppError(500, "application_error", "Internal server error.");
     if (appError.status >= 500) {
       emitCountMetric("ApiErrors");

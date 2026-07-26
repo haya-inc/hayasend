@@ -134,3 +134,88 @@ jobs:
           done
 
           python tests/sdk/python_resend_compat.py
+
+  openapi-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
+      - run: npm ci
+      - name: Exercise the published OpenAPI contract
+        env:
+          HAYASEND_CONTRACT_BASE_URL: http://127.0.0.1:8787
+          SCHEMATHESIS_VERSION: "4.24.3"
+          SCHEMATHESIS_IMAGE: >-
+            ghcr.io/schemathesis/schemathesis@sha256:dd1ebf7519958c34c276a65c20f9f2f808dbefb06c86163eb284ff5674c6a9f3
+        run: |
+          set -euo pipefail
+
+          if HAYASEND_CONTRACT_BASE_URL=https://api.resend.com \
+            node scripts/openapi-contract-safety.mjs \
+            2> "$RUNNER_TEMP/openapi-contract-endpoint-guard.log"; then
+            echo "The OpenAPI contract test accepted a production endpoint."
+            exit 1
+          fi
+          grep --quiet "loopback" \
+            "$RUNNER_TEMP/openapi-contract-endpoint-guard.log"
+          contract_base_url="$(
+            node scripts/openapi-contract-safety.mjs
+          )"
+          test "$(
+            docker run --rm \
+              --read-only \
+              --cap-drop ALL \
+              --security-opt no-new-privileges \
+              "$SCHEMATHESIS_IMAGE" \
+              --version
+          )" = "schemathesis, version $SCHEMATHESIS_VERSION"
+
+          npm run dev > "$RUNNER_TEMP/hayasend-openapi-contract.log" 2>&1 &
+          hayasend_server_pid=$!
+          trap 'kill "$hayasend_server_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent \
+              "$contract_base_url/healthz" > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              cat "$RUNNER_TEMP/hayasend-openapi-contract.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker run --rm \
+            --network host \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --env SCHEMATHESIS_COVERAGE=false \
+            --env SCHEMATHESIS_HOOKS=/work/schemathesis_hooks.py \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --workdir /tmp \
+            --mount \
+            "type=bind,source=$GITHUB_WORKSPACE/openapi.yaml,target=/work/openapi.yaml,readonly" \
+            --mount \
+            "type=bind,source=$GITHUB_WORKSPACE/tests/contract/schemathesis_hooks.py,target=/work/schemathesis_hooks.py,readonly" \
+            "$SCHEMATHESIS_IMAGE" \
+            run /work/openapi.yaml \
+            --url "$contract_base_url" \
+            --header 'Authorization: Bearer re_hayasend_dev' \
+            --phases fuzzing \
+            --mode all \
+            --checks \
+            not_a_server_error,status_code_conformance,content_type_conformance,response_schema_conformance \
+            --max-examples 10 \
+            --generation-deterministic \
+            --workers 1 \
+            --max-failures 20 \
+            --request-timeout 2 \
+            --no-color

@@ -17,6 +17,8 @@ paths:
       security: []
       operationId: health
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Service health
           content:
@@ -44,6 +46,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SendEmail"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/CreatedId"
         "422":
@@ -55,6 +59,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Email page
           content:
@@ -85,6 +91,8 @@ paths:
               items:
                 $ref: "#/components/schemas/SendEmail"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Accepted email identifiers
           content:
@@ -108,6 +116,8 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateTemplate"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/TemplateId"
         "409":
@@ -122,6 +132,8 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Before"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Template page
           content:
@@ -142,6 +154,8 @@ paths:
       summary: Retrieve a template by ID or alias
       operationId: getTemplate
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Current template draft and publication state
           headers:
@@ -166,6 +180,8 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateTemplate"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/TemplateId"
         "404":
@@ -178,6 +194,8 @@ paths:
       summary: Delete a template
       operationId: deleteTemplate
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Deleted template
           content:
@@ -208,6 +226,8 @@ paths:
       summary: Publish the current template draft
       operationId: publishTemplate
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/TemplateId"
         "404":
@@ -229,6 +249,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Published template version page
           content:
@@ -255,6 +277,8 @@ paths:
       description: Requires templates:read.
       operationId: getTemplateVersion
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Retained published template content and provenance
           content:
@@ -280,6 +304,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RenderTemplateInput"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Rendered historical version
           headers:
@@ -306,6 +332,8 @@ paths:
       description: Requires templates:write. This never publishes or changes the active sending version.
       operationId: restoreTemplateVersion
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Newly created draft identity
           content:
@@ -333,6 +361,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RenderTemplateInput"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Rendered current draft
           headers:
@@ -356,6 +386,8 @@ paths:
       summary: Duplicate a template into a new unpublished draft
       operationId: duplicateTemplate
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/TemplateId"
         "404":
@@ -369,6 +401,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Received email page
           content:
@@ -398,6 +432,8 @@ paths:
             enum: [data_uri, cid]
             default: data_uri
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Received email
           content:
@@ -413,6 +449,8 @@ paths:
       summary: List received email attachments
       operationId: listReceivedEmailAttachments
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Attachment metadata
           content:
@@ -439,6 +477,8 @@ paths:
       description: Returns metadata and a 15-minute download URL.
       operationId: getReceivedEmailAttachment
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Attachment download target
           content:
@@ -454,6 +494,8 @@ paths:
       summary: Retrieve an email
       operationId: getEmail
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Email
           content:
@@ -476,7 +518,10 @@ paths:
               properties:
                 scheduled_at:
                   type: string
+                  minLength: 1
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/CreatedId"
   /emails/{id}/cancel:
@@ -486,6 +531,8 @@ paths:
       summary: Cancel an email
       operationId: cancelEmail
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/CreatedId"
   /attachments:
@@ -500,6 +547,8 @@ paths:
             schema:
               $ref: "#/components/schemas/AttachmentUploadRequest"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Direct upload target
           content:
@@ -516,6 +565,7 @@ paths:
         required: true
         schema:
           type: string
+          minLength: 1
     put:
       summary: Upload attachment content in local development mode
       description: The AWS deployment returns a direct S3 URL instead. Clients should treat upload_url as opaque.
@@ -530,6 +580,8 @@ paths:
               contentMediaType: application/octet-stream
               contentEncoding: binary
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "204":
           description: Content accepted
         "422":
@@ -550,7 +602,12 @@ paths:
                 name:
                   type: string
                   format: hostname
+                  minLength: 4
+                  maxLength: 253
+                  pattern: '^(?=.{1,253}\.?$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\.?$'
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Domain
           content:
@@ -564,6 +621,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Domain page
           content:
@@ -584,6 +643,8 @@ paths:
       summary: Retrieve a sending domain
       operationId: getDomain
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Domain
           content:
@@ -594,6 +655,8 @@ paths:
       summary: Delete a sending domain
       operationId: deleteDomain
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/Deleted"
   /domains/{id}/verify:
@@ -603,6 +666,8 @@ paths:
       summary: Refresh domain verification
       operationId: verifyDomain
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Refreshed domain
           content:
@@ -625,6 +690,7 @@ paths:
                 endpoint:
                   type: string
                   format: uri
+                  minLength: 1
                   maxLength: 2048
                   description: Public HTTPS URL in AWS mode; local mode also permits HTTP development endpoints.
                 events:
@@ -633,6 +699,8 @@ paths:
                   items:
                     $ref: "#/components/schemas/WebhookEvent"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Webhook and one-time signing secret
           content:
@@ -652,6 +720,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Webhook page
           content:
@@ -672,6 +742,8 @@ paths:
       summary: Retrieve a webhook
       operationId: getWebhook
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Webhook
           content:
@@ -693,6 +765,7 @@ paths:
                 endpoint:
                   type: string
                   format: uri
+                  minLength: 1
                   maxLength: 2048
                   description: Public HTTPS URL in AWS mode; local mode also permits HTTP development endpoints.
                 events:
@@ -703,6 +776,8 @@ paths:
                 status:
                   enum: [enabled, disabled]
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Updated webhook identifier
           content:
@@ -719,6 +794,8 @@ paths:
       summary: Delete a webhook
       operationId: deleteWebhook
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/Deleted"
   /webhooks/{id}/deliveries:
@@ -731,6 +808,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Webhook delivery page
           content:
@@ -752,10 +831,13 @@ paths:
         required: true
         schema:
           type: string
+          minLength: 1
     get:
       summary: Retrieve a retained webhook delivery and its event
       operationId: getWebhookDelivery
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Webhook delivery
           content:
@@ -770,10 +852,13 @@ paths:
         required: true
         schema:
           type: string
+          minLength: 1
     post:
       summary: Replay a retained event as a new webhook delivery
       operationId: replayWebhookDelivery
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Queued replay
           content:
@@ -801,8 +886,12 @@ paths:
                   default: manual
                 detail:
                   type: string
+                  minLength: 1
                   maxLength: 500
+                  pattern: '.*\S.*'
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Suppression
           content:
@@ -816,6 +905,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Suppression page
           content:
@@ -841,6 +932,8 @@ paths:
       summary: Retrieve a suppression
       operationId: getSuppression
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Suppression
           content:
@@ -851,8 +944,10 @@ paths:
       summary: Delete a suppression
       operationId: deleteSuppression
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
-          $ref: "#/components/responses/Deleted"
+          $ref: "#/components/responses/SuppressionDeleted"
   /api-keys:
     post:
       summary: Create a scoped API key
@@ -869,7 +964,9 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
                   maxLength: 100
+                  pattern: '.*\S.*'
                 scopes:
                   type: array
                   minItems: 1
@@ -879,6 +976,8 @@ paths:
                   type: string
                   format: date-time
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: API key and one-time token
           content:
@@ -898,6 +997,8 @@ paths:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: API key page without secret tokens
           content:
@@ -918,6 +1019,8 @@ paths:
       summary: Retrieve an API key
       operationId: getApiKey
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: API key metadata
           content:
@@ -928,6 +1031,8 @@ paths:
       summary: Revoke an API key
       operationId: revokeApiKey
       responses:
+        default:
+          $ref: "#/components/responses/Error"
         "200":
           description: Revoked API key metadata
           content:
@@ -952,6 +1057,7 @@ components:
       required: false
       schema:
         type: string
+        minLength: 1
         maxLength: 256
     ResourceId:
       name: id
@@ -959,6 +1065,7 @@ components:
       required: true
       schema:
         type: string
+        minLength: 1
     TemplateIdentifier:
       name: identifier
       in: path
@@ -966,6 +1073,7 @@ components:
       description: Template ID or alias.
       schema:
         type: string
+        minLength: 1
         maxLength: 256
     TemplateVersionId:
       name: versionId
@@ -973,6 +1081,7 @@ components:
       required: true
       schema:
         type: string
+        minLength: 1
         pattern: ^tmplv_[a-f0-9]{32}$
     CurrentDraftMatch:
       name: If-Match
@@ -981,6 +1090,7 @@ components:
       description: Restore only if this is still the current draft version ID.
       schema:
         type: string
+        minLength: 1
         pattern: '^"tmplv_[a-f0-9]{32}"$'
     Before:
       name: before
@@ -988,6 +1098,7 @@ components:
       description: Return the page immediately before this resource ID.
       schema:
         type: string
+        minLength: 1
     Limit:
       name: limit
       in: query
@@ -1001,6 +1112,7 @@ components:
       in: query
       schema:
         type: string
+        minLength: 1
   responses:
     CreatedId:
       description: Resource accepted
@@ -1034,16 +1146,35 @@ components:
                 type: string
               deleted:
                 const: true
+    SuppressionDeleted:
+      description: Suppression deleted
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [object, email, deleted]
+            properties:
+              object:
+                const: suppression
+              email:
+                type: string
+                format: email
+              deleted:
+                const: true
     Error:
       description: API error
       content:
         application/json:
           schema:
             type: object
+            additionalProperties: false
             required: [statusCode, name, message]
             properties:
               statusCode:
                 type: integer
+                minimum: 400
+                maximum: 599
               name:
                 type: string
               message:
@@ -1080,14 +1211,22 @@ components:
       properties:
         from:
           type: string
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         to:
           $ref: "#/components/schemas/AddressList"
         subject:
           type: string
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         html:
           type: string
+          minLength: 1
         text:
           type: string
+          minLength: 1
         template:
           $ref: "#/components/schemas/TemplateReference"
         cc:
@@ -1101,6 +1240,8 @@ components:
           description: Custom headers. Message-ID is reserved for the delivery provider.
           additionalProperties:
             type: string
+            minLength: 1
+            pattern: '^[^\r\n]+$'
         tags:
           type: array
           maxItems: 49
@@ -1111,8 +1252,13 @@ components:
             properties:
               name:
                 type: string
+                minLength: 1
+                maxLength: 256
+                pattern: ^[a-zA-Z0-9_-]+$
               value:
                 type: string
+                minLength: 1
+                maxLength: 256
         attachments:
           type: array
           maxItems: 20
@@ -1122,6 +1268,7 @@ components:
               - $ref: "#/components/schemas/UploadedAttachment"
         scheduled_at:
           type: string
+          minLength: 1
     TemplateReference:
       type: object
       additionalProperties: false
@@ -1129,6 +1276,7 @@ components:
       properties:
         id:
           type: string
+          minLength: 1
           maxLength: 256
           description: Published template ID or alias.
         variables:
@@ -1193,20 +1341,30 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           maxLength: 256
+          pattern: '.*\S.*'
         html:
           type: string
+          minLength: 1
           description: HTML with optional triple-brace variables such as {{{NAME}}}.
         text:
           type: [string, "null"]
+          maxLength: 262144
         alias:
           type: [string, "null"]
           pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
           maxLength: 128
         from:
           type: [string, "null"]
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         subject:
           type: [string, "null"]
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         reply_to:
           oneOf:
             - $ref: "#/components/schemas/AddressList"
@@ -1223,19 +1381,29 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           maxLength: 256
+          pattern: '.*\S.*'
         html:
           type: string
+          minLength: 1
         text:
           type: [string, "null"]
+          maxLength: 262144
         alias:
           type: [string, "null"]
           pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
           maxLength: 128
         from:
           type: [string, "null"]
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         subject:
           type: [string, "null"]
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         reply_to:
           oneOf:
             - $ref: "#/components/schemas/AddressList"
@@ -1407,11 +1575,15 @@ components:
       properties:
         from:
           type: string
+          minLength: 1
           maxLength: 998
+          pattern: '^[^\r\n]+$'
           description: Optional sender override used only for this render.
         subject:
           type: string
+          minLength: 1
           maxLength: 998
+          pattern: '^[^\r\n]+$'
           description: Optional subject override used only for this render.
         reply_to:
           $ref: "#/components/schemas/AddressList"
@@ -1452,11 +1624,17 @@ components:
     AddressList:
       oneOf:
         - type: string
+          minLength: 1
+          maxLength: 998
+          pattern: '^[^\r\n]+$'
         - type: array
           minItems: 1
           maxItems: 50
           items:
             type: string
+            minLength: 1
+            maxLength: 998
+            pattern: '^[^\r\n]+$'
     Email:
       type: object
       required:
@@ -1645,14 +1823,20 @@ components:
       properties:
         filename:
           type: string
+          minLength: 1
           maxLength: 255
         content:
           type: string
+          minLength: 1
           contentEncoding: base64
         content_type:
           type: string
+          minLength: 1
+          maxLength: 255
         content_id:
           type: string
+          minLength: 1
+          maxLength: 998
         content_disposition:
           enum: [inline, attachment]
     UploadedAttachment:
@@ -1665,11 +1849,16 @@ components:
           pattern: ^att_[a-f0-9]{32}$
         filename:
           type: string
+          minLength: 1
           maxLength: 255
         content_type:
           type: string
+          minLength: 1
+          maxLength: 255
         content_id:
           type: string
+          minLength: 1
+          maxLength: 998
         content_disposition:
           enum: [inline, attachment]
     PublicAttachment:
@@ -1693,9 +1882,11 @@ components:
       properties:
         filename:
           type: string
+          minLength: 1
           maxLength: 255
         content_type:
           type: string
+          minLength: 1
           maxLength: 255
         size_bytes:
           type: integer

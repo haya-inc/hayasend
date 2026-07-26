@@ -150,6 +150,32 @@ describe("HTTP API", () => {
     expect(unauthorized.status).toBe(401);
   });
 
+  it.each([
+    ["POST", "/attachments"],
+    ["POST", "/domains"],
+    ["POST", "/api-keys"],
+    ["POST", "/suppressions"],
+    ["POST", "/templates"],
+    ["POST", "/webhooks"],
+    ["PATCH", "/webhooks/wh_missing"],
+  ])(
+    "returns a public validation error for malformed JSON on %s %s",
+    async (method, path) => {
+      const { request } = fixture();
+      const response = await request(path, {
+        method,
+        body: "\u0000",
+      });
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toEqual({
+        statusCode: 422,
+        name: "validation_error",
+        message: "Malformed JSON in request body",
+      });
+    },
+  );
+
   it("renders a template draft with read scope without queueing an email", async () => {
     const { queue, request, transport } = fixture();
     const created = await request("/templates", {
@@ -563,6 +589,27 @@ describe("HTTP API", () => {
     expect(conflict.status).toBe(409);
   });
 
+  it.each(["", "x".repeat(257)])(
+    "rejects an out-of-contract idempotency key",
+    async (idempotencyKey) => {
+      const { request } = fixture();
+      for (const path of ["/emails", "/emails/batch"]) {
+        const response = await request(path, {
+          method: "POST",
+          headers: { "idempotency-key": idempotencyKey },
+          body: JSON.stringify(path.endsWith("/batch") ? [email] : email),
+        });
+
+        expect(response.status).toBe(422);
+        await expect(response.json()).resolves.toMatchObject({
+          name: "validation_error",
+          message:
+            "Idempotency-Key must contain between 1 and 256 characters.",
+        });
+      }
+    },
+  );
+
   it("supports batches, domains, and signed webhook registration", async () => {
     const { queue, request, webhooks } = fixture();
     const batch = await request("/emails/batch", {
@@ -910,6 +957,41 @@ describe("HTTP API", () => {
       last_event: "suppressed",
     });
     expect(queue.jobs).toHaveLength(0);
+  });
+
+  it("does not double-decode percent-containing suppression paths", async () => {
+    const { request } = fixture();
+    const emailAddress = "percent%@example.net";
+    const path = `/suppressions/${encodeURIComponent(emailAddress)}`;
+    for (const method of ["GET", "DELETE"]) {
+      const response = await request(path, { method });
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toMatchObject({
+        name: "not_found",
+      });
+    }
+  });
+
+  it("returns the email key when deleting a suppression", async () => {
+    const { request } = fixture();
+    const emailAddress = "blocked+tag@example.net";
+    const created = await request("/suppressions", {
+      method: "POST",
+      body: JSON.stringify({
+        email: emailAddress,
+        reason: "manual",
+      }),
+    });
+    expect(created.status).toBe(200);
+
+    const path = `/suppressions/${encodeURIComponent(emailAddress)}`;
+    const deleted = await request(path, { method: "DELETE" });
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toEqual({
+      object: "suppression",
+      email: emailAddress,
+      deleted: true,
+    });
   });
 
   it("uses an internal request ID and logs no untrusted error details", async () => {
