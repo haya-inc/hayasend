@@ -22,8 +22,9 @@ delivery:
 - fixed-scope architecture, deployment, and migration engagements;
 - Resend or legacy SES forwarder migration;
 - DNS, SPF, DKIM, DMARC, bounce, and complaint readiness reviews;
-- security hardening and AWS account reviews;
+- security hardening and AWS or Cloudflare account reviews;
 - upgrades, monitoring, incident response, and response-time commitments;
+- provider migration, conformance review, and failure drills;
 - multi-account, regulated-environment, and private-roadmap work.
 
 Commercial terms cover services and warranties, not access to the

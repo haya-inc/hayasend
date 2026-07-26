@@ -1,17 +1,18 @@
 # HayaSend
 
-Resend-compatible, AWS-native email infrastructure that runs in your own AWS
-account.
+Customer-owned safety and reliability infrastructure for transactional email.
+AWS works today; a provider-neutral core and Cloudflare proof are next.
 
 > **Project status: early alpha.** The API and data model will change before
 > v1. Do not use it for critical production traffic yet.
 
-HayaSend provides the developer experience of a modern email API while Amazon
-SES handles delivery. Email metadata and infrastructure stay under your AWS
-account, and HayaSend never logs message bodies.
+HayaSend provides the developer experience of a modern email API while the
+delivery provider and data plane stay in your cloud account. Amazon SES is the
+implemented provider today. HayaSend never logs message bodies.
 
 [Project site](https://haya-inc.github.io/hayasend/) ·
 [Compatibility](docs/compatibility.md) ·
+[Execution plan](docs/execution-plan.md) ·
 [Support](SUPPORT.md)
 
 ## What works today
