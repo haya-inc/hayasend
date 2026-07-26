@@ -10,6 +10,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -30,9 +31,9 @@ function pageFromMap<T extends { created_at: string }>(
   const sorted = [...values].sort((left, right) =>
     right.created_at.localeCompare(left.created_at),
   );
-  const data = sorted.slice(offset, offset + limit).map((item) =>
-    structuredClone(item),
-  );
+  const data = sorted
+    .slice(offset, offset + limit)
+    .map((item) => structuredClone(item));
   const nextOffset = offset + data.length;
   if (nextOffset < sorted.length) {
     return {
@@ -55,12 +56,11 @@ export class MemoryStore implements Store {
   private readonly idempotency = new Map<string, IdempotencyEntry>();
   private readonly domains = new Map<string, DomainRecord>();
   private readonly webhooks = new Map<string, WebhookEndpoint>();
-  private readonly webhookDeliveries = new Map<
-    string,
-    WebhookDeliveryRecord
-  >();
+  private readonly webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
   private readonly apiKeys = new Map<string, ApiKeyRecord>();
   private readonly suppressions = new Map<string, SuppressionRecord>();
+  private readonly templates = new Map<string, TemplateRecord>();
+  private readonly templateAliases = new Map<string, string>();
 
   async createEmail(
     record: EmailRecord,
@@ -148,11 +148,105 @@ export class MemoryStore implements Store {
     return structuredClone(updated);
   }
 
-  async listEmails(
+  async listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
+    return pageFromMap(this.emails.values(), limit, cursor);
+  }
+
+  async createTemplate(record: TemplateRecord): Promise<void> {
+    const alias = record.draft.alias;
+    if (
+      this.templates.has(record.id) ||
+      (alias !== undefined && this.templateAliases.has(alias))
+    ) {
+      throw new ConflictError("Template alias is already in use.");
+    }
+    this.templates.set(record.id, structuredClone(record));
+    if (alias !== undefined) {
+      this.templateAliases.set(alias, record.id);
+    }
+  }
+
+  async getTemplate(identifier: string): Promise<TemplateRecord | undefined> {
+    const id = this.templates.has(identifier)
+      ? identifier
+      : this.templateAliases.get(identifier);
+    const record = id ? this.templates.get(id) : undefined;
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async replaceTemplate(
+    record: TemplateRecord,
+    previousAlias: string | undefined,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const current = this.templates.get(record.id);
+    if (!current || current.revision !== expectedRevision) {
+      return false;
+    }
+    const nextAlias = record.draft.alias;
+    const aliasOwner =
+      nextAlias === undefined ? undefined : this.templateAliases.get(nextAlias);
+    if (aliasOwner !== undefined && aliasOwner !== record.id) {
+      throw new ConflictError("Template alias is already in use.");
+    }
+    if (previousAlias !== undefined && previousAlias !== nextAlias) {
+      this.templateAliases.delete(previousAlias);
+    }
+    if (nextAlias !== undefined) {
+      this.templateAliases.set(nextAlias, record.id);
+    }
+    this.templates.set(record.id, structuredClone(record));
+    return true;
+  }
+
+  async deleteTemplate(
+    record: TemplateRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const current = this.templates.get(record.id);
+    if (!current || current.revision !== expectedRevision) {
+      return false;
+    }
+    this.templates.delete(record.id);
+    if (current.draft.alias !== undefined) {
+      this.templateAliases.delete(current.draft.alias);
+    }
+    return true;
+  }
+
+  async listTemplates(
     limit: number,
     cursor?: string,
-  ): Promise<Page<EmailRecord>> {
-    return pageFromMap(this.emails.values(), limit, cursor);
+    direction: "after" | "before" = "after",
+  ): Promise<Page<TemplateRecord>> {
+    const sorted = [...this.templates.values()].sort((left, right) =>
+      right.created_at.localeCompare(left.created_at),
+    );
+    const cursorIndex = cursor
+      ? sorted.findIndex((record) => record.id === cursor)
+      : -1;
+    const offset =
+      direction === "before"
+        ? Math.max(0, cursorIndex - limit)
+        : cursorIndex >= 0
+          ? cursorIndex + 1
+          : 0;
+    const end =
+      direction === "before" && cursorIndex >= 0 ? cursorIndex : offset + limit;
+    const data = sorted
+      .slice(offset, end)
+      .map((record) => structuredClone(record));
+    const hasMore =
+      direction === "before"
+        ? offset > 0
+        : offset + data.length < sorted.length;
+    return hasMore && data.length > 0
+      ? {
+          data,
+          has_more: true,
+          next_cursor: direction === "before" ? data[0]?.id : data.at(-1)?.id,
+        }
+      : { data, has_more: false };
   }
 
   async putAttachmentUpload(record: AttachmentUploadRecord): Promise<void> {
@@ -266,9 +360,7 @@ export class MemoryStore implements Store {
 
   async updateWebhook(
     id: string,
-    updates: Partial<
-      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
-    >,
+    updates: Partial<Pick<WebhookEndpoint, "endpoint" | "events" | "status">>,
   ): Promise<WebhookEndpoint | undefined> {
     const record = this.webhooks.get(id);
     if (!record) {
@@ -290,9 +382,7 @@ export class MemoryStore implements Store {
     return pageFromMap(this.webhooks.values(), limit, cursor);
   }
 
-  async createWebhookDelivery(
-    record: WebhookDeliveryRecord,
-  ): Promise<boolean> {
+  async createWebhookDelivery(record: WebhookDeliveryRecord): Promise<boolean> {
     if (this.webhookDeliveries.has(record.id)) {
       return false;
     }

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
@@ -18,6 +19,7 @@ import { EmailService } from "../src/services/email-service.js";
 import { ReceivedEmailService } from "../src/services/received-email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
+import { TemplateService } from "../src/services/template-service.js";
 
 const passthroughTransport: MailTransport = {
   async send(): Promise<MailTransportResult> {
@@ -54,6 +56,7 @@ describe("official Resend Node SDK compatibility", () => {
       new MemoryAttachmentStorage(),
     );
     const scheduler = new QueueEmailScheduler(queue);
+    const templateService = new TemplateService(store);
     const app = createApp({
       apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
       attachmentService: attachments,
@@ -69,9 +72,11 @@ describe("official Resend Node SDK compatibility", () => {
         webhooks,
         suppressions,
         attachments,
+        templateService,
       ),
       receivedEmailService,
       suppressionService: suppressions,
+      templateService,
       webhookService: webhooks,
     });
     const nativeFetch = globalThis.fetch;
@@ -136,6 +141,157 @@ describe("official Resend Node SDK compatibility", () => {
       status: "disabled",
     });
 
+    const publishedTemplate = await resend.templates
+      .create({
+        name: "SDK welcome",
+        alias: "sdk-welcome",
+        from: "HayaSend <sender@example.com>",
+        subject: "Welcome {{{NAME}}}",
+        react: createElement(
+          "p",
+          null,
+          "Hello {{{NAME}}}, rendered by React Email.",
+        ),
+        variables: [{ key: "NAME", type: "string" }],
+      })
+      .publish();
+    expect(publishedTemplate.error).toBeNull();
+    const templateId = publishedTemplate.data?.id;
+    if (!templateId) {
+      throw new Error("Expected an SDK-created template.");
+    }
+    const templateEmail = await resend.emails.send({
+      to: "template-recipient@example.net",
+      template: {
+        id: "sdk-welcome",
+        variables: { NAME: "Ada" },
+      },
+    });
+    expect(templateEmail.error).toBeNull();
+    const storedTemplateEmail = await store.getEmail(
+      templateEmail.data?.id ?? "",
+    );
+    expect(storedTemplateEmail).toMatchObject({
+      from: "HayaSend <sender@example.com>",
+      subject: "Welcome Ada",
+    });
+    expect(storedTemplateEmail?.html).toContain(
+      "Hello Ada, rendered by React Email.",
+    );
+    expect(storedTemplateEmail?.text).toContain(
+      "Hello Ada, rendered by React Email.",
+    );
+    const template = await resend.templates.get("sdk-welcome");
+    expect(template.error).toBeNull();
+    expect(template.data).toMatchObject({
+      object: "template",
+      id: templateId,
+      alias: "sdk-welcome",
+      status: "published",
+      has_unpublished_versions: false,
+    });
+    const templates = await resend.templates.list();
+    expect(templates.error).toBeNull();
+    expect(templates.data?.data).toEqual([
+      expect.objectContaining({ id: templateId, alias: "sdk-welcome" }),
+    ]);
+    await expect(
+      resend.templates.list({ limit: 1, after: templateId }),
+    ).resolves.toMatchObject({
+      data: { object: "list", data: [], has_more: false },
+      error: null,
+    });
+    await expect(
+      resend.templates.list({ limit: 1, before: templateId }),
+    ).resolves.toMatchObject({
+      data: { object: "list", data: [], has_more: false },
+      error: null,
+    });
+    const updatedTemplate = await resend.templates.update("sdk-welcome", {
+      subject: "Updated {{{NAME}}}",
+      replyTo: "updated-support@example.com",
+    });
+    expect(updatedTemplate).toMatchObject({
+      data: { object: "template", id: templateId },
+      error: null,
+    });
+    const draftTemplate = await resend.templates.get(templateId);
+    expect(draftTemplate.data).toMatchObject({
+      subject: "Updated {{{NAME}}}",
+      reply_to: ["updated-support@example.com"],
+      has_unpublished_versions: true,
+    });
+    const stillPublishedEmail = await resend.emails.send({
+      to: "stable-version@example.net",
+      template: {
+        id: templateId,
+        variables: { NAME: "Grace" },
+      },
+    });
+    const storedStableEmail = await store.getEmail(
+      stillPublishedEmail.data?.id ?? "",
+    );
+    expect(storedStableEmail).toMatchObject({
+      subject: "Welcome Grace",
+    });
+    expect(storedStableEmail?.reply_to).toBeUndefined();
+
+    const republished = await resend.templates.publish(templateId);
+    expect(republished.error).toBeNull();
+    const updatedEmail = await resend.emails.send({
+      to: "updated-version@example.net",
+      template: {
+        id: "sdk-welcome",
+        variables: { NAME: "Lin" },
+      },
+    });
+    await expect(
+      store.getEmail(updatedEmail.data?.id ?? ""),
+    ).resolves.toMatchObject({
+      subject: "Updated Lin",
+      reply_to: ["updated-support@example.com"],
+    });
+    const templateBatch = await resend.batch.send([
+      {
+        to: "batch-template@example.net",
+        template: {
+          id: templateId,
+          variables: { NAME: "Katherine" },
+        },
+      },
+    ]);
+    expect(templateBatch.error).toBeNull();
+    await expect(
+      store.getEmail(templateBatch.data?.data[0]?.id ?? ""),
+    ).resolves.toMatchObject({
+      subject: "Updated Katherine",
+      reply_to: ["updated-support@example.com"],
+    });
+
+    const duplicatedTemplate = await resend.templates.duplicate(templateId);
+    expect(duplicatedTemplate.error).toBeNull();
+    const duplicateId = duplicatedTemplate.data?.id;
+    if (!duplicateId) {
+      throw new Error("Expected an SDK-duplicated template.");
+    }
+    await expect(resend.templates.get(duplicateId)).resolves.toMatchObject({
+      data: {
+        id: duplicateId,
+        name: "SDK welcome copy",
+        alias: null,
+        status: "draft",
+      },
+      error: null,
+    });
+    await expect(resend.templates.remove(duplicateId)).resolves.toMatchObject({
+      data: {
+        object: "template",
+        id: duplicateId,
+        deleted: true,
+      },
+      error: null,
+    });
+
     const { data, error } = await resend.emails.send({
       from: "HayaSend <sender@example.com>",
       to: "recipient@example.net",
@@ -147,7 +303,7 @@ describe("official Resend Node SDK compatibility", () => {
 
     expect(error).toBeNull();
     expect(data?.id).toMatch(/^email_/);
-    expect(queue.jobs[0]?.job).toEqual({
+    expect(queue.jobs.map(({ job }) => job)).toContainEqual({
       type: "send_email",
       email_id: data?.id,
     });
@@ -195,10 +351,9 @@ describe("official Resend Node SDK compatibility", () => {
       subject: "SDK inbound compatibility",
     });
 
-    const received = await resend.emails.receiving.get(
-      receivedRecord.id,
-      { html_format: "cid" },
-    );
+    const received = await resend.emails.receiving.get(receivedRecord.id, {
+      html_format: "cid",
+    });
     expect(received.error).toBeNull();
     expect(received.data).toMatchObject({
       id: receivedRecord.id,
@@ -211,10 +366,9 @@ describe("official Resend Node SDK compatibility", () => {
       },
     });
 
-    const receivedAttachments =
-      await resend.emails.receiving.attachments.list({
-        emailId: receivedRecord.id,
-      });
+    const receivedAttachments = await resend.emails.receiving.attachments.list({
+      emailId: receivedRecord.id,
+    });
     expect(receivedAttachments.error).toBeNull();
     const receivedAttachment = receivedAttachments.data?.data[0];
     expect(receivedAttachment).toMatchObject({
@@ -228,11 +382,10 @@ describe("official Resend Node SDK compatibility", () => {
     if (!receivedAttachment) {
       throw new Error("Expected a received attachment.");
     }
-    const retrievedAttachment =
-      await resend.emails.receiving.attachments.get({
-        emailId: receivedRecord.id,
-        id: receivedAttachment.id,
-      });
+    const retrievedAttachment = await resend.emails.receiving.attachments.get({
+      emailId: receivedRecord.id,
+      id: receivedAttachment.id,
+    });
     expect(retrievedAttachment.error).toBeNull();
     expect(retrievedAttachment.data).toMatchObject({
       id: receivedAttachment.id,
@@ -249,9 +402,7 @@ describe("official Resend Node SDK compatibility", () => {
     );
     expect(forwarded.error).toBeNull();
     expect(forwarded.data?.id).toMatch(/^email_/);
-    const forwardedEmail = await store.getEmail(
-      forwarded.data?.id ?? "",
-    );
+    const forwardedEmail = await store.getEmail(forwarded.data?.id ?? "");
     expect(forwardedEmail).toMatchObject({
       from: "HayaSend Forwarder <forwarder@example.com>",
       to: ["archive@example.net"],

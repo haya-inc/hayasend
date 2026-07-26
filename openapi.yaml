@@ -97,6 +97,121 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Id"
+  /templates:
+    post:
+      summary: Create a hosted email template draft
+      operationId: createTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTemplate"
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    get:
+      summary: List hosted email templates
+      operationId: listTemplates
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+      responses:
+        "200":
+          description: Template page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/List"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TemplateListItem"
+  /templates/{identifier}:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    get:
+      summary: Retrieve a template by ID or alias
+      operationId: getTemplate
+      responses:
+        "200":
+          description: Current template draft and publication state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Create a new template draft version
+      operationId: updateTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTemplate"
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    delete:
+      summary: Delete a template
+      operationId: deleteTemplate
+      responses:
+        "200":
+          description: Deleted template
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, id, deleted]
+                properties:
+                  object:
+                    const: template
+                  id:
+                    type: string
+                  deleted:
+                    const: true
+        "404":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/publish:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    post:
+      summary: Publish the current template draft
+      operationId: publishTemplate
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /templates/{identifier}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/TemplateIdentifier"
+    post:
+      summary: Duplicate a template into a new unpublished draft
+      operationId: duplicateTemplate
+      responses:
+        "200":
+          $ref: "#/components/responses/TemplateId"
+        "404":
+          $ref: "#/components/responses/Error"
   /emails/receiving:
     get:
       summary: List received emails
@@ -696,6 +811,20 @@ components:
       required: true
       schema:
         type: string
+    TemplateIdentifier:
+      name: identifier
+      in: path
+      required: true
+      description: Template ID or alias.
+      schema:
+        type: string
+        maxLength: 256
+    Before:
+      name: before
+      in: query
+      description: Return the page immediately before this resource ID.
+      schema:
+        type: string
     Limit:
       name: limit
       in: query
@@ -716,6 +845,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Id"
+    TemplateId:
+      description: Template identifier
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [object, id]
+            properties:
+              object:
+                const: template
+              id:
+                type: string
     Deleted:
       description: Resource deleted
       content:
@@ -754,10 +895,25 @@ components:
     SendEmail:
       type: object
       additionalProperties: false
-      required: [from, to, subject]
-      anyOf:
-        - required: [html]
-        - required: [text]
+      required: [to]
+      oneOf:
+        - required: [from, subject]
+          not:
+            properties:
+              template: {}
+            required: [template]
+          anyOf:
+            - required: [html]
+            - required: [text]
+        - required: [template]
+          not:
+            anyOf:
+              - properties:
+                  html: {}
+                required: [html]
+              - properties:
+                  text: {}
+                required: [text]
       properties:
         from:
           type: string
@@ -769,6 +925,8 @@ components:
           type: string
         text:
           type: string
+        template:
+          $ref: "#/components/schemas/TemplateReference"
         cc:
           $ref: "#/components/schemas/AddressList"
         bcc:
@@ -800,6 +958,191 @@ components:
               - $ref: "#/components/schemas/UploadedAttachment"
         scheduled_at:
           type: string
+    TemplateReference:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+          maxLength: 256
+          description: Published template ID or alias.
+        variables:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            oneOf:
+              - type: string
+                maxLength: 2000
+              - type: number
+    TemplateVariableInput:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [key, type]
+          properties:
+            key:
+              type: string
+              pattern: ^[A-Za-z0-9_]{1,50}$
+            type:
+              const: string
+            fallback_value:
+              type: [string, "null"]
+              maxLength: 2000
+        - type: object
+          additionalProperties: false
+          required: [key, type]
+          properties:
+            key:
+              type: string
+              pattern: ^[A-Za-z0-9_]{1,50}$
+            type:
+              const: number
+            fallback_value:
+              type: [number, "null"]
+    TemplateVariable:
+      type: object
+      required: [id, key, type, fallback_value, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          pattern: ^[A-Za-z0-9_]{1,50}$
+        type:
+          enum: [string, number]
+        fallback_value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateTemplate:
+      type: object
+      additionalProperties: false
+      required: [name, html]
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        html:
+          type: string
+          description: HTML with optional triple-brace variables such as {{{NAME}}}.
+        text:
+          type: [string, "null"]
+        alias:
+          type: [string, "null"]
+          pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+          maxLength: 128
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          oneOf:
+            - $ref: "#/components/schemas/AddressList"
+            - type: "null"
+        variables:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/TemplateVariableInput"
+    UpdateTemplate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        html:
+          type: string
+        text:
+          type: [string, "null"]
+        alias:
+          type: [string, "null"]
+          pattern: ^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+          maxLength: 128
+        from:
+          type: [string, "null"]
+        subject:
+          type: [string, "null"]
+        reply_to:
+          oneOf:
+            - $ref: "#/components/schemas/AddressList"
+            - type: "null"
+        variables:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/TemplateVariableInput"
+    TemplateListItem:
+      type: object
+      required: [id, name, status, published_at, created_at, updated_at, alias]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          enum: [draft, published]
+        published_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        alias:
+          type: [string, "null"]
+    Template:
+      allOf:
+        - $ref: "#/components/schemas/TemplateListItem"
+        - type: object
+          required:
+            - object
+            - current_version_id
+            - from
+            - subject
+            - reply_to
+            - html
+            - text
+            - variables
+            - has_unpublished_versions
+          properties:
+            object:
+              const: template
+            current_version_id:
+              type: string
+            from:
+              type: [string, "null"]
+            subject:
+              type: [string, "null"]
+            reply_to:
+              type:
+                - array
+                - "null"
+              items:
+                type: string
+            html:
+              type: string
+            text:
+              type: [string, "null"]
+            variables:
+              type:
+                - array
+                - "null"
+              items:
+                $ref: "#/components/schemas/TemplateVariable"
+            has_unpublished_versions:
+              type: boolean
     AddressList:
       oneOf:
         - type: string
@@ -1213,6 +1556,8 @@ components:
       enum:
         - emails:send
         - emails:read
+        - templates:read
+        - templates:write
         - domains:read
         - domains:write
         - webhooks:read

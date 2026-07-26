@@ -13,6 +13,7 @@ import { EmailService } from "../src/services/email-service.js";
 import { AttachmentService } from "../src/services/attachment-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
+import { TemplateService } from "../src/services/template-service.js";
 
 class StubTransport implements MailTransport {
   readonly sent: EmailRecord[] = [];
@@ -36,9 +37,7 @@ class RecordingEmailScheduler implements EmailScheduler {
   }> = [];
   onFirstReschedule?: () => Promise<void>;
 
-  constructor(
-    private readonly queueScheduler: QueueEmailScheduler,
-  ) {}
+  constructor(private readonly queueScheduler: QueueEmailScheduler) {}
 
   async schedule(
     emailId: string,
@@ -75,9 +74,8 @@ function fixture() {
     store,
     new MemoryAttachmentStorage(),
   );
-  const scheduler = new RecordingEmailScheduler(
-    new QueueEmailScheduler(queue),
-  );
+  const scheduler = new RecordingEmailScheduler(new QueueEmailScheduler(queue));
+  const templates = new TemplateService(store);
   const service = new EmailService(
     store,
     scheduler,
@@ -85,6 +83,7 @@ function fixture() {
     webhooks,
     suppressions,
     attachments,
+    templates,
   );
   return {
     queue,
@@ -92,6 +91,7 @@ function fixture() {
     service,
     store,
     suppressions,
+    templates,
     transport,
   };
 }
@@ -104,6 +104,39 @@ const input = {
 };
 
 describe("EmailService", () => {
+  it("keeps a template send idempotent across later publications", async () => {
+    const { queue, service, templates } = fixture();
+    const template = await templates.create({
+      name: "Idempotent template",
+      from: "sender@example.com",
+      subject: "Version one",
+      html: "<p>One</p>",
+    });
+    await templates.publish(template.id);
+    const request = {
+      to: ["recipient@example.net"],
+      template: { id: template.id },
+    };
+    const first = await service.create(request, "template-request");
+
+    await templates.update(template.id, {
+      subject: "Version two",
+      html: "<p>Two</p>",
+    });
+    await templates.publish(template.id);
+    const replay = await service.create(request, "template-request");
+
+    expect(replay).toMatchObject({
+      replayed: true,
+      record: {
+        id: first.record.id,
+        subject: "Version one",
+        html: "<p>One</p>",
+      },
+    });
+    expect(queue.jobs).toHaveLength(1);
+  });
+
   it("sends a queued email once and records the provider id", async () => {
     const { service, store, transport } = fixture();
     const created = await service.create(input);
@@ -167,18 +200,10 @@ describe("EmailService", () => {
     const { service } = fixture();
     const now = new Date("2026-07-26T00:00:00.000Z");
     await expect(
-      service.create(
-        { ...input, scheduled_at: "in 31 days" },
-        undefined,
-        now,
-      ),
+      service.create({ ...input, scheduled_at: "in 31 days" }, undefined, now),
     ).rejects.toThrow("no more than 30 days");
     await expect(
-      service.create(
-        { ...input, scheduled_at: "in 0 days" },
-        undefined,
-        now,
-      ),
+      service.create({ ...input, scheduled_at: "in 0 days" }, undefined, now),
     ).rejects.toThrow("must be in the future");
   });
 
@@ -210,9 +235,7 @@ describe("EmailService", () => {
     const { scheduler, service, store } = fixture();
     const created = await service.create(input);
     const firstTime = new Date(Date.now() + 86_400_000).toISOString();
-    const winningTime = new Date(
-      Date.now() + 2 * 86_400_000,
-    ).toISOString();
+    const winningTime = new Date(Date.now() + 2 * 86_400_000).toISOString();
     scheduler.onFirstReschedule = async () => {
       await store.updateEmail(created.record.id, {
         scheduled_at: winningTime,

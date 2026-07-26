@@ -2,11 +2,7 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
-import {
-  PREVIEW_CSS,
-  PREVIEW_HTML,
-  PREVIEW_JS,
-} from "./preview.js";
+import { PREVIEW_CSS, PREVIEW_HTML, PREVIEW_JS } from "./preview.js";
 import {
   AppError,
   ForbiddenError,
@@ -23,11 +19,14 @@ import {
   apiKeySchema,
   attachmentUploadSchema,
   batchEmailSchema,
+  createTemplateSchema,
   domainSchema,
   paginationSchema,
   receivedEmailQuerySchema,
   sendEmailSchema,
   suppressionSchema,
+  templatePaginationSchema,
+  updateTemplateSchema,
   updateEmailSchema,
   webhookSchema,
   webhookUpdateSchema,
@@ -42,6 +41,7 @@ import type { EmailService } from "./services/email-service.js";
 import type { ReceivedEmailService } from "./services/received-email-service.js";
 import type { SuppressionService } from "./services/suppression-service.js";
 import type { WebhookService } from "./services/webhook-service.js";
+import type { TemplateService } from "./services/template-service.js";
 
 interface AppEnv {
   Variables: {
@@ -56,6 +56,7 @@ export interface AppServices {
   emailService: EmailService;
   receivedEmailService: ReceivedEmailService;
   suppressionService: SuppressionService;
+  templateService: TemplateService;
   webhookService: WebhookService;
 }
 
@@ -76,9 +77,10 @@ function requireScope(scope: ApiScope) {
   });
 }
 
-function validationCallback(
-  result: { success: boolean; error?: { issues?: unknown[] } },
-) {
+function validationCallback(result: {
+  success: boolean;
+  error?: { issues?: unknown[] };
+}) {
   if (!result.success) {
     throw new ValidationError(
       `Request validation failed: ${JSON.stringify(result.error?.issues ?? [])}`,
@@ -176,10 +178,7 @@ function setPreviewSecurityHeaders(
   }
 }
 
-export function createApp(
-  services: AppServices,
-  options: AppOptions = {},
-) {
+export function createApp(services: AppServices, options: AppOptions = {}) {
   const app = new Hono<AppEnv>();
   const localPreview = options.localPreview === true;
 
@@ -190,8 +189,9 @@ export function createApp(
     context.header("x-content-type-options", "nosniff");
     context.header("cache-control", "no-store");
 
-    const attachmentUploadPath =
-      /^\/attachments\/[^/]+\/content$/.test(context.req.path);
+    const attachmentUploadPath = /^\/attachments\/[^/]+\/content$/.test(
+      context.req.path,
+    );
     const localPreviewPath =
       localPreview &&
       (context.req.path === "/" ||
@@ -201,8 +201,7 @@ export function createApp(
     if (
       context.req.path === "/healthz" ||
       localPreviewPath ||
-      (attachmentUploadPath &&
-        ["PUT", "OPTIONS"].includes(context.req.method))
+      (attachmentUploadPath && ["PUT", "OPTIONS"].includes(context.req.method))
     ) {
       await next();
       return;
@@ -271,9 +270,7 @@ export function createApp(
     app.get("/preview/api/emails/:id", async (context) => {
       setPreviewSecurityHeaders(context);
       return context.json(
-        publicEmail(
-          await services.emailService.get(context.req.param("id")),
-        ),
+        publicEmail(await services.emailService.get(context.req.param("id"))),
       );
     });
   }
@@ -316,10 +313,7 @@ export function createApp(
       context.req.query("token") ?? "",
       contentLength,
     );
-    const content = await readBodyWithLimit(
-      context.req.raw,
-      record.size_bytes,
-    );
+    const content = await readBodyWithLimit(context.req.raw, record.size_bytes);
     await services.attachmentService.upload(
       record,
       content,
@@ -358,6 +352,78 @@ export function createApp(
     },
   );
 
+  app.post(
+    "/templates",
+    requireScope("templates:write"),
+    zValidator("json", createTemplateSchema, validationCallback),
+    async (context) =>
+      context.json(
+        await services.templateService.create(context.req.valid("json")),
+      ),
+  );
+
+  app.get(
+    "/templates",
+    requireScope("templates:read"),
+    zValidator("query", templatePaginationSchema, validationCallback),
+    async (context) => {
+      const { limit, after, before } = context.req.valid("query");
+      const page = await services.templateService.list(limit, after, before);
+      return context.json({ object: "list", ...page });
+    },
+  );
+
+  app.get(
+    "/templates/:identifier",
+    requireScope("templates:read"),
+    async (context) =>
+      context.json(
+        await services.templateService.get(context.req.param("identifier")),
+      ),
+  );
+
+  app.patch(
+    "/templates/:identifier",
+    requireScope("templates:write"),
+    zValidator("json", updateTemplateSchema, validationCallback),
+    async (context) =>
+      context.json(
+        await services.templateService.update(
+          context.req.param("identifier"),
+          context.req.valid("json"),
+        ),
+      ),
+  );
+
+  app.post(
+    "/templates/:identifier/publish",
+    requireScope("templates:write"),
+    async (context) =>
+      context.json(
+        await services.templateService.publish(context.req.param("identifier")),
+      ),
+  );
+
+  app.post(
+    "/templates/:identifier/duplicate",
+    requireScope("templates:write"),
+    async (context) =>
+      context.json(
+        await services.templateService.duplicate(
+          context.req.param("identifier"),
+        ),
+      ),
+  );
+
+  app.delete(
+    "/templates/:identifier",
+    requireScope("templates:write"),
+    async (context) =>
+      context.json(
+        await services.templateService.delete(context.req.param("identifier")),
+      ),
+  );
+
   app.get(
     "/emails",
     requireScope("emails:read"),
@@ -379,10 +445,7 @@ export function createApp(
     zValidator("query", paginationSchema, validationCallback),
     async (context) => {
       const { limit, after } = context.req.valid("query");
-      const page = await services.receivedEmailService.list(
-        limit,
-        after,
-      );
+      const page = await services.receivedEmailService.list(limit, after);
       return context.json({ object: "list", ...page });
     },
   );
@@ -423,15 +486,10 @@ export function createApp(
       ),
   );
 
-  app.get(
-    "/emails/:id",
-    requireScope("emails:read"),
-    async (context) =>
-      context.json(
-        publicEmail(
-          await services.emailService.get(context.req.param("id")),
-        ),
-      ),
+  app.get("/emails/:id", requireScope("emails:read"), async (context) =>
+    context.json(
+      publicEmail(await services.emailService.get(context.req.param("id"))),
+    ),
   );
 
   app.patch(
@@ -479,13 +537,8 @@ export function createApp(
     },
   );
 
-  app.get(
-    "/domains/:id",
-    requireScope("domains:read"),
-    async (context) =>
-      context.json(
-        await services.domainService.get(context.req.param("id")),
-      ),
+  app.get("/domains/:id", requireScope("domains:read"), async (context) =>
+    context.json(await services.domainService.get(context.req.param("id"))),
   );
 
   app.post(
@@ -497,15 +550,11 @@ export function createApp(
       ),
   );
 
-  app.delete(
-    "/domains/:id",
-    requireScope("domains:write"),
-    async (context) => {
-      const id = context.req.param("id");
-      await services.domainService.delete(id);
-      return context.json({ object: "domain", id, deleted: true });
-    },
-  );
+  app.delete("/domains/:id", requireScope("domains:write"), async (context) => {
+    const id = context.req.param("id");
+    await services.domainService.delete(id);
+    return context.json({ object: "domain", id, deleted: true });
+  });
 
   app.post(
     "/webhooks",
@@ -533,13 +582,8 @@ export function createApp(
     },
   );
 
-  app.get(
-    "/webhooks/:id",
-    requireScope("webhooks:read"),
-    async (context) =>
-      context.json(
-        await services.webhookService.get(context.req.param("id")),
-      ),
+  app.get("/webhooks/:id", requireScope("webhooks:read"), async (context) =>
+    context.json(await services.webhookService.get(context.req.param("id"))),
   );
 
   app.get(
@@ -588,10 +632,7 @@ export function createApp(
     zValidator("json", webhookUpdateSchema, validationCallback),
     async (context) => {
       const id = context.req.param("id");
-      await services.webhookService.update(
-        id,
-        context.req.valid("json"),
-      );
+      await services.webhookService.update(id, context.req.valid("json"));
       return context.json({ object: "webhook", id });
     },
   );
@@ -679,13 +720,8 @@ export function createApp(
     },
   );
 
-  app.get(
-    "/api-keys/:id",
-    requireScope("api_keys:read"),
-    async (context) =>
-      context.json(
-        await services.apiKeyService.get(context.req.param("id")),
-      ),
+  app.get("/api-keys/:id", requireScope("api_keys:read"), async (context) =>
+    context.json(await services.apiKeyService.get(context.req.param("id"))),
   );
 
   app.delete(

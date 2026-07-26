@@ -58,6 +58,8 @@ A single DynamoDB table stores typed entities:
 - `IDEMPOTENCY#<sha256>`
 - `APIKEY#<id>`
 - `SUPPRESSION#<sha256-normalized-email>`
+- `TEMPLATE#<id>`
+- `TEMPLATE_ALIAS#<alias>`
 
 `GSI1` provides reverse-chronological lists by entity type. Idempotency claims
 and unreferenced attachment metadata expire after 24 hours through DynamoDB
@@ -78,6 +80,13 @@ payloads. Direct uploads accept only a caller-declared size and SHA-256, never
 an arbitrary remote URL. The bucket denies plaintext transport and objects
 expire after 45 days; email metadata remains in DynamoDB. Public email
 responses expose attachment metadata only.
+
+Templates remain within the DynamoDB size boundary through a 128 KiB
+per-version limit. Each record contains the editable draft and immutable
+published snapshot; sends never read draft content. Alias ownership and
+revision changes are transactional, and optimistic revision checks reject
+concurrent updates. Variables are type checked before queueing and HTML values
+are escaped during rendering.
 
 ## Receive path
 
@@ -135,5 +144,6 @@ A manual replay creates a new delivery record and message ID, links it through
 
 - one bootstrap administrator key per deployment;
 - payload retention is fixed at 45 days;
+- template history retains only the current draft and published snapshot;
 - inbound forwarding, alias routing, and ARC preservation are not implemented;
 - no deployment test has run in a dedicated AWS account.

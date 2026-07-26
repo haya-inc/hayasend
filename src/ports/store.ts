@@ -9,6 +9,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -31,10 +32,25 @@ export interface Store {
   ): Promise<EmailRecord | undefined>;
   listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>>;
 
+  createTemplate(record: TemplateRecord): Promise<void>;
+  getTemplate(identifier: string): Promise<TemplateRecord | undefined>;
+  replaceTemplate(
+    record: TemplateRecord,
+    previousAlias: string | undefined,
+    expectedRevision: number,
+  ): Promise<boolean>;
+  deleteTemplate(
+    record: TemplateRecord,
+    expectedRevision: number,
+  ): Promise<boolean>;
+  listTemplates(
+    limit: number,
+    cursor?: string,
+    direction?: "after" | "before",
+  ): Promise<Page<TemplateRecord>>;
+
   putAttachmentUpload(record: AttachmentUploadRecord): Promise<void>;
-  getAttachmentUpload(
-    id: string,
-  ): Promise<AttachmentUploadRecord | undefined>;
+  getAttachmentUpload(id: string): Promise<AttachmentUploadRecord | undefined>;
 
   claimReceivedEmail(
     id: string,
@@ -67,19 +83,12 @@ export interface Store {
   getWebhook(id: string): Promise<WebhookEndpoint | undefined>;
   updateWebhook(
     id: string,
-    updates: Partial<
-      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
-    >,
+    updates: Partial<Pick<WebhookEndpoint, "endpoint" | "events" | "status">>,
   ): Promise<WebhookEndpoint | undefined>;
   deleteWebhook(id: string): Promise<boolean>;
-  listWebhooks(
-    limit: number,
-    cursor?: string,
-  ): Promise<Page<WebhookEndpoint>>;
+  listWebhooks(limit: number, cursor?: string): Promise<Page<WebhookEndpoint>>;
   createWebhookDelivery(record: WebhookDeliveryRecord): Promise<boolean>;
-  getWebhookDelivery(
-    id: string,
-  ): Promise<WebhookDeliveryRecord | undefined>;
+  getWebhookDelivery(id: string): Promise<WebhookDeliveryRecord | undefined>;
   updateWebhookDelivery(
     id: string,
     updates: Partial<

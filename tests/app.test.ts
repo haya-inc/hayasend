@@ -19,6 +19,7 @@ import { EmailService } from "../src/services/email-service.js";
 import { ReceivedEmailService } from "../src/services/received-email-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
+import { TemplateService } from "../src/services/template-service.js";
 
 class RecordingTransport implements MailTransport {
   readonly sent: EmailRecord[] = [];
@@ -55,6 +56,7 @@ function fixture() {
   );
   const transport = new RecordingTransport();
   const scheduler = new QueueEmailScheduler(queue);
+  const templates = new TemplateService(store);
   const emails = new EmailService(
     store,
     scheduler,
@@ -62,6 +64,7 @@ function fixture() {
     webhooks,
     suppressions,
     attachments,
+    templates,
   );
   const domains = new DomainService(
     store,
@@ -75,6 +78,7 @@ function fixture() {
     emailService: emails,
     receivedEmailService,
     suppressionService: suppressions,
+    templateService: templates,
     webhookService: webhooks,
   });
   const request = (
@@ -102,6 +106,7 @@ function fixture() {
     request,
     store,
     suppressions,
+    templates,
     transport,
     webhooks,
   };
@@ -119,6 +124,7 @@ function previewFixture() {
         emailService: result.emails,
         receivedEmailService: result.receivedEmailService,
         suppressionService: result.suppressions,
+        templateService: result.templates,
         webhookService: result.webhooks,
       },
       { localPreview: true },
@@ -171,9 +177,7 @@ describe("HTTP API", () => {
     const css = await app.request("/preview/app.css");
     expect(css.headers.get("content-type")).toContain("text/css");
     const script = await app.request("/preview/app.js");
-    expect(script.headers.get("content-type")).toContain(
-      "text/javascript",
-    );
+    expect(script.headers.get("content-type")).toContain("text/javascript");
     expect(await script.text()).toContain("default-src 'none'");
     const favicon = await app.request("/favicon.ico");
     expect(favicon.status).toBe(204);
@@ -251,11 +255,7 @@ describe("HTTP API", () => {
   });
 
   it("lists and retrieves received emails before the generic email route", async () => {
-    const {
-      inboundStorage,
-      receivedEmailService,
-      request,
-    } = fixture();
+    const { inboundStorage, receivedEmailService, request } = fixture();
     inboundStorage.seedRaw(
       "inbound/raw/aws-inbound-api",
       [
@@ -288,9 +288,7 @@ describe("HTTP API", () => {
       ],
     });
 
-    const retrieved = await request(
-      `/emails/receiving/${record?.id}`,
-    );
+    const retrieved = await request(`/emails/receiving/${record?.id}`);
     expect(retrieved.status).toBe(200);
     await expect(retrieved.json()).resolves.toMatchObject({
       object: "email",
@@ -376,9 +374,7 @@ describe("HTTP API", () => {
       throw new Error("Expected a webhook delivery job.");
     }
     const deliveryId = deliveryJob.delivery_id ?? "";
-    const deliveries = await request(
-      `/webhooks/${webhookBody.id}/deliveries`,
-    );
+    const deliveries = await request(`/webhooks/${webhookBody.id}/deliveries`);
     await expect(deliveries.json()).resolves.toMatchObject({
       object: "list",
       data: [
@@ -400,23 +396,18 @@ describe("HTTP API", () => {
         data: { email_id: "email_delivery_history" },
       },
     });
-    const updatedWebhook = await request(
-      `/webhooks/${webhookBody.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          events: ["email.delivered"],
-          status: "disabled",
-        }),
-      },
-    );
+    const updatedWebhook = await request(`/webhooks/${webhookBody.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        events: ["email.delivered"],
+        status: "disabled",
+      }),
+    });
     await expect(updatedWebhook.json()).resolves.toEqual({
       object: "webhook",
       id: webhookBody.id,
     });
-    const retrievedWebhook = await request(
-      `/webhooks/${webhookBody.id}`,
-    );
+    const retrievedWebhook = await request(`/webhooks/${webhookBody.id}`);
     const retrievedWebhookBody = (await retrievedWebhook.json()) as Record<
       string,
       unknown
@@ -513,9 +504,10 @@ describe("HTTP API", () => {
     });
     expect(send.status).toBe(200);
     const { id } = (await send.json()) as { id: string };
-    const retrieved = (await (
-      await request(`/emails/${id}`)
-    ).json()) as Record<string, unknown>;
+    const retrieved = (await (await request(`/emails/${id}`)).json()) as Record<
+      string,
+      unknown
+    >;
     expect(retrieved.attachments).toEqual([
       {
         attachment_id: upload.id,
@@ -523,9 +515,7 @@ describe("HTTP API", () => {
         content_type: "text/plain",
       },
     ]);
-    expect(JSON.stringify(retrieved)).not.toContain(
-      content.toString("base64"),
-    );
+    expect(JSON.stringify(retrieved)).not.toContain(content.toString("base64"));
     expect(JSON.stringify(retrieved)).not.toContain("object_key");
     expect(JSON.stringify(retrieved)).not.toContain(checksum);
 
@@ -588,6 +578,8 @@ describe("HTTP API", () => {
 
     const forbidden = await request("/domains", {}, created.token);
     expect(forbidden.status).toBe(403);
+    const forbiddenTemplates = await request("/templates", {}, created.token);
+    expect(forbiddenTemplates.status).toBe(403);
 
     const list = (await (await request("/api-keys")).json()) as {
       data: Array<Record<string, unknown>>;

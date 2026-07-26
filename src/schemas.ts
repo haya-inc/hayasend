@@ -1,8 +1,11 @@
 import { z } from "zod";
 
-const safeString = z.string().min(1).refine((value) => !/[\r\n]/.test(value), {
-  message: "must not contain line breaks",
-});
+const safeString = z
+  .string()
+  .min(1)
+  .refine((value) => !/[\r\n]/.test(value), {
+    message: "must not contain line breaks",
+  });
 
 const address = safeString.max(998);
 const recipientList = z
@@ -11,7 +14,11 @@ const recipientList = z
 
 const tag = z
   .object({
-    name: z.string().min(1).max(256).regex(/^[a-zA-Z0-9_-]+$/),
+    name: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^[a-zA-Z0-9_-]+$/),
     value: z.string().min(1).max(256),
   })
   .strict();
@@ -44,18 +51,34 @@ export const attachmentUploadSchema = z
   .object({
     filename: z.string().min(1).max(255),
     content_type: z.string().min(1).max(255),
-    size_bytes: z.number().int().min(1).max(25 * 1024 * 1024),
+    size_bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(25 * 1024 * 1024),
     checksum_sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
   })
   .strict();
 
 export const sendEmailSchema = z
   .object({
-    from: address,
+    from: address.optional(),
     to: recipientList,
-    subject: safeString.max(998),
+    subject: safeString.max(998).optional(),
     html: z.string().min(1).optional(),
     text: z.string().min(1).optional(),
+    template: z
+      .object({
+        id: z.string().trim().min(1).max(256),
+        variables: z
+          .record(
+            z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+            z.union([z.string().max(2_000), z.number().finite().safe()]),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
     cc: recipientList.optional(),
     bcc: recipientList.optional(),
     reply_to: recipientList.optional(),
@@ -65,9 +88,38 @@ export const sendEmailSchema = z
     scheduled_at: z.string().min(1).optional(),
   })
   .strict()
-  .refine((value) => Boolean(value.html || value.text), {
-    message: "Either html or text is required.",
-    path: ["html"],
+  .superRefine((value, context) => {
+    if (value.template) {
+      if (value.html !== undefined || value.text !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "template cannot be combined with html or text.",
+          path: ["template"],
+        });
+      }
+      return;
+    }
+    if (!value.from) {
+      context.addIssue({
+        code: "custom",
+        message: "from is required when template is not provided.",
+        path: ["from"],
+      });
+    }
+    if (!value.subject) {
+      context.addIssue({
+        code: "custom",
+        message: "subject is required when template is not provided.",
+        path: ["subject"],
+      });
+    }
+    if (!value.html && !value.text) {
+      context.addIssue({
+        code: "custom",
+        message: "Either html or text is required.",
+        path: ["html"],
+      });
+    }
   });
 
 export const batchEmailSchema = z.array(sendEmailSchema).min(1).max(100);
@@ -119,14 +171,27 @@ export const webhookUpdateSchema = z
     status: z.enum(["enabled", "disabled"]).optional(),
   })
   .strict()
-  .refine((input) => Object.values(input).some((value) => value !== undefined), {
-    message: "At least one webhook field is required.",
-  });
+  .refine(
+    (input) => Object.values(input).some((value) => value !== undefined),
+    {
+      message: "At least one webhook field is required.",
+    },
+  );
 
 export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   after: z.string().min(1).optional(),
 });
+
+export const templatePaginationSchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    after: z.string().min(1).optional(),
+    before: z.string().min(1).optional(),
+  })
+  .refine((value) => !(value.after && value.before), {
+    message: "after and before cannot be used together.",
+  });
 
 export const receivedEmailQuerySchema = z.object({
   html_format: z.enum(["data_uri", "cid"]).default("data_uri"),
@@ -135,6 +200,8 @@ export const receivedEmailQuerySchema = z.object({
 export const apiScopeSchema = z.enum([
   "emails:send",
   "emails:read",
+  "templates:read",
+  "templates:write",
   "domains:read",
   "domains:write",
   "webhooks:read",
@@ -144,6 +211,71 @@ export const apiScopeSchema = z.enum([
   "api_keys:read",
   "api_keys:write",
 ]);
+
+const templateVariableSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      key: z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+      type: z.literal("string"),
+      fallback_value: z.string().max(2_000).nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      key: z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+      type: z.literal("number"),
+      fallback_value: z.number().finite().safe().nullable().optional(),
+    })
+    .strict(),
+]);
+
+const templateAlias = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^(?!tmpl_)[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/);
+
+const nullableAddress = address.nullable().optional();
+const nullableSubject = safeString.max(998).nullable().optional();
+const nullableReplyTo = recipientList.nullable().optional();
+
+export const createTemplateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256),
+    html: z.string().min(1),
+    text: z
+      .string()
+      .max(256 * 1024)
+      .nullable()
+      .optional(),
+    alias: templateAlias.nullable().optional(),
+    from: nullableAddress,
+    subject: nullableSubject,
+    reply_to: nullableReplyTo,
+    variables: z.array(templateVariableSchema).max(50).optional(),
+  })
+  .strict();
+
+export const updateTemplateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    html: z.string().min(1).optional(),
+    text: z
+      .string()
+      .max(256 * 1024)
+      .nullable()
+      .optional(),
+    alias: templateAlias.nullable().optional(),
+    from: nullableAddress,
+    subject: nullableSubject,
+    reply_to: nullableReplyTo,
+    variables: z.array(templateVariableSchema).max(50).optional(),
+  })
+  .strict()
+  .refine(
+    (input) => Object.values(input).some((value) => value !== undefined),
+    { message: "At least one template field is required." },
+  );
 
 export const apiKeySchema = z
   .object({

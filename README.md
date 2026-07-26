@@ -16,6 +16,8 @@ account, and HayaSend never logs message bodies.
   base64 attachments
 - checksum-bound direct S3 attachment uploads up to 25 MiB
 - `POST /emails/batch` for up to 100 messages
+- hosted templates with unique aliases, typed variables, isolated
+  draft/published versions, and official SDK/React Email support
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
 - automatic hard-bounce and complaint suppressions plus manual suppression API
@@ -60,6 +62,29 @@ const { data, error } = await email.emails.send({
 
 Use a key beginning with `re_` for compatibility with clients that validate
 the key prefix.
+
+Hosted templates also work through the official SDK:
+
+```ts
+await email.templates
+  .create({
+    name: "Welcome",
+    alias: "welcome",
+    from: "Product <hello@example.com>",
+    subject: "Welcome, {{{NAME}}}",
+    html: "<p>Your account is ready, {{{NAME}}}.</p>",
+    variables: [{ key: "NAME", type: "string" }],
+  })
+  .publish();
+
+await email.emails.send({
+  to: "person@example.net",
+  template: { id: "welcome", variables: { NAME: "Ada" } },
+});
+```
+
+See [hosted templates](docs/hosted-templates.md) for React Email, versioning,
+variable safety, limits, and least-privilege scopes.
 
 ## Run locally
 

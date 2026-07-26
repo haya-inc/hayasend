@@ -42,3 +42,11 @@ short-lived raw MIME URL, parses it locally, and submits the body and
 attachments through `POST /emails`. The `from` value must use a sending
 identity verified in the deployment's SES account; never substitute the
 untrusted original sender address.
+
+Hosted templates can be migrated without changing application send calls.
+Create and publish each template through the official SDK, then continue using
+`template: { id, variables }`. HayaSend accepts both template IDs and aliases.
+Give the migration job `templates:read` and `templates:write`; the application
+sender itself needs only `emails:send`. See
+[hosted templates](hosted-templates.md) for the draft/publication boundary and
+current version-retention limit.

@@ -25,6 +25,7 @@ import type {
   Page,
   ReceivedEmailRecord,
   SuppressionRecord,
+  TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
@@ -38,7 +39,8 @@ type Entity =
   | WebhookDeliveryRecord
   | ApiKeyRecord
   | SuppressionRecord
-  | ReceivedEmailRecord;
+  | ReceivedEmailRecord
+  | TemplateRecord;
 type EntityKind =
   | "EMAIL"
   | "ATTACHMENT"
@@ -48,10 +50,12 @@ type EntityKind =
   | "WEBHOOK"
   | "WEBHOOK_DELIVERY"
   | "APIKEY"
-  | "SUPPRESSION";
+  | "SUPPRESSION"
+  | "TEMPLATE"
+  | "TEMPLATE_ALIAS";
 type IndexedEntityKind = Exclude<
   EntityKind,
-  "ATTACHMENT" | "RECEIVED_CLAIM" | "WEBHOOK_DELIVERY"
+  "ATTACHMENT" | "RECEIVED_CLAIM" | "WEBHOOK_DELIVERY" | "TEMPLATE_ALIAS"
 >;
 type IndexPartition =
   | "EMAILS"
@@ -59,7 +63,8 @@ type IndexPartition =
   | "DOMAINS"
   | "WEBHOOKS"
   | "API_KEYS"
-  | "SUPPRESSIONS";
+  | "SUPPRESSIONS"
+  | "TEMPLATES";
 
 interface StoredEntity {
   PK: string;
@@ -79,16 +84,14 @@ const INDEX_PARTITION: Record<IndexedEntityKind, IndexPartition> = {
   WEBHOOK: "WEBHOOKS",
   APIKEY: "API_KEYS",
   SUPPRESSION: "SUPPRESSIONS",
+  TEMPLATE: "TEMPLATES",
 };
 
 function entityKey(kind: EntityKind, id: string) {
   return { PK: `${kind}#${id}`, SK: `${kind}#${id}` };
 }
 
-function storedEntity(
-  kind: IndexedEntityKind,
-  record: Entity,
-): StoredEntity {
+function storedEntity(kind: IndexedEntityKind, record: Entity): StoredEntity {
   const key = entityKey(kind, record.id);
   return {
     ...key,
@@ -108,9 +111,10 @@ function decodeCursor(value: string | undefined) {
   if (!value) {
     return undefined;
   }
-  return JSON.parse(
-    Buffer.from(value, "base64url").toString("utf8"),
-  ) as Record<string, unknown>;
+  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<
+    string,
+    unknown
+  >;
 }
 
 export class DynamoStore implements Store {
@@ -176,7 +180,9 @@ export class DynamoStore implements Store {
       );
       return { record, replayed: false };
     } catch (error) {
-      if ((error as { name?: string }).name !== "TransactionCanceledException") {
+      if (
+        (error as { name?: string }).name !== "TransactionCanceledException"
+      ) {
         throw error;
       }
     }
@@ -244,13 +250,13 @@ export class DynamoStore implements Store {
           ReturnValues: "ALL_NEW",
         }),
       );
-      const record = (result.Attributes as StoredEntity | undefined)
-        ?.entity as EmailRecord | undefined;
+      const record = (result.Attributes as StoredEntity | undefined)?.entity as
+        | EmailRecord
+        | undefined;
       return record ? await this.hydrateEmailPayload(record) : undefined;
     } catch (error) {
       if (
-        (error as { name?: string }).name ===
-        "ConditionalCheckFailedException"
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
         return undefined;
       }
@@ -319,8 +325,7 @@ export class DynamoStore implements Store {
         | undefined;
     } catch (error) {
       if (
-        (error as { name?: string }).name ===
-        "ConditionalCheckFailedException"
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
         return undefined;
       }
@@ -328,16 +333,230 @@ export class DynamoStore implements Store {
     }
   }
 
-  async listEmails(
-    limit: number,
-    cursor?: string,
-  ): Promise<Page<EmailRecord>> {
+  async listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
     return this.listEntities<EmailRecord>("EMAILS", limit, cursor);
   }
 
-  async putAttachmentUpload(
-    record: AttachmentUploadRecord,
-  ): Promise<void> {
+  async createTemplate(record: TemplateRecord): Promise<void> {
+    const alias = record.draft.alias;
+    const templatePut = {
+      Put: {
+        TableName: this.tableName,
+        Item: storedEntity("TEMPLATE", record),
+        ConditionExpression: "attribute_not_exists(PK)",
+      },
+    };
+    try {
+      if (alias === undefined) {
+        await this.client.send(new PutCommand(templatePut.Put));
+        return;
+      }
+      await this.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            templatePut,
+            {
+              Put: {
+                TableName: this.tableName,
+                Item: {
+                  ...entityKey("TEMPLATE_ALIAS", alias),
+                  template_id: record.id,
+                },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+          ],
+        }),
+      );
+    } catch (error) {
+      if (
+        [
+          "ConditionalCheckFailedException",
+          "TransactionCanceledException",
+        ].includes((error as { name?: string }).name ?? "")
+      ) {
+        throw new ConflictError("Template alias is already in use.");
+      }
+      throw error;
+    }
+  }
+
+  async getTemplate(identifier: string): Promise<TemplateRecord | undefined> {
+    const direct = await this.getEntity<TemplateRecord>("TEMPLATE", identifier);
+    if (direct) {
+      return direct;
+    }
+    const alias = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: entityKey("TEMPLATE_ALIAS", identifier),
+        ConsistentRead: true,
+      }),
+    );
+    const templateId = (alias.Item as { template_id?: string } | undefined)
+      ?.template_id;
+    return templateId
+      ? this.getEntity<TemplateRecord>("TEMPLATE", templateId)
+      : undefined;
+  }
+
+  async replaceTemplate(
+    record: TemplateRecord,
+    previousAlias: string | undefined,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const nextAlias = record.draft.alias;
+    const items: NonNullable<
+      ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
+    > = [
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: storedEntity("TEMPLATE", record),
+          ConditionExpression:
+            "attribute_exists(PK) AND entity.#revision = :expected_revision",
+          ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: {
+            ":expected_revision": expectedRevision,
+          },
+        },
+      },
+    ];
+    if (previousAlias !== undefined && previousAlias !== nextAlias) {
+      items.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: entityKey("TEMPLATE_ALIAS", previousAlias),
+          ConditionExpression: "template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    if (nextAlias !== undefined && nextAlias !== previousAlias) {
+      items.push({
+        Put: {
+          TableName: this.tableName,
+          Item: {
+            ...entityKey("TEMPLATE_ALIAS", nextAlias),
+            template_id: record.id,
+          },
+          ConditionExpression:
+            "attribute_not_exists(PK) OR template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    try {
+      await this.client.send(
+        new TransactWriteCommand({ TransactItems: items }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name === "TransactionCanceledException"
+      ) {
+        throw new ConflictError(
+          "Template alias is already in use or the template changed concurrently.",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async deleteTemplate(
+    record: TemplateRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const items: NonNullable<
+      ConstructorParameters<typeof TransactWriteCommand>[0]["TransactItems"]
+    > = [
+      {
+        Delete: {
+          TableName: this.tableName,
+          Key: entityKey("TEMPLATE", record.id),
+          ConditionExpression:
+            "attribute_exists(PK) AND entity.#revision = :expected_revision",
+          ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: {
+            ":expected_revision": expectedRevision,
+          },
+        },
+      },
+    ];
+    if (record.draft.alias !== undefined) {
+      items.push({
+        Delete: {
+          TableName: this.tableName,
+          Key: entityKey("TEMPLATE_ALIAS", record.draft.alias),
+          ConditionExpression: "template_id = :template_id",
+          ExpressionAttributeValues: { ":template_id": record.id },
+        },
+      });
+    }
+    try {
+      await this.client.send(
+        new TransactWriteCommand({ TransactItems: items }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        (error as { name?: string }).name === "TransactionCanceledException"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async listTemplates(
+    limit: number,
+    cursor?: string,
+    direction: "after" | "before" = "after",
+  ): Promise<Page<TemplateRecord>> {
+    const anchor = cursor
+      ? await this.getEntity<TemplateRecord>("TEMPLATE", cursor)
+      : undefined;
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: "GSI1",
+        KeyConditionExpression:
+          direction === "before" && anchor
+            ? "GSI1PK = :partition AND GSI1SK > :anchor"
+            : "GSI1PK = :partition",
+        ExpressionAttributeValues: {
+          ":partition": "TEMPLATES",
+          ...(direction === "before" && anchor
+            ? { ":anchor": `${anchor.created_at}#${anchor.id}` }
+            : {}),
+        },
+        ...(direction === "after" && anchor
+          ? {
+              ExclusiveStartKey: {
+                ...entityKey("TEMPLATE", anchor.id),
+                GSI1PK: "TEMPLATES",
+                GSI1SK: `${anchor.created_at}#${anchor.id}`,
+              },
+            }
+          : {}),
+        ScanIndexForward: direction === "before",
+        Limit: limit,
+      }),
+    );
+    const queried = (result.Items ?? []).map(
+      (item) => (item as StoredEntity).entity as TemplateRecord,
+    );
+    const data = direction === "before" ? queried.reverse() : queried;
+    return result.LastEvaluatedKey && data.length > 0
+      ? {
+          data,
+          has_more: true,
+          next_cursor: direction === "before" ? data[0]?.id : data.at(-1)?.id,
+        }
+      : { data, has_more: false };
+  }
+
+  async putAttachmentUpload(record: AttachmentUploadRecord): Promise<void> {
     await this.client.send(
       new PutCommand({
         TableName: this.tableName,
@@ -354,10 +573,7 @@ export class DynamoStore implements Store {
   async getAttachmentUpload(
     id: string,
   ): Promise<AttachmentUploadRecord | undefined> {
-    return this.getEntity<AttachmentUploadRecord>(
-      "ATTACHMENT",
-      id,
-    );
+    return this.getEntity<AttachmentUploadRecord>("ATTACHMENT", id);
   }
 
   async claimReceivedEmail(
@@ -497,9 +713,7 @@ export class DynamoStore implements Store {
 
   async updateWebhook(
     id: string,
-    updates: Partial<
-      Pick<WebhookEndpoint, "endpoint" | "events" | "status">
-    >,
+    updates: Partial<Pick<WebhookEndpoint, "endpoint" | "events" | "status">>,
   ): Promise<WebhookEndpoint | undefined> {
     const entries = Object.entries(updates);
     if (entries.length === 0) {
@@ -531,8 +745,7 @@ export class DynamoStore implements Store {
         | undefined;
     } catch (error) {
       if (
-        (error as { name?: string }).name ===
-        "ConditionalCheckFailedException"
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
         return undefined;
       }
@@ -551,9 +764,7 @@ export class DynamoStore implements Store {
     return this.listEntities<WebhookEndpoint>("WEBHOOKS", limit, cursor);
   }
 
-  async createWebhookDelivery(
-    record: WebhookDeliveryRecord,
-  ): Promise<boolean> {
+  async createWebhookDelivery(record: WebhookDeliveryRecord): Promise<boolean> {
     try {
       await this.client.send(
         new PutCommand({
@@ -571,8 +782,7 @@ export class DynamoStore implements Store {
       return true;
     } catch (error) {
       if (
-        (error as { name?: string }).name ===
-        "ConditionalCheckFailedException"
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
         return false;
       }
@@ -658,8 +868,7 @@ export class DynamoStore implements Store {
         | undefined;
     } catch (error) {
       if (
-        (error as { name?: string }).name ===
-        "ConditionalCheckFailedException"
+        (error as { name?: string }).name === "ConditionalCheckFailedException"
       ) {
         return undefined;
       }
@@ -688,8 +897,7 @@ export class DynamoStore implements Store {
       }),
     );
     const data = (result.Items ?? []).map(
-      (item) =>
-        (item as StoredEntity).entity as WebhookDeliveryRecord,
+      (item) => (item as StoredEntity).entity as WebhookDeliveryRecord,
     );
     const nextCursor = encodeCursor(
       result.LastEvaluatedKey as Record<string, unknown> | undefined,
@@ -744,11 +952,7 @@ export class DynamoStore implements Store {
     limit: number,
     cursor?: string,
   ): Promise<Page<SuppressionRecord>> {
-    return this.listEntities<SuppressionRecord>(
-      "SUPPRESSIONS",
-      limit,
-      cursor,
-    );
+    return this.listEntities<SuppressionRecord>("SUPPRESSIONS", limit, cursor);
   }
 
   private async putEntity(
@@ -791,8 +995,7 @@ export class DynamoStore implements Store {
     const item = storedEntity(kind, updated);
     if (kind === "RECEIVED") {
       item.ttl = Math.floor(
-        new Date((updated as ReceivedEmailRecord).expires_at).getTime() /
-          1_000,
+        new Date((updated as ReceivedEmailRecord).expires_at).getTime() / 1_000,
       );
     }
     await this.client.send(

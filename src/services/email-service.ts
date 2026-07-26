@@ -20,6 +20,7 @@ import type { Store } from "../ports/store.js";
 import type { AttachmentService } from "./attachment-service.js";
 import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
+import type { TemplateService } from "./template-service.js";
 
 const FINAL_STATUSES = new Set<EmailStatus>([
   "sent",
@@ -38,17 +39,26 @@ function ensureSafeHeaderValue(label: string, value: string) {
   if (/[\r\n]/.test(value)) {
     throw new ValidationError(`${label} must not contain line breaks.`);
   }
+  if (Buffer.byteLength(value, "utf8") > 998) {
+    throw new ValidationError(`${label} must not exceed 998 bytes.`);
+  }
 }
 
-function validateInput(input: SendEmailInput) {
+function validateInput(
+  input: SendEmailInput,
+): asserts input is SendEmailInput & { from: string; subject: string } {
+  if (input.template) {
+    throw new ValidationError(
+      "Template input must be resolved before sending.",
+    );
+  }
+  if (!input.from || !input.subject) {
+    throw new ValidationError("from and subject are required.");
+  }
   if (!input.html && !input.text) {
     throw new ValidationError("Either html or text is required.");
   }
-  const recipients = [
-    ...input.to,
-    ...(input.cc ?? []),
-    ...(input.bcc ?? []),
-  ];
+  const recipients = [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])];
   if (recipients.length === 0 || recipients.length > 50) {
     throw new ValidationError(
       "An email must have between 1 and 50 recipients.",
@@ -59,14 +69,15 @@ function validateInput(input: SendEmailInput) {
   recipients.forEach((recipient) =>
     ensureSafeHeaderValue("recipient", recipient),
   );
+  for (const replyTo of input.reply_to ?? []) {
+    ensureSafeHeaderValue("reply_to", replyTo);
+  }
   for (const [name, value] of Object.entries(input.headers ?? {})) {
     ensureSafeHeaderValue("header name", name);
     ensureSafeHeaderValue(`header ${name}`, value);
   }
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > 9 * 1024 * 1024) {
-    throw new ValidationError(
-      "The serialized request must not exceed 9 MiB.",
-    );
+    throw new ValidationError("The serialized request must not exceed 9 MiB.");
   }
 }
 
@@ -78,6 +89,7 @@ export class EmailService {
     private readonly webhooks: WebhookService,
     private readonly suppressions: SuppressionService,
     private readonly attachments: AttachmentService,
+    private readonly templates?: TemplateService,
   ) {}
 
   async create(
@@ -85,6 +97,13 @@ export class EmailService {
     idempotencyKey?: string,
     now = new Date(),
   ): Promise<CreateEmailResult> {
+    const templateRequestHash = input.template ? requestHash(input) : undefined;
+    if (input.template) {
+      if (!this.templates) {
+        throw new ValidationError("Hosted templates are unavailable.");
+      }
+      input = await this.templates.resolveForSend(input);
+    }
     validateInput(input);
     const scheduledAt = parseScheduledAt(input.scheduled_at, now);
     const resolvedAttachments = await this.attachments.resolve(
@@ -104,15 +123,11 @@ export class EmailService {
       to: [...new Set(input.to)],
       ...(input.cc ? { cc: [...new Set(input.cc)] } : {}),
       ...(input.bcc ? { bcc: [...new Set(input.bcc)] } : {}),
-      ...(input.reply_to
-        ? { reply_to: [...new Set(input.reply_to)] }
-        : {}),
+      ...(input.reply_to ? { reply_to: [...new Set(input.reply_to)] } : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
-      ...(resolvedAttachments
-        ? { attachments: resolvedAttachments }
-        : {}),
+      ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
     };
-    const hash = requestHash(normalized);
+    const hash = templateRequestHash ?? requestHash(normalized);
     const timestamp = now.toISOString();
     const record: EmailRecord = {
       ...normalized,
@@ -202,10 +217,7 @@ export class EmailService {
     return record;
   }
 
-  async list(
-    limit: number,
-    cursor?: string,
-  ): Promise<Page<EmailRecord>> {
+  async list(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
     return this.store.listEmails(limit, cursor);
   }
 
@@ -216,11 +228,15 @@ export class EmailService {
         `Email ${id} cannot be canceled from status ${record.status}.`,
       );
     }
-    const updated = await this.store.updateEmail(id, {
-      status: "canceled",
-      last_event: "canceled",
-      updated_at: new Date().toISOString(),
-    }, ["queued", "scheduled"]);
+    const updated = await this.store.updateEmail(
+      id,
+      {
+        status: "canceled",
+        last_event: "canceled",
+        updated_at: new Date().toISOString(),
+      },
+      ["queued", "scheduled"],
+    );
     if (!updated) {
       throw new NotFoundError("Email");
     }
@@ -239,12 +255,16 @@ export class EmailService {
     if (!parsed) {
       throw new ValidationError("scheduled_at is required.");
     }
-    const updated = await this.store.updateEmail(id, {
-      scheduled_at: parsed,
-      status: "scheduled",
-      last_event: "scheduled",
-      updated_at: new Date().toISOString(),
-    }, ["queued", "scheduled"]);
+    const updated = await this.store.updateEmail(
+      id,
+      {
+        scheduled_at: parsed,
+        status: "scheduled",
+        last_event: "scheduled",
+        updated_at: new Date().toISOString(),
+      },
+      ["queued", "scheduled"],
+    );
     if (!updated) {
       throw new NotFoundError("Email");
     }
@@ -297,11 +317,7 @@ export class EmailService {
       return;
     }
 
-    const sending = await this.store.claimEmailForSend(
-      id,
-      attempt,
-      new Date(),
-    );
+    const sending = await this.store.claimEmailForSend(id, attempt, new Date());
     if (!sending) {
       return;
     }
@@ -324,8 +340,7 @@ export class EmailService {
                   : {}),
                 ...(attachment.content_disposition
                   ? {
-                      content_disposition:
-                        attachment.content_disposition,
+                      content_disposition: attachment.content_disposition,
                     }
                   : {}),
               })),
@@ -333,27 +348,35 @@ export class EmailService {
           }
         : sending;
       const result = await this.transport.send(sendable);
-      const sent = await this.store.updateEmail(id, {
-        status: "sent",
-        last_event: "sent",
-        provider_id: result.provider_id,
-        updated_at: new Date().toISOString(),
-        error: undefined,
-        send_lease_until: undefined,
-      }, ["sending"]);
+      const sent = await this.store.updateEmail(
+        id,
+        {
+          status: "sent",
+          last_event: "sent",
+          provider_id: result.provider_id,
+          updated_at: new Date().toISOString(),
+          error: undefined,
+          send_lease_until: undefined,
+        },
+        ["sending"],
+      );
       if (sent) {
         await this.webhooks.publish("email.sent", sent);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const finalAttempt = attempt >= 3;
-      const failed = await this.store.updateEmail(id, {
-        status: finalAttempt ? "failed" : "queued",
-        last_event: finalAttempt ? "failed" : "retrying",
-        updated_at: new Date().toISOString(),
-        error: message,
-        send_lease_until: undefined,
-      }, ["sending"]);
+      const failed = await this.store.updateEmail(
+        id,
+        {
+          status: finalAttempt ? "failed" : "queued",
+          last_event: finalAttempt ? "failed" : "retrying",
+          updated_at: new Date().toISOString(),
+          error: message,
+          send_lease_until: undefined,
+        },
+        ["sending"],
+      );
       if (finalAttempt) {
         emitCountMetric("SendFailures");
         if (failed) {

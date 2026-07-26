@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import type {
   AttachmentUploadRecord,
   EmailRecord,
   ReceivedEmailRecord,
+  TemplateRecord,
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../src/core/types.js";
@@ -53,6 +55,149 @@ const webhookDelivery: WebhookDeliveryRecord = {
 };
 
 describe("DynamoStore", () => {
+  it("translates a template ID cursor into a DynamoDB GSI start key", async () => {
+    const template: TemplateRecord = {
+      id: "tmpl_cursor",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:00:00.000Z",
+      revision: 1,
+      draft: {
+        id: "tmplv_cursor",
+        name: "Cursor",
+        html: "<p>Cursor</p>",
+        variables: [],
+        created_at: "2030-01-01T00:00:00.000Z",
+      },
+    };
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return command instanceof GetCommand
+          ? { Item: { entity: template } }
+          : { Items: [] };
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+
+    await store.listTemplates(20, template.id);
+    await store.listTemplates(10, template.id, "before");
+
+    expect(commands[0]).toBeInstanceOf(GetCommand);
+    expect(commands[1]).toBeInstanceOf(QueryCommand);
+    expect((commands[1] as QueryCommand).input).toMatchObject({
+      IndexName: "GSI1",
+      ExclusiveStartKey: {
+        PK: "TEMPLATE#tmpl_cursor",
+        SK: "TEMPLATE#tmpl_cursor",
+        GSI1PK: "TEMPLATES",
+        GSI1SK: "2030-01-01T00:00:00.000Z#tmpl_cursor",
+      },
+      ScanIndexForward: false,
+      Limit: 20,
+    });
+    expect(commands[2]).toBeInstanceOf(GetCommand);
+    expect(commands[3]).toBeInstanceOf(QueryCommand);
+    expect((commands[3] as QueryCommand).input).toMatchObject({
+      KeyConditionExpression: "GSI1PK = :partition AND GSI1SK > :anchor",
+      ExpressionAttributeValues: {
+        ":partition": "TEMPLATES",
+        ":anchor": "2030-01-01T00:00:00.000Z#tmpl_cursor",
+      },
+      ScanIndexForward: true,
+      Limit: 10,
+    });
+    expect(
+      (commands[3] as QueryCommand).input.ExclusiveStartKey,
+    ).toBeUndefined();
+  });
+
+  it("changes template aliases and revisions in atomic transactions", async () => {
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        return {};
+      },
+    } as unknown as DynamoDBDocumentClient;
+    const store = new DynamoStore("table", undefined, client);
+    const template: TemplateRecord = {
+      id: "tmpl_123",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:00:00.000Z",
+      revision: 1,
+      draft: {
+        id: "tmplv_123",
+        name: "Welcome",
+        alias: "welcome",
+        html: "<p>Welcome</p>",
+        variables: [],
+        created_at: "2030-01-01T00:00:00.000Z",
+      },
+    };
+
+    await store.createTemplate(template);
+    const updated: TemplateRecord = {
+      ...template,
+      revision: 2,
+      updated_at: "2030-01-01T00:01:00.000Z",
+      draft: {
+        ...template.draft,
+        id: "tmplv_456",
+        alias: "welcome-v2",
+        created_at: "2030-01-01T00:01:00.000Z",
+      },
+    };
+    await store.replaceTemplate(updated, "welcome", 1);
+    await store.deleteTemplate(updated, 2);
+
+    expect(commands).toHaveLength(3);
+    expect(commands[0]).toBeInstanceOf(TransactWriteCommand);
+    const createItems = (commands[0] as TransactWriteCommand).input
+      .TransactItems;
+    expect(createItems).toHaveLength(2);
+    expect(createItems?.[0]?.Put?.Item).toMatchObject({
+      PK: "TEMPLATE#tmpl_123",
+      GSI1PK: "TEMPLATES",
+      entity: template,
+    });
+    expect(createItems?.[1]?.Put?.Item).toEqual({
+      PK: "TEMPLATE_ALIAS#welcome",
+      SK: "TEMPLATE_ALIAS#welcome",
+      template_id: "tmpl_123",
+    });
+
+    expect(commands[1]).toBeInstanceOf(TransactWriteCommand);
+    const replaceItems = (commands[1] as TransactWriteCommand).input
+      .TransactItems;
+    expect(replaceItems).toHaveLength(3);
+    expect(replaceItems?.[0]?.Put).toMatchObject({
+      ConditionExpression:
+        "attribute_exists(PK) AND entity.#revision = :expected_revision",
+      ExpressionAttributeValues: { ":expected_revision": 1 },
+    });
+    expect(replaceItems?.[1]?.Delete?.Key).toEqual({
+      PK: "TEMPLATE_ALIAS#welcome",
+      SK: "TEMPLATE_ALIAS#welcome",
+    });
+    expect(replaceItems?.[2]?.Put?.Item).toMatchObject({
+      PK: "TEMPLATE_ALIAS#welcome-v2",
+      template_id: "tmpl_123",
+    });
+
+    expect(commands[2]).toBeInstanceOf(TransactWriteCommand);
+    const deleteItems = (commands[2] as TransactWriteCommand).input
+      .TransactItems;
+    expect(deleteItems).toHaveLength(2);
+    expect(deleteItems?.[0]?.Delete).toMatchObject({
+      Key: {
+        PK: "TEMPLATE#tmpl_123",
+        SK: "TEMPLATE#tmpl_123",
+      },
+      ExpressionAttributeValues: { ":expected_revision": 2 },
+    });
+  });
+
   it("stores upload metadata with a DynamoDB TTL", async () => {
     const commands: unknown[] = [];
     const client = {
@@ -173,9 +318,7 @@ describe("DynamoStore", () => {
       ReturnValues: "ALL_NEW",
     });
     expect(command.input.UpdateExpression).toContain("SET entity.");
-    expect(command.input.UpdateExpression).not.toContain(
-      "signing_secret",
-    );
+    expect(command.input.UpdateExpression).not.toContain("signing_secret");
   });
 
   it("stores, updates, and paginates expiring webhook deliveries", async () => {
@@ -210,16 +353,13 @@ describe("DynamoStore", () => {
     const store = new DynamoStore("table", undefined, client);
 
     expect(await store.createWebhookDelivery(webhookDelivery)).toBe(true);
-    const updated = await store.updateWebhookDelivery(
-      webhookDelivery.id,
-      {
-        status: "succeeded",
-        attempts: 1,
-        response_status: 204,
-        last_error: undefined,
-        updated_at: "2030-01-01T00:00:01.000Z",
-      },
-    );
+    const updated = await store.updateWebhookDelivery(webhookDelivery.id, {
+      status: "succeeded",
+      attempts: 1,
+      response_status: 204,
+      last_error: undefined,
+      updated_at: "2030-01-01T00:00:01.000Z",
+    });
     const page = await store.listWebhookDeliveries(
       webhookDelivery.webhook_id,
       20,
@@ -292,17 +432,13 @@ describe("DynamoStore", () => {
       expires_at: "2030-03-24T17:46:40.000Z",
     };
     const created = await store.createReceivedEmail(received);
-    await store.releaseReceivedEmailClaim(
-      "recv_123",
-      1_900_000_300,
-    );
+    await store.releaseReceivedEmailClaim("recv_123", 1_900_000_300);
 
     expect(claimed).toBe(true);
     expect(created).toBe(true);
     expect(commands[0]).toBeInstanceOf(UpdateCommand);
     expect((commands[0] as UpdateCommand).input).toMatchObject({
-      ConditionExpression:
-        "attribute_not_exists(PK) OR lease_until < :now",
+      ConditionExpression: "attribute_not_exists(PK) OR lease_until < :now",
       ExpressionAttributeValues: {
         ":lease": 1_900_000_300,
         ":now": 1_900_000_000,
@@ -364,9 +500,7 @@ describe("DynamoStore", () => {
       webhook_queued_at: "2030-03-17T17:47:00.000Z",
     });
 
-    expect(updated?.webhook_queued_at).toBe(
-      "2030-03-17T17:47:00.000Z",
-    );
+    expect(updated?.webhook_queued_at).toBe("2030-03-17T17:47:00.000Z");
     expect(commands[1]).toBeInstanceOf(PutCommand);
     expect((commands[1] as PutCommand).input.Item).toMatchObject({
       PK: "RECEIVED#recv_456",

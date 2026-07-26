@@ -8,3 +8,6 @@ minor releases before v1.0.
 
 - Initial Resend-compatible sending, scheduling, receiving, webhook, and AWS
   deployment foundation.
+- Add Resend-compatible hosted templates with aliases, typed variables,
+  draft/published isolation, React Email SDK interoperability, and scoped API
+  access.

@@ -30,6 +30,8 @@ export type ApiScope =
   | "*"
   | "emails:send"
   | "emails:read"
+  | "templates:read"
+  | "templates:write"
   | "domains:read"
   | "domains:write"
   | "webhooks:read"
@@ -201,12 +203,18 @@ export interface InboundEmailEvent {
   };
 }
 
+export interface TemplateReference {
+  id: string;
+  variables?: Record<string, string | number> | undefined;
+}
+
 export interface SendEmailInput {
-  from: string;
+  from?: string | undefined;
   to: string[];
-  subject: string;
+  subject?: string | undefined;
   html?: string | undefined;
   text?: string | undefined;
+  template?: TemplateReference | undefined;
   cc?: string[] | undefined;
   bcc?: string[] | undefined;
   reply_to?: string[] | undefined;
@@ -216,7 +224,13 @@ export interface SendEmailInput {
   scheduled_at?: string | undefined;
 }
 
-export interface EmailRecord extends Omit<SendEmailInput, "attachments"> {
+export interface EmailRecord
+  extends Omit<
+    SendEmailInput,
+    "attachments" | "template" | "from" | "subject"
+  > {
+  from: string;
+  subject: string;
   attachments?: EmailAttachment[] | undefined;
   id: string;
   status: EmailStatus;
@@ -230,6 +244,70 @@ export interface EmailRecord extends Omit<SendEmailInput, "attachments"> {
   send_lease_until?: number | undefined;
   payload_ref?: string | undefined;
 }
+
+export type TemplateVariableType = "string" | "number";
+
+export interface TemplateVariable {
+  id: string;
+  key: string;
+  type: TemplateVariableType;
+  fallback_value: string | number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplateVersion {
+  id: string;
+  name: string;
+  html: string;
+  text?: string | undefined;
+  alias?: string | undefined;
+  from?: string | undefined;
+  subject?: string | undefined;
+  reply_to?: string[] | undefined;
+  variables: TemplateVariable[];
+  created_at: string;
+}
+
+export interface TemplateRecord {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+  draft: TemplateVersion;
+  published?: TemplateVersion | undefined;
+  published_at?: string | undefined;
+}
+
+export interface PublicTemplate {
+  object: "template";
+  id: string;
+  current_version_id: string;
+  alias: string | null;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  status: "draft" | "published";
+  published_at: string | null;
+  from: string | null;
+  subject: string | null;
+  reply_to: string[] | null;
+  html: string;
+  text: string | null;
+  variables: TemplateVariable[] | null;
+  has_unpublished_versions: boolean;
+}
+
+export type TemplateListItem = Pick<
+  PublicTemplate,
+  | "id"
+  | "name"
+  | "status"
+  | "published_at"
+  | "created_at"
+  | "updated_at"
+  | "alias"
+>;
 
 export interface IdempotencyClaim {
   key_hash: string;

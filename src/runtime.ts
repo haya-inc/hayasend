@@ -22,10 +22,7 @@ import {
   ConsoleMailTransport,
   SesMailTransport,
 } from "./adapters/ses-transport.js";
-import {
-  LocalJobQueue,
-  SqsJobQueue,
-} from "./adapters/sqs-job-queue.js";
+import { LocalJobQueue, SqsJobQueue } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import type { Job } from "./core/types.js";
 import {
@@ -38,6 +35,7 @@ import { EmailService } from "./services/email-service.js";
 import { ReceivedEmailService } from "./services/received-email-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
 import { WebhookService } from "./services/webhook-service.js";
+import { TemplateService } from "./services/template-service.js";
 
 export interface Runtime extends AppServices {
   processJob(job: Job, attempt?: number): Promise<void>;
@@ -68,10 +66,8 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     new MemoryAttachmentStorage(),
   );
   const scheduler = new QueueEmailScheduler(queue);
-  const apiKeys = new ApiKeyService(
-    store,
-    config.apiKey ?? "re_hayasend_dev",
-  );
+  const apiKeys = new ApiKeyService(store, config.apiKey ?? "re_hayasend_dev");
+  const templateService = new TemplateService(store);
   const emailService = new EmailService(
     store,
     scheduler,
@@ -79,6 +75,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     webhooks,
     suppressions,
     attachmentService,
+    templateService,
   );
   const domainService = new DomainService(
     store,
@@ -95,12 +92,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
       await receivedEmails.publishWebhook(job.email_id);
       return;
     }
-    await webhooks.deliver(
-      job.webhook_id,
-      job.event,
-      job.delivery_id,
-      attempt,
-    );
+    await webhooks.deliver(job.webhook_id, job.event, job.delivery_id, attempt);
   };
   queue.setHandler(processJob);
 
@@ -109,6 +101,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     attachmentService,
     domainService,
     emailService,
+    templateService,
     receivedEmailService: receivedEmails,
     suppressionService: suppressions,
     webhookService: webhooks,
@@ -119,9 +112,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
 export function createAwsRuntime(
   config: Config = loadConfig(),
   bootstrapKey: string | BootstrapKeyProvider = async () => {
-    throw new Error(
-      "Bootstrap authentication is unavailable in this runtime.",
-    );
+    throw new Error("Bootstrap authentication is unavailable in this runtime.");
   },
 ): Runtime {
   if (
@@ -164,10 +155,10 @@ export function createAwsRuntime(
     groupName: config.schedulerGroupName,
     queueArn: config.queueArn,
     roleArn: config.schedulerRoleArn,
-    schedulerDeadLetterQueueArn:
-      config.schedulerDeadLetterQueueArn,
+    schedulerDeadLetterQueueArn: config.schedulerDeadLetterQueueArn,
   });
   const apiKeys = new ApiKeyService(store, bootstrapKey);
+  const templateService = new TemplateService(store);
   const emailService = new EmailService(
     store,
     scheduler,
@@ -175,6 +166,7 @@ export function createAwsRuntime(
     webhooks,
     suppressions,
     attachmentService,
+    templateService,
   );
   const domainService = new DomainService(
     store,
@@ -187,6 +179,7 @@ export function createAwsRuntime(
     attachmentService,
     domainService,
     emailService,
+    templateService,
     receivedEmailService: receivedEmails,
     suppressionService: suppressions,
     webhookService: webhooks,
