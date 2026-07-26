@@ -84,6 +84,7 @@ bypass that boundary by editing DynamoDB directly.
 | Inbound dead-letter queue contains an event | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event |
 | Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
 | API internal error | Use the response's server-generated `x-request-id` to correlate API logs |
+| Email fails with `provider_rejected` on its first attempt | Inspect SES identity, account status, configuration set, and request validity; fix the permanent condition before creating a new send |
 | Send retries exhausted | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics |
 | Complaint received | Confirm suppression creation and review the originating traffic |
 
