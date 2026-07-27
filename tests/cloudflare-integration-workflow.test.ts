@@ -56,5 +56,9 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(apiProof).toContain(
       "transientStatusCodes.has(error.statusCode)",
     );
+    expect(apiProof).toContain("const edgePropagationAttempts = 30");
+    expect(apiProof).toContain(
+      "attempt < edgePropagationAttempts",
+    );
   });
 });
