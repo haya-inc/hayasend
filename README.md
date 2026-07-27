@@ -196,7 +196,8 @@ The command creates a hardened Compose file and `.env.hayasend.example`. Use
 [the CLI guide](docs/cli.md) for secret handling, template-as-code
 reconciliation, and real-send behavior. The compiled package exposes local,
 diagnostic, send, and template commands through its `hayasend` executable;
-plan-first AWS deployment still runs from a reviewed source checkout.
+plan-first AWS deployment runs from the reviewed source embedded in that exact
+package version.
 
 ```bash
 HAYASEND_API_KEY=re_hayasend_dev
@@ -302,6 +303,8 @@ under SES's 40 MB message limit.
 
 Requirements:
 
+- Node.js 24 LTS or newer
+- npm 12 or newer
 - AWS CLI credentials
 - AWS SAM CLI
 - an SES-enabled AWS Region
@@ -312,7 +315,8 @@ an authenticated shell from silently targeting the wrong account:
 
 ```bash
 aws_account_id="$(aws sts get-caller-identity --query Account --output text)"
-npm run cli -- deploy aws \
+HAYASEND_VERSION=X.Y.Z
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
   --account "$aws_account_id" \
   --region ap-northeast-1 \
   --stack hayasend
@@ -324,7 +328,7 @@ parameter and tag. It does not upload artifacts, create a change set, or alter
 AWS. After reviewing it, repeat the command with `--apply`:
 
 ```bash
-npm run cli -- deploy aws \
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
   --account "$aws_account_id" \
   --region ap-northeast-1 \
   --stack hayasend \

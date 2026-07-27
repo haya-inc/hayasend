@@ -23,7 +23,17 @@ describe("npm CLI distribution", () => {
       bin: {
         hayasend: "dist/cli.js",
       },
-      files: expect.arrayContaining(["dist", "NOTICE", "schemas"]),
+      files: expect.arrayContaining([
+        "dist",
+        "NOTICE",
+        "scripts/npm-sam-compat.mjs",
+        "schemas",
+        "src",
+        "template.yaml",
+      ]),
+      dependencies: expect.objectContaining({
+        esbuild: "0.28.1",
+      }),
       publishConfig: {
         access: "public",
         registry: "https://registry.npmjs.org/",

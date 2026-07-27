@@ -1,8 +1,18 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const COMMAND_OUTPUT_LIMIT = 4 * 1024 * 1024;
 const SHORT_COMMAND_TIMEOUT_MS = 30_000;
@@ -13,6 +23,21 @@ const LOG_RETENTION_DAYS = new Set([
   1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827,
   2192, 2557, 2922, 3288, 3653,
 ]);
+const PACKAGED_TEMPLATE_PATH = fileURLToPath(
+  new URL("../template.yaml", import.meta.url),
+);
+const PACKAGED_NPM_SAM_COMPAT_PATH = fileURLToPath(
+  new URL("../scripts/npm-sam-compat.mjs", import.meta.url),
+);
+const PACKAGED_VERSION = (() => {
+  const packageMetadata = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version?: unknown };
+  if (typeof packageMetadata.version !== "string") {
+    throw new Error("The HayaSend package is missing a valid version.");
+  }
+  return packageMetadata.version;
+})();
 
 const TEMPLATE_DEFAULTS: Record<string, string> = {
   BootstrapSecretArn: "",
@@ -468,10 +493,11 @@ async function requireCommand(
   args: string[],
   label: string,
   timeoutMs = SHORT_COMMAND_TIMEOUT_MS,
+  env = dependencies.env,
 ) {
   const result = await dependencies.runCommand(command, args, {
     cwd: dependencies.cwd,
-    env: dependencies.env,
+    env,
     timeoutMs,
   });
   if (result.exitCode !== 0) {
@@ -702,10 +728,9 @@ function applyCommand(
   tags: Array<{ key: string; value: string }>,
 ) {
   return [
-    "npm",
-    "run",
-    "cli",
-    "--",
+    "npx",
+    "--yes",
+    `@haya-inc/hayasend@${PACKAGED_VERSION}`,
     "deploy",
     "aws",
     "--account",
@@ -752,6 +777,45 @@ function applyCommand(
     ),
     "--apply",
   ];
+}
+
+async function npmSamCompatibilityEnvironment(
+  dependencies: AwsDeployDependencies,
+  temporaryDirectory: string,
+) {
+  const npmRootResult = await requireCommand(
+    dependencies,
+    "npm",
+    ["root", "--global"],
+    "npm global package root",
+  );
+  const npmRoot = npmRootResult.stdout.trim();
+  const environmentNpmCli = dependencies.env.npm_execpath;
+  const realNpmCli =
+    environmentNpmCli && isAbsolute(environmentNpmCli)
+      ? environmentNpmCli
+      : join(npmRoot, "npm", "bin", "npm-cli.js");
+  if (!isAbsolute(npmRoot) || !isAbsolute(realNpmCli)) {
+    throw new Error("npm returned a non-absolute global package root.");
+  }
+
+  const shimDirectory = join(temporaryDirectory, "npm-sam-compat");
+  const shimPath = join(shimDirectory, "npm");
+  await mkdir(shimDirectory, { mode: 0o700 });
+  await copyFile(PACKAGED_NPM_SAM_COMPAT_PATH, shimPath);
+  await chmod(shimPath, 0o700);
+  await writeFile(
+    join(shimDirectory, "npm.cmd"),
+    '@"%HAYASEND_NODE_EXECUTABLE%" "%~dp0npm" %*\r\n',
+    { encoding: "utf8", mode: 0o700 },
+  );
+
+  return {
+    ...dependencies.env,
+    HAYASEND_NODE_EXECUTABLE: process.execPath,
+    HAYASEND_REAL_NPM_CLI: realNpmCli,
+    PATH: `${shimDirectory}${delimiter}${dependencies.env.PATH ?? process.env.PATH ?? ""}`,
+  };
 }
 
 function bootstrapKeyCommand(
@@ -938,10 +1002,11 @@ export async function deployAws(
   dependencies: AwsDeployDependencies,
 ) {
   const options = normalizeOptions(rawOptions, dependencies.env);
-  const templatePath = resolve(dependencies.cwd, "template.yaml");
+  const templatePath = PACKAGED_TEMPLATE_PATH;
+  const applicationDirectory = dirname(templatePath);
   const template = await readFile(templatePath, "utf8").catch(() => {
     throw new Error(
-      "template.yaml is required in the working directory. Run this command from a HayaSend checkout.",
+      "The HayaSend package is incomplete: template.yaml is missing.",
     );
   });
 
@@ -956,6 +1021,12 @@ export async function deployAws(
     "sam",
     ["--version"],
     "AWS SAM CLI",
+  );
+  const npmVersionResult = await requireCommand(
+    dependencies,
+    "npm",
+    ["--version"],
+    "npm CLI",
   );
   const identity = await requireJson<{ Account?: unknown; Arn?: unknown }>(
     dependencies,
@@ -1005,6 +1076,10 @@ export async function deployAws(
   try {
     const emptyConfig = join(temporaryDirectory, "samconfig.toml");
     const buildDirectory = join(temporaryDirectory, "build");
+    const samBuildEnvironment = await npmSamCompatibilityEnvironment(
+      dependencies,
+      temporaryDirectory,
+    );
     await writeFile(emptyConfig, "", { encoding: "utf8", mode: 0o600 });
     const configArgs = [
       "--config-file",
@@ -1033,12 +1108,15 @@ export async function deployAws(
         "--parallel",
         "--template-file",
         templatePath,
+        "--base-dir",
+        applicationDirectory,
         "--build-dir",
         buildDirectory,
         ...configArgs,
       ]),
       "SAM build",
       BUILD_TIMEOUT_MS,
+      samBuildEnvironment,
     );
 
     dependencies.log(
@@ -1052,6 +1130,7 @@ export async function deployAws(
           tools: {
             aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
             sam_cli: commandVersion(samVersionResult, "AWS SAM CLI"),
+            npm_cli: commandVersion(npmVersionResult, "npm CLI"),
           },
           identity: {
             account: identity.Account,
@@ -1077,7 +1156,7 @@ export async function deployAws(
             },
           },
           template: {
-            path: templatePath,
+            source: "package:template.yaml",
             sha256: createHash("sha256").update(template).digest("hex"),
             validation: "pass",
             build: "pass",
