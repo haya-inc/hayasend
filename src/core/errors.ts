@@ -27,6 +27,16 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export class RegisteredDomainError extends AppError {
+  constructor(domain: string) {
+    super(
+      403,
+      "validation_error",
+      `The \`${domain}\` domain has been registered already.`,
+    );
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(resource: string) {
     super(404, "not_found", `${resource} was not found.`);

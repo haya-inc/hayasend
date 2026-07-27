@@ -112,6 +112,27 @@ describe("official Resend Node SDK compatibility", () => {
     const resend = new Resend("re_hayasend_compatible", {
       baseUrl: "https://api.hayasend.test",
     });
+    const createdDomain = await resend.domains.create({
+      name: "example.com",
+    });
+    expect(createdDomain.error).toBeNull();
+    expect(createdDomain.data).toMatchObject({
+      id: expect.stringMatching(/^dom_/),
+      name: "example.com",
+      status: "verified",
+    });
+    const duplicateDomain = await resend.domains.create({
+      name: "EXAMPLE.COM.",
+    });
+    expect(duplicateDomain).toMatchObject({
+      data: null,
+      error: {
+        statusCode: 403,
+        name: "validation_error",
+        message: "The `example.com` domain has been registered already.",
+      },
+    });
+
     const createdWebhook = await resend.webhooks.create({
       endpoint: "https://api.hayasend.test/webhook",
       events: ["email.sent"],

@@ -614,6 +614,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Domain"
+        "403":
+          $ref: "#/components/responses/Error"
     get:
       summary: List sending domains
       operationId: listDomains
