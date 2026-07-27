@@ -1,7 +1,7 @@
 {
   "name": "@haya-inc/hayasend",
   "version": "0.2.0",
-  "description": "Resend-compatible, AWS-native email infrastructure you run in your own account.",
+  "description": "Resend-compatible, provider-portable email infrastructure you run in your own cloud account.",
   "type": "module",
   "license": "Apache-2.0",
   "packageManager": "npm@12.0.1",
@@ -16,6 +16,7 @@
   "keywords": [
     "amazon-ses",
     "aws",
+    "cloudflare",
     "email",
     "resend",
     "self-hosted",
@@ -27,15 +28,13 @@
   "files": [
     "conformance",
     "dist",
-    "!dist/adapters/cloudflare",
-    "!dist/workers",
+    "migrations",
     "NOTICE",
     "schemas",
+    "scripts/cloudflare-cost-model.mjs",
     "scripts/clean-dist.mjs",
     "scripts/npm-sam-compat.mjs",
     "src",
-    "!src/adapters/cloudflare",
-    "!src/workers",
     "template.yaml"
   ],
   "publishConfig": {
@@ -61,6 +60,7 @@
     "clean": "node scripts/clean-dist.mjs",
     "cli": "tsx src/cli.ts",
     "cost:estimate": "node scripts/aws-cost-model.mjs",
+    "cost:cloudflare": "node scripts/cloudflare-cost-model.mjs",
     "dev": "tsx src/server.ts",
     "doctor": "tsx src/cli.ts doctor",
     "generate:conformance": "tsx scripts/check-conformance.ts --write",

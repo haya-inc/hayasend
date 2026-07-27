@@ -49,6 +49,32 @@ import type { TemplateService } from "./template-service.js";
 import { normalizeMailbox } from "./suppression-service.js";
 import { HAYASEND_VERSION } from "../version.js";
 
+export type EmailServiceStore = Pick<
+  Store,
+  | "commitDelivery"
+  | "getEmail"
+  | "listEmails"
+  | "getDeliveryLedger"
+  | "applyLocalDeliveryState"
+  | "updateEmail"
+  | "rescheduleEmailAndOutbox"
+  | "claimEmailForSend"
+  | "beginDeliveryAttempt"
+  | "completeDeliveryAttempt"
+  | "appendProviderEvent"
+>;
+
+export type EmailServiceWebhooks = Pick<WebhookService, "publish">;
+export type EmailServiceSuppressions = Pick<
+  SuppressionService,
+  "findSuppressed"
+>;
+export type EmailServiceAttachments = Pick<
+  AttachmentService,
+  "resolve" | "read"
+>;
+export type EmailServiceTemplates = Pick<TemplateService, "resolveForSend">;
+
 const FINAL_STATUSES = new Set<EmailStatus>([
   "sent",
   "delivered",
@@ -289,13 +315,13 @@ function idempotencyAttachments(
 
 export class EmailService {
   constructor(
-    private readonly store: Store,
+    private readonly store: EmailServiceStore,
     private readonly scheduler: EmailScheduler,
     private readonly transport: MailTransport,
-    private readonly webhooks: WebhookService,
-    private readonly suppressions: SuppressionService,
-    private readonly attachments: AttachmentService,
-    private readonly templates?: TemplateService,
+    private readonly webhooks: EmailServiceWebhooks,
+    private readonly suppressions: EmailServiceSuppressions,
+    private readonly attachments: EmailServiceAttachments,
+    private readonly templates?: EmailServiceTemplates,
     private readonly options: EmailServiceOptions = {},
   ) {}
 
@@ -892,7 +918,7 @@ export class EmailService {
     } catch (error) {
       const message = safeFailureMessage("Email delivery failed", error);
       const finalAttempt =
-        attempt >= 3 || !shouldRetryOperationalError(error);
+        sending.attempts >= 3 || !shouldRetryOperationalError(error);
       const category = deliveryDiagnosticCategorySchema.catch(
         "application_error",
       ).parse(safeErrorCategory(error));

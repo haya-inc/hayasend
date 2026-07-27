@@ -1,0 +1,255 @@
+name: Cloudflare integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_account:
+        description: Exact dedicated disposable Cloudflare account ID
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-cloudflare-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-test-rollback-delete:
+    name: Deploy, test, roll back, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: cloudflare-integration
+    env:
+      CLOUDFLARE_TEST_ACCOUNT_ID: ${{ vars.CLOUDFLARE_TEST_ACCOUNT_ID }}
+      CLOUDFLARE_TEST_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_TEST_WORKERS_SUBDOMAIN }}
+      CLOUDFLARE_TEST_FROM: ${{ vars.CLOUDFLARE_TEST_FROM }}
+      CLOUDFLARE_TEST_TO: ${{ vars.CLOUDFLARE_TEST_TO }}
+      CLOUDFLARE_TEST_ACCOUNT_KIND: ${{ vars.CLOUDFLARE_TEST_ACCOUNT_KIND }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      HAYASEND_CLOUDFLARE_API_KEY: ${{ secrets.HAYASEND_CLOUDFLARE_API_KEY }}
+      DEPLOYMENT_NAME: it-${{ github.run_id }}-${{ github.run_attempt }}
+      DEPLOYMENT_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate disposable-account configuration
+        id: account_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$CLOUDFLARE_TEST_ACCOUNT_ID" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_TEST_ACCOUNT_ID must be a 32-character account ID."
+            exit 1
+          fi
+          if [[ "${{ inputs.confirm_account }}" != "$CLOUDFLARE_TEST_ACCOUNT_ID" ]]; then
+            echo "::error::The dispatch confirmation does not match the dedicated account."
+            exit 1
+          fi
+          if [[ "$CLOUDFLARE_TEST_ACCOUNT_KIND" != "dedicated-disposable" ]]; then
+            echo "::error::The environment must explicitly mark this as a dedicated disposable account."
+            exit 1
+          fi
+          if [[ ! "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::CLOUDFLARE_TEST_WORKERS_SUBDOMAIN is invalid."
+            exit 1
+          fi
+          if [[ -z "$CLOUDFLARE_TEST_FROM" || -z "$CLOUDFLARE_TEST_TO" ]]; then
+            echo "::error::Controlled test sender and recipient are required."
+            exit 1
+          fi
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$HAYASEND_CLOUDFLARE_API_KEY" ]]; then
+            echo "::error::Cloudflare and HayaSend secrets are required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.5.0
+          cache: npm
+
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Record pinned tool versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            node --version
+            npm --version
+            npx --yes wrangler@4.114.0 --version
+          } | tee "$RUNNER_TEMP/cloudflare-tool-versions.txt"
+
+      - name: Review deployment plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- deploy cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            --allowed-recipient "$CLOUDFLARE_TEST_TO" \
+            > "$RUNNER_TEMP/cloudflare-plan.json"
+
+      - name: Deploy reviewed proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- deploy cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            --allowed-recipient "$CLOUDFLARE_TEST_TO" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            > "$RUNNER_TEMP/cloudflare-deploy.txt"
+          node scripts/extract-cloudflare-deployment-result.mjs \
+            --file "$RUNNER_TEMP/cloudflare-deploy.txt" \
+            --github-env "$GITHUB_ENV" \
+            --prefix INITIAL_ \
+            --workers-subdomain "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN"
+
+      - name: Doctor deployed proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- doctor cloudflare \
+            --endpoint "$INITIAL_CF_ENDPOINT" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            | tee "$RUNNER_TEMP/cloudflare-doctor.json"
+
+      - name: Exercise official Resend SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          CF_ENDPOINT="$INITIAL_CF_ENDPOINT" \
+            node scripts/cloudflare-integration-api.mjs \
+            | tee "$RUNNER_TEMP/cloudflare-api-proof.json"
+
+      - name: Deploy controlled failure version
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- upgrade cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --database-id "$INITIAL_CF_DATABASE_ID" \
+            --deployment-id "${DEPLOYMENT_ID}-failure" \
+            --health-mode fail \
+            --allowed-recipient "$CLOUDFLARE_TEST_TO" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            > "$RUNNER_TEMP/cloudflare-failure-deploy.txt"
+          node scripts/extract-cloudflare-deployment-result.mjs \
+            --file "$RUNNER_TEMP/cloudflare-failure-deploy.txt" \
+            --github-env "$GITHUB_ENV" \
+            --prefix FAILURE_ \
+            --workers-subdomain "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN"
+
+      - name: Prove controlled failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(
+            curl \
+              --silent \
+              --show-error \
+              --output "$RUNNER_TEMP/cloudflare-failure-health.json" \
+              --write-out '%{http_code}' \
+              "$FAILURE_CF_ENDPOINT/healthz"
+          )"
+          test "$status" = "503"
+
+      - name: Roll back to reviewed version
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- rollback cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --version-id "$INITIAL_CF_VERSION_ID" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-rollback.json"
+          npm run --silent cli -- doctor cloudflare \
+            --endpoint "$INITIAL_CF_ENDPOINT" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            | tee "$RUNNER_TEMP/cloudflare-post-rollback-doctor.json"
+
+      - name: Produce reproducible cost evidence
+        run: |
+          npm run --silent cost:cloudflare -- \
+            --profile proof \
+            --messages 1 \
+            --provider_events_per_message 0 \
+            > "$RUNNER_TEMP/cloudflare-cost.json"
+
+      - name: Delete disposable resources
+        if: always() && steps.account_guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- cleanup cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-cleanup.json"
+
+      - name: Verify no named resource remains
+        if: always() && steps.account_guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="hayasend-$DEPLOYMENT_NAME"
+          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          # shellcheck disable=SC2016
+          if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
+            echo "::error::D1 database remains after cleanup."
+            exit 1
+          fi
+          r2_list="$(npx --yes wrangler@4.114.0 r2 bucket list)"
+          if grep -F "$prefix-payloads" <<< "$r2_list"; then
+            echo "::error::R2 bucket remains after cleanup."
+            exit 1
+          fi
+          queue_list="$(npx --yes wrangler@4.114.0 queues list)"
+          if grep -F "$prefix-" <<< "$queue_list"; then
+            echo "::error::Queue remains after cleanup."
+            exit 1
+          fi
+          set +e
+          worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$prefix" \
+              --json 2>&1
+          )"
+          worker_status="$?"
+          set -e
+          if [[ "$worker_status" -eq 0 ]]; then
+            echo "::error::Worker remains after cleanup."
+            exit 1
+          fi
+          if ! grep -Fq "code: 10007" <<< "$worker_check"; then
+            echo "::error::Worker absence could not be verified."
+            printf '%s\n' "$worker_check"
+            exit 1
+          fi
+
+      - name: Upload lifecycle evidence
+        if: always() && steps.account_guard.outputs.validated == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
+        with:
+          name: cloudflare-lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloudflare-*.json
+            ${{ runner.temp }}/cloudflare-*.txt
+          if-no-files-found: error
+          retention-days: 30

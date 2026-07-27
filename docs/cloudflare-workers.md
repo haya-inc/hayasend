@@ -5,14 +5,14 @@ provider-neutral core and service layer compile without Node globals, Node
 built-ins, AWS SDK imports, or the `nodejs_compat` flag. Cloudflare-specific
 D1, R2, and Queues adapters implement the same delivery-ledger and durable
 outbox ports used by the AWS and in-memory paths. A Beta Email Sending binding
-transport and per-domain Queue event consumer are also implemented and tested,
-but remain deliberately unwired.
+transport and per-domain Queue event consumer are also implemented and tested.
 
-This is not yet a usable email service and must not receive production
-traffic. Only `/healthz` and `/capabilities` are exposed. The capability
-response distinguishes adapters that are implemented and tested from adapters
-that are actually wired into the runtime; all runtime adapter flags remain
-`false` until deployment, provider, and conformance work is complete.
+The Beta proof runtime wires those adapters and exposes `/healthz`,
+`/capabilities`, `POST /emails`, `POST /emails/batch`, `GET /emails`, and
+`GET /emails/:id`. It must not receive production or critical traffic.
+Hosted deployment, rollback, cleanup, and cost evidence remains the release
+gate owned by issue #104. See
+[Cloudflare Beta deployment](cloudflare-deployment.md).
 
 ## Storage and delivery substrate
 
@@ -133,7 +133,9 @@ APIs, runs the isolated workerd integration suite, and performs a Wrangler
 dry-run bundle. Node-specific webhook DNS pinning remains in the Node adapter
 and is still injected into the AWS runtime.
 
-The remaining roadmap gates wire the adapters into a deployable runtime, add
-safe deploy/rollback/doctor commands, run hosted conformance, and publish
-measured cost evidence. Passing the local provider proof is architectural and
-fault-test evidence, not a production-readiness claim.
+The CLI now provides plan-first deploy, upgrade, rollback, cleanup, and doctor
+commands with exact account confirmation. The manual integration workflow
+must still run in a designated disposable account and prove a real official
+SDK send, controlled failure, rollback, cleanup, and fail-closed absence
+checks before the conformance report can pass. Local proof remains
+architectural and fault-test evidence, not a production-readiness claim.

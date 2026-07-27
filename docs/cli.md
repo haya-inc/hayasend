@@ -24,6 +24,11 @@ deployment uses only the reviewed SAM template and Lambda source shipped in
 that exact package version; it never discovers infrastructure code from the
 caller's working directory.
 
+Cloudflare lifecycle commands likewise use the Worker source and D1 migrations
+shipped in that exact package. See
+[Cloudflare Beta deployment](cloudflare-deployment.md) for the dedicated
+account, secrets, rollback, cleanup, and hosted evidence boundary.
+
 ## Initialize local development
 
 ```bash
@@ -523,6 +528,33 @@ template bodies. `inspect-version` returns the immutable retained content and
 new draft from history. It neither changes the active published alias nor
 publishes the restored content. Review with `templates render`, then use
 `templates publish --version` when ready.
+
+## Plan and deploy the Cloudflare Beta proof
+
+The Cloudflare lifecycle is plan-first and requires an exact account
+confirmation for every mutation:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy cloudflare \
+  --account 0123456789abcdef0123456789abcdef \
+  --name proof
+```
+
+After review, set `CLOUDFLARE_API_TOKEN` and a strong
+`HAYASEND_CLOUDFLARE_API_KEY`, then add `--apply` and
+`--confirm-account` with the identical account ID. Apply also requires at
+least one repeatable `--allowed-recipient`; the deployed Email Sending binding
+cannot send elsewhere. Every listed recipient must already be verified in the
+Cloudflare account. `upgrade cloudflare` requires the existing D1 database ID
+and the reviewed recipient allowlist. `rollback cloudflare` requires an
+immutable version ID. `cleanup cloudflare` removes only the deterministic
+HayaSend resource set after printing its deletion order.
+
+Use only a reusable test account dedicated to disposable integration
+resources, never an account with production or staging workloads. Full
+commands and the protected GitHub environment contract are in
+[Cloudflare Beta deployment](cloudflare-deployment.md); current rate inputs
+are in [Cloudflare cost evidence](cloudflare-costs.md).
 
 ## Plan and deploy to AWS
 

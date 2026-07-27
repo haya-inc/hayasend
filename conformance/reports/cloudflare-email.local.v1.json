@@ -3,7 +3,7 @@
   "run_id": "cloudflare-email-local-20260727",
   "provider": "cloudflare-email",
   "adapter_version": "0.2.0",
-  "capability_document_sha256": "8e782362699b621c708e9b411907a34d9a498a81c50cf523428022c1703d206e",
+  "capability_document_sha256": "c4237cacd12e87da62add37110e0260c746d6f5862b76348ffbb3eed4ad7bbee",
   "started_at": "2026-07-27T14:00:00.000Z",
   "completed_at": "2026-07-27T16:30:00.000Z",
   "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",

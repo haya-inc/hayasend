@@ -159,6 +159,7 @@ export async function consumeCloudflareQueueBatch(
   handler: (
     job: Job,
     envelope: CloudflareJobEnvelope,
+    attempt: number,
   ) => Promise<void>,
   options: CloudflareQueueConsumerOptions = {},
 ): Promise<void> {
@@ -182,7 +183,11 @@ export async function consumeCloudflareQueueBatch(
         operation: "consume",
         target: envelope.id,
       });
-      await handler(structuredClone(envelope.job), envelope);
+      await handler(
+        structuredClone(envelope.job),
+        envelope,
+        message.attempts,
+      );
       message.ack();
     } catch (error) {
       await options.on_diagnostic?.({
