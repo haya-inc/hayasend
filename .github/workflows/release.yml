@@ -227,8 +227,17 @@ jobs:
           )"
           published_integrity="$(
             npm view "${package_name}@${VERSION}" dist.integrity --json \
+              --userconfig=/dev/null \
+              --registry=https://registry.npmjs.org/ \
+              --prefer-online \
               2> /dev/null |
-              jq --raw-output 'if type == "string" then . else empty end' ||
+              jq --raw-output '
+                if type == "string" then .
+                elif type == "array" then
+                  (map(select(type == "string")) | first // empty)
+                else empty
+                end
+              ' ||
               true
           )"
           if [ -n "$published_integrity" ]; then
@@ -250,9 +259,18 @@ jobs:
           for attempt in $(seq 1 10); do
             registry_integrity="$(
               npm view "${package_name}@${VERSION}" dist.integrity --json \
+                --userconfig=/dev/null \
+                --registry=https://registry.npmjs.org/ \
+                --prefer-online \
                 2> /dev/null |
                 jq --raw-output \
-                  'if type == "string" then . else empty end' ||
+                  '
+                    if type == "string" then .
+                    elif type == "array" then
+                      (map(select(type == "string")) | first // empty)
+                    else empty
+                    end
+                  ' ||
                 true
             )"
             if [ "$registry_integrity" = "$local_integrity" ]; then
