@@ -12,6 +12,9 @@ minor releases before v1.0.
 - Add privacy-aware suppression CLI operations with bounded file input,
   normalized mailboxes, manual-only creation, and acknowledgement-gated
   deletion.
+- Add a privacy-safe sent-email lifecycle CLI for listing and inspecting
+  metadata, explicitly revealing content, and confirmed cancellation or
+  rescheduling.
 - Add safe sending-domain onboarding commands with strict local validation,
   explicit deletion acknowledgement, a manual-DNS boundary, and an official
   Resend Node SDK lifecycle contract.

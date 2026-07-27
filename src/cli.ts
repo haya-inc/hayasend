@@ -19,6 +19,7 @@ import {
   type CommandRunner,
 } from "./cli-aws-deploy.js";
 import { domainCommand } from "./cli-domains.js";
+import { emailCommand } from "./cli-emails.js";
 import {
   loadTemplateManifest,
   parseRemoteTemplate,
@@ -1312,6 +1313,15 @@ Commands:
       Register and inspect sending-domain DNS records. Verification only
       refreshes provider state; HayaSend never changes DNS.
 
+  emails list [--limit NUMBER] [--after ID] [--endpoint URL]
+  emails get ID [--include-content] [--endpoint URL]
+      Inspect sent-email lifecycle state. Output is metadata-only unless
+      --include-content explicitly exposes recipients, subject, and bodies.
+
+  emails cancel ID --yes [--endpoint URL]
+  emails update ID --scheduled-at TIME --yes [--endpoint URL]
+      Cancel or reschedule a queued email after explicit confirmation.
+
   templates push [--file FILE] [--dry-run] [--publish] [--endpoint URL]
       Reconcile hayasend.templates.json. Changes remain drafts unless
       --publish is explicitly provided.
@@ -1421,6 +1431,15 @@ export async function runCli(
         log: dependencies.io.log,
       });
       break;
+    case "emails": {
+      const emailArgs = args.slice(1);
+      await emailCommand(emailArgs, {
+        log: dependencies.io.log,
+        request: (path, init) =>
+          request(path, emailArgs, dependencies, init),
+      });
+      break;
+    }
     case "templates":
       await templateCommand(args.slice(1), dependencies);
       break;

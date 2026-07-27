@@ -6,8 +6,8 @@ migration path. It does not claim full Resend API coverage.
 | Resource            | Operation                                       |             Status | Notes                                                              |
 | ------------------- | ----------------------------------------------- | -----------------: | ------------------------------------------------------------------ |
 | Emails              | send                                            |        Implemented | HTML, text, recipients, headers, tags; bounded text fallback       |
-| Emails              | retrieve/list                                   |        Implemented | resource-ID `after`; provider `message_id` after acceptance        |
-| Emails              | update/cancel                                   |        Implemented | queued or scheduled messages only                                  |
+| Emails              | retrieve/list                                   |        Implemented | resource-ID `after`; privacy-safe CLI; provider `message_id`       |
+| Emails              | update/cancel                                   |        Implemented | queued or scheduled only; CLI requires explicit confirmation       |
 | Batch               | send                                            |        Implemented | 1–100 messages; strict validation only, without permissive mode    |
 | Attachments         | base64 content                                  |        Implemented | constrained by the 9 MiB serialized request guardrail              |
 | Attachments         | direct upload                                   | HayaSend extension | checksum-bound S3 PUT; 25 MiB decoded aggregate                    |
