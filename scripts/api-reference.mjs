@@ -26,7 +26,7 @@ const websiteAssets = Object.freeze([
   "styles.css",
 ]);
 
-export const REDOCLY_CLI_VERSION = "2.40.0";
+export const REDOCLY_CLI_VERSION = "2.41.0";
 export const REDOC_VERSION = "2.5.3";
 export const REDOC_BUNDLE_URL = `https://cdn.redocly.com/redoc/v${REDOC_VERSION}/bundles/redoc.standalone.js`;
 export const REDOC_BUNDLE_SHA256 =

@@ -200,6 +200,7 @@ export const receivedEmailQuerySchema = z.object({
 export const apiScopeSchema = z.enum([
   "emails:send",
   "emails:read",
+  "diagnostics:read",
   "templates:read",
   "templates:write",
   "domains:read",

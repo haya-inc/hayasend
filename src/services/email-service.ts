@@ -22,6 +22,7 @@ import {
   type ProviderReference,
   type RecipientRecord,
 } from "../core/delivery-model.js";
+import { deriveDeliveryMessageStatus } from "../core/recipient-ledger.js";
 import { parseScheduledAt, secondsUntil } from "../core/schedule.js";
 import { emitCountMetric } from "../core/metrics.js";
 import type {
@@ -79,6 +80,40 @@ export interface NormalizedProviderEvent {
   diagnostic_category?: DeliveryDiagnosticCategory | undefined;
 }
 
+export type RecipientRecoveryState =
+  | "pending"
+  | "in_progress"
+  | "awaiting_event"
+  | "retryable"
+  | "ambiguous"
+  | "settled";
+
+export interface RecipientSummary {
+  id: string;
+  role: EnvelopeRole;
+  ordinal: number;
+  status: RecipientRecord["status"];
+  recovery_state: RecipientRecoveryState;
+  requires_operator_attention: boolean;
+  latest_attempt: {
+    id: string;
+    sequence: number;
+    status: DeliveryAttemptRecord["status"];
+    diagnostic_category: DeliveryDiagnosticCategory | null;
+    started_at: string;
+    completed_at: string | null;
+  } | null;
+  updated_at: string;
+}
+
+export interface RecipientSummaryPage extends Page<RecipientSummary> {
+  message_id: string;
+  aggregate_status: ReturnType<typeof deriveDeliveryMessageStatus>;
+  recipient_count: number;
+  attempt_summary: Record<DeliveryAttemptRecord["status"], number>;
+  unattributed_event_count: number;
+}
+
 interface NormalizedRecipients {
   to: string[];
   cc?: string[] | undefined;
@@ -86,6 +121,57 @@ interface NormalizedRecipients {
 }
 
 const envelopeAddressSchema = z.email().max(320);
+const ATTEMPT_AMBIGUITY_AFTER_SECONDS = 60;
+
+function recoveryState(
+  recipient: RecipientRecord,
+  attempt: DeliveryAttemptRecord | undefined,
+  now: Date,
+): RecipientRecoveryState {
+  if (
+    attempt?.status === "ambiguous" ||
+    (attempt?.status === "submitting" &&
+      now.getTime() - Date.parse(attempt.started_at) >=
+        ATTEMPT_AMBIGUITY_AFTER_SECONDS * 1_000)
+  ) {
+    return "ambiguous";
+  }
+  if (attempt?.status === "retryable_failed") {
+    return "retryable";
+  }
+  if (
+    attempt?.status === "pending" ||
+    attempt?.status === "submitting" ||
+    recipient.status === "sending"
+  ) {
+    return "in_progress";
+  }
+  if (
+    recipient.status === "accepted" ||
+    recipient.status === "delivery_delayed"
+  ) {
+    return "awaiting_event";
+  }
+  if (recipient.status === "queued") {
+    return "pending";
+  }
+  return "settled";
+}
+
+function requiresOperatorAttention(
+  recipient: RecipientRecord,
+  recovery: RecipientRecoveryState,
+): boolean {
+  return (
+    recovery === "ambiguous" ||
+    [
+      "bounced",
+      "complained",
+      "rejected",
+      "failed",
+    ].includes(recipient.status)
+  );
+}
 
 function normalizeEnvelopeAddress(value: string): string {
   const normalized = normalizeMailbox(value);
@@ -488,6 +574,87 @@ export class EmailService {
 
   async list(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
     return this.store.listEmails(limit, cursor);
+  }
+
+  async listRecipientSummaries(
+    id: string,
+    limit: number,
+    cursor?: string,
+    now = new Date(),
+  ): Promise<RecipientSummaryPage> {
+    const ledger = await this.store.getDeliveryLedger(id);
+    if (!ledger) {
+      throw new NotFoundError("Delivery ledger");
+    }
+    const cursorIndex =
+      cursor === undefined
+        ? -1
+        : ledger.recipients.findIndex(
+            (recipient) => recipient.id === cursor,
+          );
+    if (cursor !== undefined && cursorIndex < 0) {
+      throw new ValidationError("The pagination cursor is invalid.");
+    }
+    const attemptById = new Map(
+      ledger.attempts.map((attempt) => [attempt.id, attempt]),
+    );
+    const offset = cursorIndex + 1;
+    const recipients = ledger.recipients.slice(offset, offset + limit);
+    const data = recipients.map((recipient): RecipientSummary => {
+      const attempt = recipient.latest_attempt_id
+        ? attemptById.get(recipient.latest_attempt_id)
+        : undefined;
+      const recovery = recoveryState(recipient, attempt, now);
+      return {
+        id: recipient.id,
+        role: recipient.role,
+        ordinal: recipient.ordinal,
+        status: recipient.status,
+        recovery_state: recovery,
+        requires_operator_attention: requiresOperatorAttention(
+          recipient,
+          recovery,
+        ),
+        latest_attempt: attempt
+          ? {
+              id: attempt.id,
+              sequence: attempt.sequence,
+              status: attempt.status,
+              diagnostic_category:
+                attempt.diagnostic_category ?? null,
+              started_at: attempt.started_at,
+              completed_at: attempt.completed_at ?? null,
+            }
+          : null,
+        updated_at: recipient.updated_at,
+      };
+    });
+    const hasMore = offset + data.length < ledger.recipients.length;
+    const attemptSummary: RecipientSummaryPage["attempt_summary"] = {
+      pending: 0,
+      submitting: 0,
+      accepted: 0,
+      ambiguous: 0,
+      retryable_failed: 0,
+      permanent_failed: 0,
+    };
+    for (const attempt of ledger.attempts) {
+      attemptSummary[attempt.status] += 1;
+    }
+    return {
+      message_id: id,
+      aggregate_status: deriveDeliveryMessageStatus(ledger.recipients),
+      recipient_count: ledger.recipients.length,
+      attempt_summary: attemptSummary,
+      unattributed_event_count: ledger.events.filter(
+        (event) => event.recipient_ids.length === 0,
+      ).length,
+      data,
+      has_more: hasMore,
+      ...(hasMore && data.length > 0
+        ? { next_cursor: data.at(-1)?.id }
+        : {}),
+    };
   }
 
   async cancel(id: string): Promise<EmailRecord> {

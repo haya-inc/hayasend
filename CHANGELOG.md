@@ -6,6 +6,10 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add scope-protected, privacy-safe recipient summaries and recovery
+  diagnostics for mixed outcomes, ambiguous attempts, outbox age, stuck
+  leases, SQS/DLQ depth, provider-event lag, and capability drift.
+
 ## 0.2.0 - 2026-07-27
 
 - Advance the project label from early alpha to early beta for non-critical

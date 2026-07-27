@@ -128,6 +128,8 @@ Globals:
         HAYASEND_TABLE_NAME: !Ref DataTable
         HAYASEND_QUEUE_URL: !Ref JobQueue
         HAYASEND_QUEUE_ARN: !GetAtt JobQueue.Arn
+        HAYASEND_DLQ_URL: !Ref DeadLetterQueue
+        HAYASEND_SCHEDULER_DLQ_URL: !Ref SchedulerDeadLetterQueue
         HAYASEND_PAYLOAD_BUCKET: !Ref PayloadBucket
         HAYASEND_CONFIGURATION_SET: !Ref ConfigurationSet
         HAYASEND_SCHEDULER_GROUP_NAME: !Ref EmailScheduleGroup
@@ -225,6 +227,10 @@ Resources:
             - InboundEnabled
             - !Ref InboundBucket
             - ""
+          HAYASEND_INBOUND_DLQ_URL: !If
+            - InboundEnabled
+            - !Ref InboundDeadLetterQueue
+            - ""
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DataTable
@@ -260,6 +266,13 @@ Resources:
               Condition:
                 StringEquals:
                   iam:PassedToService: scheduler.amazonaws.com
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueAttributes
+              Resource:
+                - !GetAtt JobQueue.Arn
+                - !GetAtt DeadLetterQueue.Arn
+                - !GetAtt SchedulerDeadLetterQueue.Arn
         - !If
           - InboundEnabled
           - Statement:
@@ -272,6 +285,10 @@ Resources:
                   - kms:Decrypt
                   - kms:DescribeKey
                 Resource: !GetAtt InboundKey.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt InboundDeadLetterQueue.Arn
           - !Ref AWS::NoValue
       Events:
         Root:

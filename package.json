@@ -84,7 +84,7 @@
   },
   "devDependencies": {
     "@react-email/render": "2.1.0",
-    "@redocly/cli": "2.40.0",
+    "@redocly/cli": "2.41.0",
     "@types/aws-lambda": "8.10.162",
     "@types/html-to-text": "9.0.4",
     "@types/node": "26.1.1",

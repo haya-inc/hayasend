@@ -3,6 +3,7 @@ import {
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it } from "vitest";
 import { DynamoStore } from "../src/adapters/dynamo-store.js";
@@ -185,6 +186,33 @@ class TransactionalDynamoMemory {
           this.key(command.input.Key as Record<string, unknown>),
         );
         return item ? { Item: structuredClone(item) } : {};
+      }
+      if (
+        command instanceof UpdateCommand &&
+        command.input.UpdateExpression ===
+          "SET latest_received_at = :received_at"
+      ) {
+        const key = this.key(
+          command.input.Key as Record<string, unknown>,
+        );
+        const current = this.items.get(key);
+        const receivedAt = (
+          command.input
+            .ExpressionAttributeValues as Record<string, unknown>
+        )[":received_at"] as string;
+        if (
+          typeof current?.latest_received_at === "string" &&
+          current.latest_received_at >= receivedAt
+        ) {
+          const error = new Error("conditional check failed");
+          error.name = "ConditionalCheckFailedException";
+          throw error;
+        }
+        this.items.set(key, {
+          ...(command.input.Key as Record<string, unknown>),
+          latest_received_at: receivedAt,
+        });
+        return {};
       }
       throw new Error(
         `Unsupported DynamoDB test command: ${String(command)}`,
@@ -478,6 +506,16 @@ describe.each(adapters)("%s recipient-ledger contract", (_name, factory) => {
     expect(serialized).not.toContain("Private subject");
     expect(serialized).not.toContain("Private body");
     expect(serialized).not.toContain("smtp");
+  });
+
+  it("tracks the latest provider-event timestamp without regressing on older evidence", async () => {
+    const store = await acceptedStore(factory);
+    await store.appendProviderEvent(event(2, "delivered"));
+    await store.appendProviderEvent(event(1, "delayed"));
+
+    await expect(
+      store.getLatestProviderEventReceivedAt(),
+    ).resolves.toBe("2026-07-26T02:00:05.000Z");
   });
 
   it("retains delivery and bounce for different recipients", async () => {

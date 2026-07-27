@@ -30,6 +30,7 @@ export type ApiScope =
   | "*"
   | "emails:send"
   | "emails:read"
+  | "diagnostics:read"
   | "templates:read"
   | "templates:write"
   | "domains:read"

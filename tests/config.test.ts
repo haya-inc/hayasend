@@ -54,6 +54,25 @@ describe("loadConfig", () => {
     expect(config.apiKey).toBeUndefined();
   });
 
+  it("loads optional AWS queue diagnostic targets", () => {
+    const config = loadConfig({
+      HAYASEND_MODE: "aws",
+      HAYASEND_API_KEY_SECRET_ARN:
+        "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:test",
+      HAYASEND_DLQ_URL: "https://sqs.example/delivery",
+      HAYASEND_SCHEDULER_DLQ_URL:
+        "https://sqs.example/scheduler",
+      HAYASEND_INBOUND_DLQ_URL: "https://sqs.example/inbound",
+    });
+
+    expect(config).toMatchObject({
+      deliveryDeadLetterQueueUrl: "https://sqs.example/delivery",
+      schedulerDeadLetterQueueUrl:
+        "https://sqs.example/scheduler",
+      inboundDeadLetterQueueUrl: "https://sqs.example/inbound",
+    });
+  });
+
   it("rejects unsafe inbound retention and S3-prefix settings", () => {
     expect(() =>
       loadConfig({ HAYASEND_INBOUND_RETENTION_DAYS: "31" }),

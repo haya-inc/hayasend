@@ -10,6 +10,9 @@ export interface Config {
   tableName?: string;
   queueUrl?: string;
   queueArn?: string;
+  deliveryDeadLetterQueueUrl?: string;
+  schedulerDeadLetterQueueUrl?: string;
+  inboundDeadLetterQueueUrl?: string;
   payloadBucket?: string;
   configurationSet?: string;
   schedulerGroupName?: string;
@@ -151,6 +154,18 @@ export function loadConfig(env = process.env): Config {
       : {}),
     ...(env.HAYASEND_QUEUE_ARN
       ? { queueArn: env.HAYASEND_QUEUE_ARN }
+      : {}),
+    ...(env.HAYASEND_DLQ_URL
+      ? { deliveryDeadLetterQueueUrl: env.HAYASEND_DLQ_URL }
+      : {}),
+    ...(env.HAYASEND_SCHEDULER_DLQ_URL
+      ? {
+          schedulerDeadLetterQueueUrl:
+            env.HAYASEND_SCHEDULER_DLQ_URL,
+        }
+      : {}),
+    ...(env.HAYASEND_INBOUND_DLQ_URL
+      ? { inboundDeadLetterQueueUrl: env.HAYASEND_INBOUND_DLQ_URL }
       : {}),
     ...(env.HAYASEND_PAYLOAD_BUCKET
       ? { payloadBucket: env.HAYASEND_PAYLOAD_BUCKET }

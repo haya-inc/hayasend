@@ -17,6 +17,7 @@ import { AttachmentService } from "../src/services/attachment-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
 import { ReceivedEmailService } from "../src/services/received-email-service.js";
+import { RecoveryDiagnosticsService } from "../src/services/recovery-diagnostics-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 import { TemplateService } from "../src/services/template-service.js";
@@ -76,6 +77,17 @@ describe("official Resend Node SDK compatibility", () => {
       ),
       emailService,
       receivedEmailService,
+      recoveryDiagnosticsService: new RecoveryDiagnosticsService(
+        store,
+        queue,
+        {
+          provider: "local-console",
+          adapter_version: "0.2.0",
+          capability_version: "1.0.0",
+          checked_at: null,
+          document: { provider: "local-console" },
+        },
+      ),
       suppressionService: suppressions,
       templateService,
       webhookService: webhooks,

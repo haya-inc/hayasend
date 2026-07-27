@@ -43,6 +43,65 @@ const EMAIL_STATUSES = new Set([
   "suppressed",
 ]);
 const EMAIL_EVENTS = new Set([...EMAIL_STATUSES, "retrying"]);
+const RECIPIENT_ID_PATTERN = /^rcpt_[A-Za-z0-9_-]{22,128}$/;
+const ATTEMPT_ID_PATTERN = /^attempt_[A-Za-z0-9_-]{22,128}$/;
+const RECIPIENT_STATUSES = new Set([
+  "queued",
+  "sending",
+  "accepted",
+  "delivery_delayed",
+  "delivered",
+  "opened",
+  "clicked",
+  "bounced",
+  "complained",
+  "rejected",
+  "failed",
+  "suppressed",
+  "canceled",
+]);
+const RECOVERY_STATES = new Set([
+  "pending",
+  "in_progress",
+  "awaiting_event",
+  "retryable",
+  "ambiguous",
+  "settled",
+]);
+const ATTEMPT_STATUSES = new Set([
+  "pending",
+  "submitting",
+  "accepted",
+  "ambiguous",
+  "retryable_failed",
+  "permanent_failed",
+]);
+const DIAGNOSTIC_CATEGORIES = new Set([
+  "application_error",
+  "invalid_data",
+  "network_dns",
+  "network_refused",
+  "network_reset",
+  "provider_error",
+  "provider_rejected",
+  "provider_throttled",
+  "provider_unavailable",
+  "timeout",
+]);
+const AGGREGATE_STATUSES = new Set([
+  "queued",
+  "scheduled",
+  "sending",
+  "accepted",
+  "partially_delivered",
+  "delivered",
+  "delivery_delayed",
+  "bounced",
+  "complained",
+  "failed",
+  "canceled",
+  "suppressed",
+]);
 
 function parseOptions(
   args: string[],
@@ -260,6 +319,155 @@ function emailList(value: unknown) {
   };
 }
 
+function safeInteger(
+  record: Record<string, unknown>,
+  field: string,
+  minimum = 0,
+) {
+  const value = record[field];
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minimum
+  ) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  return value;
+}
+
+function recipientIdentifier(value: unknown, label: string) {
+  if (typeof value !== "string" || !RECIPIENT_ID_PATTERN.test(value)) {
+    throw new Error(`${label} must be a valid HayaSend recipient ID.`);
+  }
+  return value;
+}
+
+function recipientSummary(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  const record = value as Record<string, unknown>;
+  const role = nonEmptyString(record, "role");
+  const status = lifecycleValue(record, "status", RECIPIENT_STATUSES);
+  const recoveryState = lifecycleValue(
+    record,
+    "recovery_state",
+    RECOVERY_STATES,
+  );
+  if (!["to", "cc", "bcc"].includes(role)) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  if (typeof record.requires_operator_attention !== "boolean") {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  let latestAttempt = null;
+  if (record.latest_attempt !== null) {
+    if (
+      typeof record.latest_attempt !== "object" ||
+      Array.isArray(record.latest_attempt)
+    ) {
+      throw new Error("HayaSend returned invalid recipient diagnostics.");
+    }
+    const attempt = record.latest_attempt as Record<string, unknown>;
+    const id = nonEmptyString(attempt, "id");
+    const attemptStatus = lifecycleValue(
+      attempt,
+      "status",
+      ATTEMPT_STATUSES,
+    );
+    if (!ATTEMPT_ID_PATTERN.test(id)) {
+      throw new Error("HayaSend returned invalid recipient diagnostics.");
+    }
+    const diagnosticCategory = attempt.diagnostic_category;
+    if (
+      diagnosticCategory !== null &&
+      (typeof diagnosticCategory !== "string" ||
+        !DIAGNOSTIC_CATEGORIES.has(diagnosticCategory))
+    ) {
+      throw new Error("HayaSend returned invalid recipient diagnostics.");
+    }
+    const completedAt =
+      attempt.completed_at === null
+        ? null
+        : timestamp(attempt, "completed_at");
+    latestAttempt = {
+      id,
+      sequence: safeInteger(attempt, "sequence", 1),
+      status: attemptStatus,
+      diagnostic_category: diagnosticCategory,
+      started_at: timestamp(attempt, "started_at"),
+      completed_at: completedAt,
+    };
+  }
+  return {
+    id: recipientIdentifier(record.id, "Response recipient ID"),
+    role,
+    ordinal: safeInteger(record, "ordinal"),
+    status,
+    recovery_state: recoveryState,
+    requires_operator_attention: record.requires_operator_attention,
+    latest_attempt: latestAttempt,
+    updated_at: timestamp(record, "updated_at"),
+  };
+}
+
+function recipientSummaryPage(value: unknown, expectedMessageId: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  const response = value as Record<string, unknown>;
+  if (
+    response.object !== "list" ||
+    response.message_id !== expectedMessageId ||
+    !Array.isArray(response.data) ||
+    typeof response.has_more !== "boolean"
+  ) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  const aggregateStatus = lifecycleValue(
+    response,
+    "aggregate_status",
+    AGGREGATE_STATUSES,
+  );
+  const attemptSummary = response.attempt_summary;
+  if (
+    typeof attemptSummary !== "object" ||
+    attemptSummary === null ||
+    Array.isArray(attemptSummary)
+  ) {
+    throw new Error("HayaSend returned invalid recipient diagnostics.");
+  }
+  const attempts = attemptSummary as Record<string, unknown>;
+  const nextCursor =
+    response.next_cursor === undefined
+      ? undefined
+      : recipientIdentifier(
+          response.next_cursor,
+          "Response pagination cursor",
+        );
+  return {
+    object: "list",
+    message_id: expectedMessageId,
+    aggregate_status: aggregateStatus,
+    recipient_count: safeInteger(response, "recipient_count", 1),
+    attempt_summary: {
+      pending: safeInteger(attempts, "pending"),
+      submitting: safeInteger(attempts, "submitting"),
+      accepted: safeInteger(attempts, "accepted"),
+      ambiguous: safeInteger(attempts, "ambiguous"),
+      retryable_failed: safeInteger(attempts, "retryable_failed"),
+      permanent_failed: safeInteger(attempts, "permanent_failed"),
+    },
+    unattributed_event_count: safeInteger(
+      response,
+      "unattributed_event_count",
+    ),
+    data: response.data.map(recipientSummary),
+    has_more: response.has_more,
+    ...(nextCursor ? { next_cursor: nextCursor } : {}),
+  };
+}
+
 function limit(value: string | undefined) {
   if (value === undefined) {
     return undefined;
@@ -343,6 +551,34 @@ export async function emailCommand(
         options.booleans.has("include-content")
           ? emailRecord(response)
           : emailSummary(response),
+        context,
+      );
+      break;
+    }
+    case "recipients": {
+      const options = parseOptions(args, {
+        values: ["limit", "after", "endpoint"],
+        positionals: 1,
+      });
+      const id = emailIdentifier(options.positionals[0] ?? "");
+      const parameters = new URLSearchParams();
+      const boundedLimit = limit(options.values.get("limit"));
+      if (boundedLimit) {
+        parameters.set("limit", boundedLimit);
+      }
+      const after = options.values.get("after");
+      if (after) {
+        parameters.set(
+          "after",
+          recipientIdentifier(after, "Pagination cursor"),
+        );
+      }
+      const query = parameters.size > 0 ? `?${parameters}` : "";
+      print(
+        recipientSummaryPage(
+          await context.request(`${emailPath(id)}/recipients${query}`),
+          id,
+        ),
         context,
       );
       break;

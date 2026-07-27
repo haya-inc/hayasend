@@ -33,6 +33,25 @@ paths:
                     const: hayasend
                   version:
                     type: string
+  /diagnostics/recovery:
+    get:
+      summary: Inspect privacy-safe recovery diagnostics
+      description: >-
+        Requires the diagnostics:read scope. Returns only aggregate operational
+        metadata and capability evidence; it never returns recipient addresses,
+        message content, credentials, signed URLs, or raw provider errors.
+      operationId: getRecoveryDiagnostics
+      responses:
+        default:
+          $ref: "#/components/responses/Error"
+        "200":
+          description: Current recovery diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryDiagnostics"
+        "403":
+          $ref: "#/components/responses/Error"
   /emails:
     post:
       summary: Send an email
@@ -524,6 +543,34 @@ paths:
           $ref: "#/components/responses/Error"
         "200":
           $ref: "#/components/responses/CreatedId"
+  /emails/{id}/recipients:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      summary: List privacy-safe recipient delivery summaries
+      description: >-
+        Requires the emails:read scope. The additive response deliberately
+        omits addresses, subject and body content, provider message IDs, and raw
+        provider errors. Pagination follows canonical recipient envelope order.
+      operationId: listEmailRecipients
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+      responses:
+        default:
+          $ref: "#/components/responses/Error"
+        "200":
+          description: Recipient delivery summary page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecipientSummaryPage"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
   /emails/{id}/cancel:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
@@ -1711,6 +1758,165 @@ components:
         error:
           type: string
           description: Stable operational failure message with a category; never contains raw provider or network exception text.
+    RecipientSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - role
+        - ordinal
+        - status
+        - recovery_state
+        - requires_operator_attention
+        - latest_attempt
+        - updated_at
+      properties:
+        id:
+          type: string
+          pattern: ^rcpt_[A-Za-z0-9_-]{22,128}$
+        role:
+          enum: [to, cc, bcc]
+        ordinal:
+          type: integer
+          minimum: 0
+        status:
+          enum:
+            - queued
+            - sending
+            - accepted
+            - delivery_delayed
+            - delivered
+            - opened
+            - clicked
+            - bounced
+            - complained
+            - rejected
+            - failed
+            - suppressed
+            - canceled
+        recovery_state:
+          enum:
+            - pending
+            - in_progress
+            - awaiting_event
+            - retryable
+            - ambiguous
+            - settled
+        requires_operator_attention:
+          type: boolean
+        latest_attempt:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required:
+                - id
+                - sequence
+                - status
+                - diagnostic_category
+                - started_at
+                - completed_at
+              properties:
+                id:
+                  type: string
+                sequence:
+                  type: integer
+                  minimum: 1
+                status:
+                  enum:
+                    - pending
+                    - submitting
+                    - accepted
+                    - ambiguous
+                    - retryable_failed
+                    - permanent_failed
+                diagnostic_category:
+                  type: [string, "null"]
+                  enum:
+                    - application_error
+                    - invalid_data
+                    - network_dns
+                    - network_refused
+                    - network_reset
+                    - provider_error
+                    - provider_rejected
+                    - provider_throttled
+                    - provider_unavailable
+                    - timeout
+                    - null
+                started_at:
+                  type: string
+                  format: date-time
+                completed_at:
+                  type: [string, "null"]
+                  format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RecipientSummaryPage:
+      type: object
+      additionalProperties: false
+      required:
+        - object
+        - message_id
+        - aggregate_status
+        - recipient_count
+        - attempt_summary
+        - unattributed_event_count
+        - data
+        - has_more
+      properties:
+        object:
+          const: list
+        message_id:
+          type: string
+        aggregate_status:
+          enum:
+            - queued
+            - scheduled
+            - sending
+            - accepted
+            - partially_delivered
+            - delivered
+            - delivery_delayed
+            - bounced
+            - complained
+            - failed
+            - canceled
+            - suppressed
+        recipient_count:
+          type: integer
+          minimum: 1
+          maximum: 50
+        attempt_summary:
+          type: object
+          additionalProperties: false
+          required:
+            - pending
+            - submitting
+            - accepted
+            - ambiguous
+            - retryable_failed
+            - permanent_failed
+          properties:
+            pending: { type: integer, minimum: 0 }
+            submitting: { type: integer, minimum: 0 }
+            accepted: { type: integer, minimum: 0 }
+            ambiguous: { type: integer, minimum: 0 }
+            retryable_failed: { type: integer, minimum: 0 }
+            permanent_failed: { type: integer, minimum: 0 }
+        unattributed_event_count:
+          type: integer
+          minimum: 0
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecipientSummary"
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          pattern: ^rcpt_[A-Za-z0-9_-]{22,128}$
     ReceivedEmailSummary:
       type: object
       required:
@@ -2071,10 +2277,124 @@ components:
                     message_id:
                       type: string
                       description: Provider-assigned Message-ID; omitted for events emitted before provider acceptance.
+    QueueDepth:
+      type: object
+      additionalProperties: false
+      required: [visible, in_flight, delayed, total]
+      properties:
+        visible:
+          type: integer
+          minimum: 0
+        in_flight:
+          type: integer
+          minimum: 0
+        delayed:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+    RecoveryDiagnostics:
+      type: object
+      additionalProperties: false
+      required:
+        - object
+        - generated_at
+        - outbox
+        - queues
+        - provider_events
+        - capability
+      properties:
+        object:
+          const: recovery_diagnostics
+        generated_at:
+          type: string
+          format: date-time
+        outbox:
+          type: object
+          additionalProperties: false
+          required:
+            - due
+            - leased
+            - stuck_leases
+            - undispatched
+            - oldest_due_age_seconds
+            - publish_failures_total
+            - truncated
+          properties:
+            due: { type: integer, minimum: 0 }
+            leased: { type: integer, minimum: 0 }
+            stuck_leases: { type: integer, minimum: 0 }
+            undispatched: { type: integer, minimum: 0 }
+            oldest_due_age_seconds: { type: integer, minimum: 0 }
+            publish_failures_total: { type: integer, minimum: 0 }
+            truncated:
+              type: boolean
+        queues:
+          type: object
+          additionalProperties: false
+          required: [provider, primary, dead_letters]
+          properties:
+            provider:
+              enum: [memory, aws-sqs]
+            primary:
+              $ref: "#/components/schemas/QueueDepth"
+            dead_letters:
+              type: object
+              additionalProperties: false
+              required: [delivery, scheduler, inbound]
+              properties:
+                delivery:
+                  oneOf:
+                    - $ref: "#/components/schemas/QueueDepth"
+                    - type: "null"
+                scheduler:
+                  oneOf:
+                    - $ref: "#/components/schemas/QueueDepth"
+                    - type: "null"
+                inbound:
+                  oneOf:
+                    - $ref: "#/components/schemas/QueueDepth"
+                    - type: "null"
+        provider_events:
+          type: object
+          additionalProperties: false
+          required: [latest_received_at, lag_seconds]
+          properties:
+            latest_received_at:
+              type: [string, "null"]
+              format: date-time
+            lag_seconds:
+              type: [integer, "null"]
+              minimum: 0
+        capability:
+          type: object
+          additionalProperties: false
+          required:
+            - provider
+            - adapter_version
+            - capability_version
+            - checked_at
+            - document_sha256
+          properties:
+            provider:
+              type: string
+            adapter_version:
+              type: string
+            capability_version:
+              type: string
+            checked_at:
+              type: [string, "null"]
+              format: date
+            document_sha256:
+              type: string
+              pattern: ^[a-f0-9]{64}$
+              description: SHA-256 of the provider capability document bundled with the running adapter.
     ApiScope:
       enum:
         - emails:send
         - emails:read
+        - diagnostics:read
         - templates:read
         - templates:write
         - domains:read

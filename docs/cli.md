@@ -59,9 +59,10 @@ HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
 
 `--scope` is repeatable and accepts `emails`, `templates`, `domains`,
 `webhooks`, `suppressions`, or `api_keys` with a `:read` or `:write` suffix,
-except that email delivery uses `emails:send`. Add `--expires-at` with the
-workload's next rotation deadline when the key must expire; it must be a future
-UTC date-time.
+except that email delivery uses `emails:send`. The read-only
+`diagnostics:read` scope grants access to aggregate recovery evidence. Add
+`--expires-at` with the workload's next rotation deadline when the key must
+expire; it must be a future UTC date-time.
 
 `--token-out` is required. The CLI reserves the path before contacting
 HayaSend, creates it with mode `0600`, refuses an existing path, and removes
@@ -103,10 +104,16 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 
 1. the health endpoint returns JSON identifying the service as HayaSend;
 2. the key can read the email endpoint;
-3. whether the local preview is available.
+3. privacy-safe outbox age, stuck-lease, queue/DLQ, provider-event lag, and
+   capability evidence when the key has `diagnostics:read`;
+4. whether the running AWS capability digest matches this CLI package;
+5. whether the local preview is available.
 
-It never prints the API key. HTTPS is required unless the endpoint is
-`localhost`, `127.0.0.1`, or `[::1]`; endpoint credentials, queries, and
+Without `diagnostics:read`, the recovery check reports `not_authorized`
+without failing the existing health and authentication checks. It never prints
+the API key, addresses, subject or body content, signed URLs, raw provider
+errors, or unrecognized server fields. HTTPS is required unless the endpoint
+is `localhost`, `127.0.0.1`, or `[::1]`; endpoint credentials, queries, and
 fragments are rejected.
 
 ## Onboard a sending domain
@@ -360,6 +367,7 @@ message recovery:
 npm run cli -- emails list --limit 20
 npm run cli -- emails list --after email_0123456789abcdef0123456789abcdef
 npm run cli -- emails get email_0123456789abcdef0123456789abcdef
+npm run cli -- emails recipients email_0123456789abcdef0123456789abcdef
 ```
 
 `list` and `get` deliberately print an `email_summary`: opaque IDs, lifecycle
@@ -371,6 +379,12 @@ CI logs, and support transcripts, but it is still operational metadata and
 should receive appropriate access controls.
 `--after` accepts only the stable `email_` resource ID returned by a preceding
 page.
+
+`emails recipients` shows canonical per-recipient status, role, attempt state,
+safe diagnostic category, ambiguity/retry state, and the deterministic message
+aggregate. It uses opaque `rcpt_` IDs, supports `--limit` and
+`--after RECIPIENT_ID`, and deliberately omits addresses, content, provider
+message IDs, and unrecognized response fields. It requires `emails:read`.
 
 When controlled debugging truly requires the stored message, opt in:
 

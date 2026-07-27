@@ -42,4 +42,5 @@ export interface DeliveryLedgerStore {
     updatedAt: string,
   ): Promise<DeliveryLedgerMutationResult | undefined>;
   getProviderEvent(id: string): Promise<ProviderEventRecord | undefined>;
+  getLatestProviderEventReceivedAt(): Promise<string | undefined>;
 }

@@ -243,6 +243,53 @@ describe("EmailService", () => {
     ]);
   });
 
+  it("surfaces an old in-flight provider submission as privacy-safe ambiguity", async () => {
+    const { service, store } = fixture();
+    const created = await service.create(
+      input,
+      undefined,
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+    const ledger = await store.getDeliveryLedger(created.record.id);
+    expect(ledger).toBeDefined();
+    await store.beginDeliveryAttempt({
+      schema_version: "1.0.0",
+      record_type: "attempt",
+      id: "attempt_0123456789abcdef0123456789abcdef",
+      message_id: created.record.id,
+      recipient_ids: ledger!.message.recipient_ids,
+      sequence: 1,
+      provider: ledger!.message.provider,
+      status: "submitting",
+      started_at: "2026-07-27T00:00:01.000Z",
+    });
+
+    const page = await service.listRecipientSummaries(
+      created.record.id,
+      20,
+      undefined,
+      new Date("2026-07-27T00:01:01.000Z"),
+    );
+
+    expect(page).toMatchObject({
+      aggregate_status: "sending",
+      data: [
+        {
+          status: "sending",
+          recovery_state: "ambiguous",
+          requires_operator_attention: true,
+          latest_attempt: {
+            status: "submitting",
+            diagnostic_category: null,
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(page)).not.toContain(
+      "recipient@example.net",
+    );
+  });
+
   it("rejects an address that cannot enter the recipient ledger", async () => {
     const { service } = fixture();
 

@@ -41,6 +41,7 @@ import {
   type OutboxSweepResult,
 } from "./services/outbox-reconciler.js";
 import { ReceivedEmailService } from "./services/received-email-service.js";
+import { RecoveryDiagnosticsService } from "./services/recovery-diagnostics-service.js";
 import { SuppressionService } from "./services/suppression-service.js";
 import { WebhookService } from "./services/webhook-service.js";
 import { TemplateService } from "./services/template-service.js";
@@ -102,6 +103,21 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     new LocalDomainProvider(),
     config.region,
   );
+  const recoveryDiagnosticsService = new RecoveryDiagnosticsService(
+    store,
+    queue,
+    {
+      provider: "local-console",
+      adapter_version: HAYASEND_VERSION,
+      capability_version: "1.0.0",
+      checked_at: null,
+      document: {
+        provider: "local-console",
+        adapter_version: HAYASEND_VERSION,
+        capability_version: "1.0.0",
+      },
+    },
+  );
 
   const processJob = async (job: Job, attempt = 1) => {
     if (job.type === "send_email") {
@@ -130,6 +146,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     emailService,
     templateService,
     receivedEmailService: receivedEmails,
+    recoveryDiagnosticsService,
     suppressionService: suppressions,
     webhookService: webhooks,
     processJob,
@@ -158,7 +175,11 @@ export function createAwsRuntime(
     );
   }
   const store = new DynamoStore(config.tableName, config.payloadBucket);
-  const queue = new SqsJobQueue(config.queueUrl);
+  const queue = new SqsJobQueue(config.queueUrl, undefined, {
+    deliveryDeadLetterQueueUrl: config.deliveryDeadLetterQueueUrl,
+    schedulerDeadLetterQueueUrl: config.schedulerDeadLetterQueueUrl,
+    inboundDeadLetterQueueUrl: config.inboundDeadLetterQueueUrl,
+  });
   const webhooks = new WebhookService(store, queue, {
     deliveryRetentionDays: config.webhookDeliveryRetentionDays,
   });
@@ -212,6 +233,17 @@ export function createAwsRuntime(
     new SesDomainProvider(),
     config.region,
   );
+  const recoveryDiagnosticsService = new RecoveryDiagnosticsService(
+    store,
+    queue,
+    {
+      provider: AWS_SES_CAPABILITIES.provider,
+      adapter_version: AWS_SES_CAPABILITIES.adapter_version,
+      capability_version: AWS_SES_CAPABILITIES.schema_version,
+      checked_at: AWS_SES_CAPABILITIES.checked_at,
+      document: AWS_SES_CAPABILITIES,
+    },
+  );
   const outbox = new OutboxReconciler(store, queue, {
     owner: createId("dispatcher"),
   });
@@ -223,6 +255,7 @@ export function createAwsRuntime(
     emailService,
     templateService,
     receivedEmailService: receivedEmails,
+    recoveryDiagnosticsService,
     suppressionService: suppressions,
     webhookService: webhooks,
     dispatchOutbox: (now) => outbox.sweep(now),

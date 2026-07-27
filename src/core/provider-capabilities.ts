@@ -281,6 +281,15 @@ export const CONFORMANCE_CASES = [
     required: true,
   },
   {
+    case_id: "recovery-diagnostics-privacy",
+    boundary: "Operator recovery diagnostics",
+    injected_condition:
+      "Mixed recipient outcomes, an old in-flight attempt, queue backlog, and adversarial private fields",
+    required_outcome:
+      "Scoped API and CLI output retains canonical recipient and recovery state while omitting addresses, content, credentials, signed URLs, provider identifiers, raw errors, and unrecognized fields.",
+    required: true,
+  },
+  {
     case_id: "payload-orphan",
     boundary: "Payload store",
     injected_condition: "Object write without metadata commit",

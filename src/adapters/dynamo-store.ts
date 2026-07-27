@@ -56,6 +56,7 @@ import type {
   WebhookDeliveryRecord,
   WebhookEndpoint,
 } from "../core/types.js";
+import { safeErrorCategory } from "../core/error-telemetry.js";
 import type {
   DeliveryCommit,
   DeliveryCommitResult,
@@ -165,6 +166,12 @@ interface StoredOutboxMetrics {
   updated_at?: string | undefined;
 }
 
+interface StoredProviderEventMetrics {
+  PK: string;
+  SK: string;
+  latest_received_at?: string | undefined;
+}
+
 const OUTBOX_DUE_PARTITION = "OUTBOX_DUE";
 const OUTBOX_LEASED_PARTITION = "OUTBOX_LEASED";
 const OUTBOX_METRIC_QUERY_LIMIT = 1_000;
@@ -232,6 +239,13 @@ function outboxKey(id: string) {
 
 function outboxMetricsKey() {
   return { PK: "OUTBOX_METRICS", SK: "OUTBOX_METRICS" };
+}
+
+function providerEventMetricsKey() {
+  return {
+    PK: "PROVIDER_EVENT_METRICS",
+    SK: "PROVIDER_EVENT_METRICS",
+  };
 }
 
 function outboxSort(availableAt: string, id: string) {
@@ -723,6 +737,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
           "Provider event identity is already used by a different normalized event.",
         );
       }
+      await this.recordLatestProviderEventReceivedAt(replay.received_at);
       return this.deliveryLedgerResult(replay.message_id, true, [], {
         event: replay,
       });
@@ -743,6 +758,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
             ),
           }),
         );
+        await this.recordLatestProviderEventReceivedAt(event.received_at);
         return this.deliveryLedgerResult(
           event.message_id,
           false,
@@ -760,6 +776,9 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
               "Provider event identity is already used by a different normalized event.",
             );
           }
+          await this.recordLatestProviderEventReceivedAt(
+            existing.received_at,
+          );
           return this.deliveryLedgerResult(
             existing.message_id,
             true,
@@ -823,6 +842,18 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     );
     const event = (result.Item as StoredProviderEvent | undefined)?.entity;
     return event ? providerEventRecordSchema.parse(event) : undefined;
+  }
+
+  async getLatestProviderEventReceivedAt(): Promise<string | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: providerEventMetricsKey(),
+        ConsistentRead: true,
+      }),
+    );
+    return (result.Item as StoredProviderEventMetrics | undefined)
+      ?.latest_received_at;
   }
 
   async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
@@ -2481,6 +2512,38 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
       "TransactionCanceledException",
       "TransactionConflictException",
     ].includes((error as { name?: string }).name ?? "");
+  }
+
+  private async recordLatestProviderEventReceivedAt(
+    receivedAt: string,
+  ): Promise<void> {
+    try {
+      await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: providerEventMetricsKey(),
+          UpdateExpression: "SET latest_received_at = :received_at",
+          ConditionExpression:
+            "attribute_not_exists(latest_received_at) OR latest_received_at < :received_at",
+          ExpressionAttributeValues: {
+            ":received_at": receivedAt,
+          },
+        }),
+      );
+    } catch (error) {
+      if (
+        (error as { name?: string }).name !==
+        "ConditionalCheckFailedException"
+      ) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "Provider event diagnostics update failed",
+            error_type: safeErrorCategory(error),
+          }),
+        );
+      }
+    }
   }
 
   private async putEntity(
