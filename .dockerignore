@@ -1,6 +1,7 @@
 .aws-sam
 .env
 .env.*
+.secrets
 .git
 .github
 coverage

@@ -152,6 +152,71 @@ The lower-level `send` command accepts `--from`, `--to`, `--subject`, and
 `--text`. Both commands read the endpoint and key from the environment and
 accept `--endpoint` as a non-secret override.
 
+## Manage and recover webhooks
+
+Register a webhook without exposing its one-time signing secret in terminal
+output or CI logs:
+
+```bash
+mkdir -m 700 .secrets
+npm run cli -- webhooks create \
+  --url https://hooks.example.com/hayasend \
+  --event email.sent \
+  --event email.bounced \
+  --secret-file .secrets/hayasend-webhook
+```
+
+`--url` is the receiving webhook URL; `--endpoint` remains the HayaSend API
+override used by every remote CLI command. `--event` is repeatable and duplicate
+values are removed. The CLI validates every event before contacting HayaSend.
+
+`--secret-file` is required. Its parent directory must already exist and the
+target must not: the CLI reserves the path with exclusive creation and mode
+`0600` before registering the webhook. It writes the secret only after a valid
+response, syncs it to disk, and prints the webhook metadata plus the absolute
+file path—but never the secret. Unexpected secret-, token-, API-key-, or
+authorization-like response fields are redacted recursively. A failed request
+removes the empty reservation; a secret-write failure also attempts to delete
+the newly created webhook. The recommended `.secrets/` directory is excluded
+from Git and Docker build contexts; load the file into the receiving service's
+secret manager.
+
+Inspect and update endpoints with deterministic JSON output:
+
+```bash
+npm run cli -- webhooks list --limit 20
+npm run cli -- webhooks get wh_0123456789abcdef0123456789abcdef
+npm run cli -- webhooks update wh_0123456789abcdef0123456789abcdef \
+  --status disabled
+npm run cli -- webhooks update wh_0123456789abcdef0123456789abcdef \
+  --url https://hooks.example.com/hayasend-v2 \
+  --event email.sent \
+  --event email.bounced \
+  --status enabled
+npm run cli -- webhooks delete wh_0123456789abcdef0123456789abcdef --yes
+```
+
+Deletion requires `--yes` because it permanently removes the endpoint.
+Creating, updating, deleting, or replaying needs `webhooks:write`; listing and
+inspection need `webhooks:read`.
+
+Retained delivery history makes incident recovery scriptable:
+
+```bash
+npm run cli -- webhooks deliveries \
+  wh_0123456789abcdef0123456789abcdef --limit 20
+npm run cli -- webhooks inspect-delivery \
+  wh_0123456789abcdef0123456789abcdef msg_0123456789abcdef0123456789abcdef
+npm run cli -- webhooks replay \
+  wh_0123456789abcdef0123456789abcdef msg_0123456789abcdef0123456789abcdef --yes
+```
+
+Replay queues a new delivery linked by `replayed_from` and is externally
+observable, so it also requires `--yes`. Fix and re-enable the endpoint first,
+then verify that the consumer deduplicates `svix-id`. Delivery history can
+contain recipient and subject metadata; keep command output out of public
+tickets and general-purpose analytics.
+
 ## Manage templates as code
 
 Keep a `hayasend.templates.json` manifest and its content files in the

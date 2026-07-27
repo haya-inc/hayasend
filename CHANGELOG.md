@@ -6,6 +6,9 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a secret-safe webhook lifecycle and delivery-recovery CLI with local
+  event validation, permission-`0600` one-time secret storage, retained
+  delivery inspection, and acknowledgement-gated deletion and replay.
 - Add safe sending-domain onboarding commands with strict local validation,
   explicit deletion acknowledgement, a manual-DNS boundary, and an official
   Resend Node SDK lifecycle contract.

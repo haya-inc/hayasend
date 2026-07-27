@@ -27,6 +27,7 @@ import {
   type DesiredTemplate,
   type RemoteTemplate,
 } from "./cli-templates.js";
+import { webhookCommand } from "./cli-webhooks.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { startServer } from "./server.js";
 
@@ -146,8 +147,31 @@ class HttpResponseError extends Error {
     readonly status: number,
     readonly body: unknown,
   ) {
-    super(`HTTP ${status}: ${JSON.stringify(body)}`);
+    super(`HTTP ${status}: ${JSON.stringify(redactHttpErrorBody(body))}`);
   }
+}
+
+function redactHttpErrorBody(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactHttpErrorBody);
+  }
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => {
+      const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
+      const sensitive =
+        normalized.includes("secret") ||
+        normalized.includes("token") ||
+        normalized.includes("apikey") ||
+        normalized.includes("authorization");
+      return [
+        key,
+        sensitive ? "[REDACTED]" : redactHttpErrorBody(entry),
+      ];
+    }),
+  );
 }
 
 function isLoopbackHostname(hostname: string) {
@@ -1311,6 +1335,22 @@ Commands:
       Create, inspect, or revoke least-privilege API keys. Created tokens are
       written once to a new mode-0600 file and are never printed.
 
+  webhooks create --url URL --event EVENT --secret-file FILE
+      Register a webhook and save its one-time signing secret to a new
+      permission-0600 file without printing the secret.
+
+  webhooks list [--limit NUMBER] [--after ID]
+  webhooks get ID
+  webhooks update ID [--url URL] [--event EVENT] [--status enabled|disabled]
+  webhooks delete ID --yes
+      Inspect and manage webhook endpoints. Repeat --event to subscribe to
+      multiple events.
+
+  webhooks deliveries ID [--limit NUMBER] [--after DELIVERY_ID]
+  webhooks inspect-delivery ID DELIVERY_ID
+  webhooks replay ID DELIVERY_ID --yes
+      Inspect retained delivery attempts or explicitly queue a replay.
+
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
@@ -1372,6 +1412,13 @@ export async function runCli(
       break;
     case "keys":
       await apiKeyCommand(args.slice(1), dependencies);
+      break;
+    case "webhooks":
+      await webhookCommand(args.slice(1), {
+        cwd: dependencies.cwd,
+        log: dependencies.io.log,
+        request: (path, init) => request(path, args, dependencies, init),
+      });
       break;
     default:
       throw new Error(`Unknown command: ${command}. Run hayasend help.`);
