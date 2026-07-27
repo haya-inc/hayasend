@@ -6,6 +6,11 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-27
+
+- Advance the project label from early alpha to early beta for non-critical
+  AWS evaluation while keeping the pre-v1 compatibility warning explicit and
+  making no production-readiness claim for Cloudflare.
 - Add a production-capable `emails send` CLI with body files and stdin,
   multiple recipients, scheduling, metadata, idempotency, templates, and
   checksum-bound direct attachment uploads whose verified content keeps

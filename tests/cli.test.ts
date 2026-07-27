@@ -13,6 +13,7 @@ import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isMainModule, normalizeEndpoint, runCli } from "../src/cli.js";
+import { HAYASEND_VERSION } from "../src/version.js";
 
 const temporaryDirectories: string[] = [];
 const webhookTestSecret = `whsec_${"A".repeat(43)}=`;
@@ -171,7 +172,9 @@ describe("HayaSend CLI", () => {
       join(directory, "compose.hayasend.yaml"),
       "utf8",
     );
-    expect(compose).toContain("image: ghcr.io/haya-inc/hayasend:0.1.0");
+    expect(compose).toContain(
+      `image: ghcr.io/haya-inc/hayasend:${HAYASEND_VERSION}`,
+    );
     expect(compose).toContain('"127.0.0.1:8787:8787"');
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("- ALL");

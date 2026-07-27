@@ -3,8 +3,10 @@
 Customer-owned safety and reliability infrastructure for transactional email.
 AWS works today; a provider-neutral core and Cloudflare proof are next.
 
-> **Project status: early alpha.** The API and data model will change before
-> v1. Do not use it for critical production traffic yet.
+> **Project status: early beta.** The AWS deployment is available for
+> non-critical evaluation. The API and data model can still change before v1;
+> do not use HayaSend for critical production traffic yet. Cloudflare support
+> is not production-ready.
 
 HayaSend provides the developer experience of a modern email API while the
 delivery provider and data plane stay in your cloud account. Amazon SES is the
@@ -268,14 +270,14 @@ docker run --rm \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   -p 127.0.0.1:8787:8787 \
-  ghcr.io/haya-inc/hayasend:0.1.0
+  ghcr.io/haya-inc/hayasend:0.2.0
 ```
 
 Verify that the image was built by this repository before deploying it:
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/haya-inc/hayasend:0.1.0 \
+  oci://ghcr.io/haya-inc/hayasend:0.2.0 \
   --repo haya-inc/hayasend
 ```
 

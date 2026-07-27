@@ -42,6 +42,7 @@ import type { SuppressionService } from "./suppression-service.js";
 import type { WebhookService } from "./webhook-service.js";
 import type { TemplateService } from "./template-service.js";
 import { normalizeMailbox } from "./suppression-service.js";
+import { HAYASEND_VERSION } from "../version.js";
 
 const FINAL_STATUSES = new Set<EmailStatus>([
   "sent",
@@ -59,7 +60,7 @@ const MAX_SERIALIZED_EMAIL_BYTES = 9 * 1024 * 1024;
 
 const DEFAULT_PROVIDER: ProviderReference = {
   name: "aws-ses",
-  adapter_version: "0.1.0",
+  adapter_version: HAYASEND_VERSION,
   capability_version: "1.0.0",
 };
 

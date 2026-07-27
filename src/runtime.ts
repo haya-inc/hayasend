@@ -28,6 +28,7 @@ import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
+import { HAYASEND_VERSION } from "./version.js";
 import {
   ApiKeyService,
   type BootstrapKeyProvider,
@@ -91,7 +92,7 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     {
       provider: {
         name: "local-console",
-        adapter_version: "0.1.0",
+        adapter_version: HAYASEND_VERSION,
         capability_version: "1.0.0",
       },
     },

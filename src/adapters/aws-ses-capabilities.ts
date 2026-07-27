@@ -2,14 +2,15 @@ import {
   providerCapabilityDocumentSchema,
   type ProviderCapabilityDocument,
 } from "../core/provider-capabilities.js";
+import { HAYASEND_VERSION } from "../version.js";
 
 const MEBIBYTE = 1024 * 1024;
 
 export const AWS_SES_CAPABILITIES = providerCapabilityDocumentSchema.parse({
   schema_version: "1.0.0",
   provider: "aws-ses",
-  adapter_version: "0.1.0",
-  checked_at: "2026-07-26",
+  adapter_version: HAYASEND_VERSION,
+  checked_at: "2026-07-27",
   service_maturity: "beta",
   required_plan:
     "An AWS account with Amazon SES production access in the deployment Region is required for unverified recipients.",

@@ -641,7 +641,7 @@ optional overrides of the published defaults.
 
 ## Scope
 
-The alpha CLI deliberately does not install dependencies or modify application
+The beta CLI deliberately does not install dependencies or modify application
 source. AWS deployment reuses the package's reviewed SAM template and ordinary
 CloudFormation change sets; the reviewed manual SAM commands in the main
 README remain a supported fallback. Migration automation remains on the
