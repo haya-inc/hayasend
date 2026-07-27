@@ -194,11 +194,24 @@ try {
   );
   assert.equal(suppressed.status, "suppressed");
 
+  const domainName = `it-${runId}.example.com`;
   const domain = await api("POST", "/domains", applicationKey, {
-    name: `it-${runId}.example.com`,
+    name: domainName,
   });
   created.domainId = domain.id;
-  assert.equal(domain.name, `it-${runId}.example.com`);
+  assert.equal(domain.name, domainName);
+  const duplicateDomain = await api(
+    "POST",
+    "/domains",
+    applicationKey,
+    { name: `${domainName.toUpperCase()}.` },
+    403,
+  );
+  assert.deepEqual(duplicateDomain, {
+    statusCode: 403,
+    name: "validation_error",
+    message: `The \`${domainName}\` domain has been registered already.`,
+  });
   await api(
     "POST",
     `/domains/${created.domainId}/verify`,
@@ -247,6 +260,7 @@ try {
         "public_attachment_privacy",
         "suppression",
         "ses_domain_identity",
+        "ses_duplicate_domain_error",
         "webhook_public_endpoint_validation",
         "webhook_update",
         "webhook_delivery_history",

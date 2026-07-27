@@ -678,10 +678,33 @@ describe("HTTP API", () => {
       method: "POST",
       body: JSON.stringify({ name: "example.com" }),
     });
-    await expect(domain.json()).resolves.toMatchObject({
+    const domainBody = (await domain.json()) as { id: string };
+    expect(domainBody).toMatchObject({
+      id: expect.stringMatching(/^dom_/),
       name: "example.com",
       status: "verified",
     });
+
+    const duplicateDomain = await request("/domains", {
+      method: "POST",
+      body: JSON.stringify({ name: "EXAMPLE.COM." }),
+    });
+    expect(duplicateDomain.status).toBe(403);
+    await expect(duplicateDomain.json()).resolves.toEqual({
+      statusCode: 403,
+      name: "validation_error",
+      message: "The `example.com` domain has been registered already.",
+    });
+
+    const deletedDomain = await request(`/domains/${domainBody.id}`, {
+      method: "DELETE",
+    });
+    expect(deletedDomain.status).toBe(200);
+    const recreatedDomain = await request("/domains", {
+      method: "POST",
+      body: JSON.stringify({ name: "example.com" }),
+    });
+    expect(recreatedDomain.status).toBe(200);
 
     const webhook = await request("/webhooks", {
       method: "POST",

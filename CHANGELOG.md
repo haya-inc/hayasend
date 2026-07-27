@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Return Resend-compatible `403 validation_error` responses when an Amazon SES
+  identity or local development domain has already been registered.
 - Make the public HTTP API throttle configurable with conservative new-stack
   defaults, legacy-preserving upgrades, exact deploy plans, and cost-boundary
   guidance.

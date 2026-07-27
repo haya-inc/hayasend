@@ -5,6 +5,7 @@ import {
   SESv2Client,
 } from "@aws-sdk/client-sesv2";
 import { sha256 } from "../core/crypto.js";
+import { RegisteredDomainError } from "../core/errors.js";
 import type {
   DomainDnsRecord,
   DomainProviderResult,
@@ -25,9 +26,17 @@ export class SesDomainProvider implements DomainProvider {
   constructor(private readonly client = new SESv2Client({})) {}
 
   async create(name: string): Promise<DomainProviderResult> {
-    const result = await this.client.send(
-      new CreateEmailIdentityCommand({ EmailIdentity: name }),
-    );
+    let result;
+    try {
+      result = await this.client.send(
+        new CreateEmailIdentityCommand({ EmailIdentity: name }),
+      );
+    } catch (error) {
+      if ((error as { name?: string }).name === "AlreadyExistsException") {
+        throw new RegisteredDomainError(name);
+      }
+      throw error;
+    }
     const tokens = result.DkimAttributes?.Tokens ?? [];
     return {
       status: result.VerifiedForSendingStatus ? "verified" : "pending",
@@ -76,7 +85,13 @@ export class SesDomainProvider implements DomainProvider {
 }
 
 export class LocalDomainProvider implements DomainProvider {
+  private readonly identities = new Set<string>();
+
   async create(name: string): Promise<DomainProviderResult> {
+    if (this.identities.has(name)) {
+      throw new RegisteredDomainError(name);
+    }
+    this.identities.add(name);
     return this.result(name);
   }
 
@@ -84,7 +99,9 @@ export class LocalDomainProvider implements DomainProvider {
     return this.result(name);
   }
 
-  async delete(_name: string): Promise<void> {}
+  async delete(name: string): Promise<void> {
+    this.identities.delete(name);
+  }
 
   private result(name: string): DomainProviderResult {
     const token = sha256(name).slice(0, 32);
