@@ -75,6 +75,13 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain(
       'npm view "${package_name}@${VERSION}" dist.integrity',
     );
+    expect(workflow).toContain("--userconfig=/dev/null");
+    expect(workflow).toContain("--registry=https://registry.npmjs.org/");
+    expect(workflow).toContain("--prefer-online");
+    expect(workflow).toContain('elif type == "array" then');
+    expect(workflow).toContain(
+      'map(select(type == "string")) | first // empty',
+    );
     expect(workflow).toContain('if [ "$published_integrity" != "$local_integrity" ]');
     expect(workflow).toContain(
       'archive="./release/haya-inc-hayasend-${VERSION}.tgz"',
