@@ -8,6 +8,18 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
     Description: Optional ARN of an existing Secrets Manager secret containing a 32+ character bootstrap key.
+  ApiThrottlingRateLimit:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 10000
+    Description: Best-effort steady-state request rate target for the public HTTP API.
+  ApiThrottlingBurstLimit:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    MaxValue: 5000
+    Description: Best-effort token-bucket burst target for the public HTTP API.
   LogRetentionDays:
     Type: Number
     Default: 30
@@ -136,8 +148,8 @@ Resources:
       StageVariables:
         environment: production
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 100
-        ThrottlingRateLimit: 50
+        ThrottlingBurstLimit: !Ref ApiThrottlingBurstLimit
+        ThrottlingRateLimit: !Ref ApiThrottlingRateLimit
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup

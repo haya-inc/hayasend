@@ -89,13 +89,15 @@ jobs:
             --account "$AWS_TEST_ACCOUNT_ID" \
             --stack "$STACK_NAME" \
             --region "$AWS_REGION" \
+            --api-rate-limit 7.5 \
+            --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/hayasend-deploy-plan.json"
           node -e \
-            'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' \
+            'const plan = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); if (plan.parameters.ApiThrottlingRateLimit !== "7.5" || plan.parameters.ApiThrottlingBurstLimit !== "11") process.exit(1)' \
             "$RUNNER_TEMP/hayasend-deploy-plan.json"
 
       - name: Deploy reviewed ephemeral stack
@@ -106,6 +108,8 @@ jobs:
             --account "$AWS_TEST_ACCOUNT_ID" \
             --stack "$STACK_NAME" \
             --region "$AWS_REGION" \
+            --api-rate-limit 7.5 \
+            --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
             --tag Purpose=IntegrationTest \
@@ -228,6 +232,43 @@ jobs:
           )"
           if [[ "$updated_retention_resource" != "$LEGACY_RETENTION_RESOURCE" ]]; then
             echo "::error::The legacy retention custom resource was replaced during update."
+            exit 1
+          fi
+
+          stack_rate="$(
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].Parameters[?ParameterKey=='ApiThrottlingRateLimit'].ParameterValue | [0]" \
+              --output text
+          )"
+          stack_burst="$(
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].Parameters[?ParameterKey=='ApiThrottlingBurstLimit'].ParameterValue | [0]" \
+              --output text
+          )"
+          stage_name="\$default"
+          stage_rate="$(
+            aws apigatewayv2 get-stage \
+              --api-id "$HTTP_API_ID" \
+              --stage-name "$stage_name" \
+              --region "$AWS_REGION" \
+              --query DefaultRouteSettings.ThrottlingRateLimit \
+              --output text
+          )"
+          stage_burst="$(
+            aws apigatewayv2 get-stage \
+              --api-id "$HTTP_API_ID" \
+              --stage-name "$stage_name" \
+              --region "$AWS_REGION" \
+              --query DefaultRouteSettings.ThrottlingBurstLimit \
+              --output text
+          )"
+          if [[ "$stack_rate" != "7.5" || "$stack_burst" != "11" ||
+                "$stage_rate" != "7.5" || "$stage_burst" != "11" ]]; then
+            echo "::error::The configured API throttle was not preserved by the update."
             exit 1
           fi
 

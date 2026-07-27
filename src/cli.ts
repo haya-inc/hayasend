@@ -916,6 +916,8 @@ async function deployCommand(
       "stack",
       "profile",
       "bootstrap-secret-arn",
+      "api-rate-limit",
+      "api-burst-limit",
       "log-retention-days",
       "inbound-retention-days",
       "inbound-max-message-bytes",
@@ -949,6 +951,8 @@ async function deployCommand(
   const stack = flag(args, "stack");
   const profile = flag(args, "profile");
   const bootstrapSecretArn = flag(args, "bootstrap-secret-arn");
+  const apiRateLimit = flag(args, "api-rate-limit");
+  const apiBurstLimit = flag(args, "api-burst-limit");
   const logRetentionDays = flag(args, "log-retention-days");
   const inboundRetentionDays = flag(args, "inbound-retention-days");
   const inboundMaxMessageBytes = flag(args, "inbound-max-message-bytes");
@@ -981,6 +985,8 @@ async function deployCommand(
           ? { enableInbound: false }
           : {}),
       ...(bootstrapSecretArn ? { bootstrapSecretArn } : {}),
+      ...(apiRateLimit ? { apiRateLimit } : {}),
+      ...(apiBurstLimit ? { apiBurstLimit } : {}),
       ...(logRetentionDays ? { logRetentionDays } : {}),
       ...(inboundRetentionDays ? { inboundRetentionDays } : {}),
       ...(inboundMaxMessageBytes ? { inboundMaxMessageBytes } : {}),

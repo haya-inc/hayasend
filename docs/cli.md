@@ -251,6 +251,8 @@ command explicitly overrides them. Parameters removed from the current
 template are not replayed. Supported overrides are:
 
 - `--bootstrap-secret-arn ARN`;
+- `--api-rate-limit 1..10000` (plain decimal values are accepted);
+- `--api-burst-limit 1..5000` (integer);
 - `--log-retention-days 1|3|5|7|14|30|60|90|120|150|180|365|400|545|731|1096|1827|2192|2557|2922|3288|3653`;
 - `--enable-inbound` or `--disable-inbound`;
 - `--inbound-recipient-suffixes @example.com,@example.org`;
@@ -270,6 +272,20 @@ and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
 The production default reserves 10 worker executions. New or quota-constrained
 accounts can set the override to `0`; queue scaling still caps worker
 concurrency at 10.
+
+New stacks default to a best-effort HTTP API target of 10 requests per second
+with a burst of 20. The CLI preserves configured values on updates. When it
+first upgrades a stack created before these parameters existed, it carries
+forward that stack's previous fixed behavior of 50 requests per second and a
+burst of 100. Override both values in a reviewed plan if a different boundary
+is intended.
+
+Rate and burst are independent token-bucket inputs, not a monthly quota or
+hard cost ceiling, and cannot exceed the account and Region's API Gateway
+quota. API Gateway can return `429 Too Many Requests`; clients should retry
+with exponential backoff and jitter and keep the same idempotency key for
+create requests.
+
 Lambda logs default to 30-day retention. The same parameter is visible in the
 plan, carried forward on update, and used by the manual SAM workflow.
 

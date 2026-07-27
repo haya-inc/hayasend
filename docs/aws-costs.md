@@ -66,6 +66,13 @@ not subtracted here.
 | Retries, bounces, complaints, opens, and clicks | excluded | excluded |
 | Optional inbound Mail Manager | excluded | excluded |
 
+The API-request assumption describes legitimate traffic, not a maximum bill.
+New stacks use an API Gateway target of 10 requests per second with a burst of
+20, configurable through the deployment CLI. API Gateway throttling is
+best-effort and unauthenticated requests still consume gateway and Lambda work
+before HayaSend rejects them. Treat the throttle as one operational boundary,
+then add AWS Budget notifications and monitor actual request volume.
+
 The DynamoDB checkpoint matters because email metadata has no TTL and
 accumulates. The model uses 2 KiB of durable metadata per message, 2 KiB per
 temporarily retained webhook delivery, and 1 KiB per 24-hour idempotency
