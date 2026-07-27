@@ -19,6 +19,25 @@ const email = new Resend(process.env.HAYASEND_API_KEY, {
 Do not switch production traffic until suppression lists, AWS SES production
 access, alarms, dead-letter queue handling, and rollback have been verified.
 
+Register each webhook with the CLI so its one-time signing secret is written to
+a new permission-`0600` file instead of terminal output:
+
+```bash
+mkdir -m 700 .secrets
+npm run cli -- webhooks create \
+  --url https://hooks.example.com/hayasend \
+  --event email.sent \
+  --event email.delivered \
+  --event email.bounced \
+  --secret-file .secrets/hayasend-webhook
+```
+
+Move that file into the receiver's secret manager, verify requests against the
+raw body and `svix-*` headers, then delete the local copy through the
+organization's approved secret-handling process. The
+[CLI guide](cli.md#manage-and-recover-webhooks) covers delivery inspection and
+explicit replay.
+
 The official SDK's inline base64 attachments continue to work. Files that
 would approach API Gateway's request limit should use HayaSend's
 `POST /attachments` HTTP extension and then be sent as

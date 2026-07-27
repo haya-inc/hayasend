@@ -4,6 +4,7 @@ coverage/
 __pycache__/
 *.pyc
 .env
+.secrets/
 .aws-sam/
 *.log
 .DS_Store

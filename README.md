@@ -43,7 +43,7 @@ implemented provider today. HayaSend never logs message bodies.
 - SES domain creation, DKIM record discovery, refresh, and explicit-deletion
   CLI with an official Node SDK lifecycle gate
 - signed webhooks with SQS retry, retained delivery history, manual replay,
-  and a dead-letter queue
+  a secret-safe lifecycle and recovery CLI, and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
 - provider-assigned Message-ID correlation in sent-email reads and webhooks
 - opt-in SES Mail Manager receiving with KMS-encrypted raw MIME storage,
@@ -381,6 +381,25 @@ Webhook event payloads and delivery results are retained in encrypted
 DynamoDB for seven days by default so operators can inspect and replay them.
 Set `WebhookDeliveryRetentionDays` from 1–30 days to match the deployment's
 privacy and recovery requirements.
+
+Register endpoints without printing their one-time signing secret, then inspect
+or replay retained deliveries through the same CLI:
+
+```bash
+mkdir -m 700 .secrets
+npm run cli -- webhooks create \
+  --url https://hooks.example.com/hayasend \
+  --event email.sent \
+  --event email.bounced \
+  --secret-file .secrets/hayasend-webhook
+npm run cli -- webhooks deliveries WEBHOOK_ID --limit 20
+npm run cli -- webhooks replay WEBHOOK_ID DELIVERY_ID --yes
+```
+
+The secret file is created exclusively with mode `0600`; existing paths are
+never overwritten. Delete and replay require `--yes`. See
+[the CLI guide](docs/cli.md#manage-and-recover-webhooks) for all lifecycle
+commands, least-privilege scopes, and output-handling guidance.
 
 Inbound receiving is deliberately disabled by default. Enable it only after
 reading [the inbound receiving guide](docs/inbound-receiving.md). The stack

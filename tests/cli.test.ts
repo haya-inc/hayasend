@@ -1,4 +1,5 @@
 import {
+  access,
   mkdtemp,
   mkdir,
   readFile,
@@ -14,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isMainModule, normalizeEndpoint, runCli } from "../src/cli.js";
 
 const temporaryDirectories: string[] = [];
+const webhookTestSecret = `whsec_${"A".repeat(43)}=`;
 
 afterEach(async () => {
   await Promise.all(
@@ -1133,5 +1135,370 @@ describe("HayaSend CLI", () => {
         { fetch: fetchMock, io: capture.io },
       ),
     ).rejects.toThrow("version ID is invalid");
+  });
+
+  it("creates a webhook without printing its one-time signing secret", async () => {
+    const directory = await temporaryDirectory();
+    const capture = capturingIo();
+    const secretPath = join(directory, "webhook.secret");
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("http://localhost:8787/webhooks");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        endpoint: "https://hooks.example.com/email",
+        events: ["email.sent", "email.bounced"],
+      });
+      return jsonResponse({
+        object: "webhook",
+        id: "wh_11111111111111111111111111111111",
+        endpoint: "https://hooks.example.com/email",
+        events: ["email.sent", "email.bounced"],
+        status: "enabled",
+        signing_secret: webhookTestSecret,
+        backup_signing_secret: "whsec_also_do_not_log",
+      });
+    });
+
+    await runCli(
+      [
+        "webhooks",
+        "create",
+        "--url",
+        "https://hooks.example.com/email",
+        "--event",
+        "email.sent",
+        "--event",
+        "email.sent",
+        "--event",
+        "email.bounced",
+        "--secret-file",
+        "webhook.secret",
+      ],
+      {
+        cwd: directory,
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
+
+    expect(await readFile(secretPath, "utf8")).toBe(`${webhookTestSecret}\n`);
+    expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+    expect(capture.logs.join("\n")).not.toContain(webhookTestSecret);
+    expect(capture.logs.join("\n")).not.toContain("whsec_also_do_not_log");
+    expect(capture.errors.join("\n")).not.toContain(webhookTestSecret);
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toMatchObject({
+      object: "webhook",
+      id: "wh_11111111111111111111111111111111",
+      signing_secret_file: secretPath,
+    });
+  });
+
+  it("refuses existing webhook secret files before contacting HayaSend", async () => {
+    const directory = await temporaryDirectory();
+    const secretPath = join(directory, "webhook.secret");
+    await writeFile(secretPath, "keep me\n", { mode: 0o600 });
+    const fetchMock = vi.fn<typeof fetch>();
+
+    await expect(
+      runCli(
+        [
+          "webhooks",
+          "create",
+          "--url",
+          "https://hooks.example.com/email",
+          "--event",
+          "email.sent",
+          "--secret-file",
+          secretPath,
+        ],
+        {
+          cwd: directory,
+          fetch: fetchMock,
+          io: capturingIo().io,
+        },
+      ),
+    ).rejects.toThrow("Refusing to overwrite signing secret file");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readFile(secretPath, "utf8")).toBe("keep me\n");
+  });
+
+  it("cleans an empty secret reservation and redacts error responses", async () => {
+    const directory = await temporaryDirectory();
+    const secretPath = join(directory, "webhook.secret");
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
+        {
+          message: "Rejected",
+          details: {
+            signingSecret: "whsec_error_leak",
+          },
+        },
+        400,
+      ),
+    );
+
+    let failure: unknown;
+    try {
+      await runCli(
+        [
+          "webhooks",
+          "create",
+          "--url",
+          "https://hooks.example.com/email",
+          "--event",
+          "email.sent",
+          "--secret-file",
+          secretPath,
+        ],
+        {
+          cwd: directory,
+          fetch: fetchMock,
+          io: capturingIo().io,
+        },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("[REDACTED]");
+    expect((failure as Error).message).not.toContain("whsec_error_leak");
+    await expect(access(secretPath)).rejects.toThrow();
+  });
+
+  it("removes a newly created webhook if its signing secret cannot be saved", async () => {
+    const directory = await temporaryDirectory();
+    const secretPath = join(directory, "webhook.secret");
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      requests.push(`${init?.method ?? "GET"} ${String(input)}`);
+      if (init?.method === "DELETE") {
+        return jsonResponse({
+          object: "webhook",
+          id: "wh_22222222222222222222222222222222",
+          deleted: true,
+        });
+      }
+      return jsonResponse({
+        object: "webhook",
+        id: "wh_22222222222222222222222222222222",
+        endpoint: "https://hooks.example.com/email",
+        events: ["email.sent"],
+        status: "enabled",
+      });
+    });
+
+    await expect(
+      runCli(
+        [
+          "webhooks",
+          "create",
+          "--url",
+          "https://hooks.example.com/email",
+          "--event",
+          "email.sent",
+          "--secret-file",
+          secretPath,
+        ],
+        {
+          cwd: directory,
+          fetch: fetchMock,
+          io: capturingIo().io,
+        },
+      ),
+    ).rejects.toThrow("did not return a valid webhook signing secret");
+
+    expect(requests).toEqual([
+      "POST http://localhost:8787/webhooks",
+      "DELETE http://localhost:8787/webhooks/wh_22222222222222222222222222222222",
+    ]);
+    await expect(access(secretPath)).rejects.toThrow();
+  });
+
+  it("manages webhooks and retained deliveries with encoded identifiers", async () => {
+    const capture = capturingIo();
+    const requests: Array<{
+      body: unknown;
+      method: string;
+      url: string;
+    }> = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      requests.push({
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+        method: init?.method ?? "GET",
+        url: String(input),
+      });
+      return jsonResponse({ ok: true });
+    });
+
+    await runCli(
+      [
+        "webhooks",
+        "list",
+        "--limit",
+        "10",
+        "--after",
+        "wh_11111111111111111111111111111111",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["webhooks", "get", "wh/one"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(
+      [
+        "webhooks",
+        "update",
+        "wh/one",
+        "--url",
+        "https://hooks.example.com/new",
+        "--event",
+        "email.sent",
+        "--event",
+        "email.sent",
+        "--status",
+        "disabled",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["webhooks", "delete", "wh/one", "--yes"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(
+      [
+        "webhooks",
+        "deliveries",
+        "wh/one",
+        "--limit",
+        "25",
+        "--after",
+        "msg_22222222222222222222222222222222",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(
+      ["webhooks", "inspect-delivery", "wh/one", "whd/two"],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["webhooks", "replay", "wh/one", "whd/two", "--yes"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    expect(requests).toEqual([
+      {
+        body: null,
+        method: "GET",
+        url: "http://localhost:8787/webhooks?limit=10&after=wh_11111111111111111111111111111111",
+      },
+      {
+        body: null,
+        method: "GET",
+        url: "http://localhost:8787/webhooks/wh%2Fone",
+      },
+      {
+        body: {
+          endpoint: "https://hooks.example.com/new",
+          events: ["email.sent"],
+          status: "disabled",
+        },
+        method: "PATCH",
+        url: "http://localhost:8787/webhooks/wh%2Fone",
+      },
+      {
+        body: null,
+        method: "DELETE",
+        url: "http://localhost:8787/webhooks/wh%2Fone",
+      },
+      {
+        body: null,
+        method: "GET",
+        url: "http://localhost:8787/webhooks/wh%2Fone/deliveries?limit=25&after=msg_22222222222222222222222222222222",
+      },
+      {
+        body: null,
+        method: "GET",
+        url: "http://localhost:8787/webhooks/wh%2Fone/deliveries/whd%2Ftwo",
+      },
+      {
+        body: null,
+        method: "POST",
+        url: "http://localhost:8787/webhooks/wh%2Fone/deliveries/whd%2Ftwo/replay",
+      },
+    ]);
+  });
+
+  it("validates webhook events, pagination, updates, and acknowledgements locally", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const dependencies = {
+      fetch: fetchMock,
+      io: capturingIo().io,
+    };
+
+    await expect(
+      runCli(
+        [
+          "webhooks",
+          "create",
+          "--url",
+          "https://hooks.example.com/email",
+          "--event",
+          "email.unknown",
+          "--secret-file",
+          "unused.secret",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("Unsupported webhook event");
+    await expect(
+      runCli(
+        [
+          "webhooks",
+          "create",
+          "--url",
+          "https://user:password@hooks.example.com/email",
+          "--event",
+          "email.sent",
+          "--secret-file",
+          "unused.secret",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("without credentials");
+    await expect(
+      runCli(["webhooks", "list", "--limit", "101"], dependencies),
+    ).rejects.toThrow("between 1 and 100");
+    await expect(
+      runCli(["webhooks", "list", "--after", "not-a-webhook"], dependencies),
+    ).rejects.toThrow("valid webhook ID");
+    await expect(
+      runCli(
+        [
+          "webhooks",
+          "deliveries",
+          "wh_123",
+          "--after",
+          "not-a-delivery",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("valid delivery ID");
+    await expect(
+      runCli(["webhooks", "update", "wh_123"], dependencies),
+    ).rejects.toThrow("at least one");
+    await expect(
+      runCli(["webhooks", "delete", "wh_123"], dependencies),
+    ).rejects.toThrow("requires --yes");
+    await expect(
+      runCli(
+        ["webhooks", "replay", "wh_123", "msg_123"],
+        dependencies,
+      ),
+    ).rejects.toThrow("requires --yes");
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

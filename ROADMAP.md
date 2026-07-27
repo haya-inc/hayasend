@@ -39,6 +39,7 @@ No post-v0.1 draft merges into the frozen release candidate.
       automation is ready)
 - [x] secret-safe scoped API key lifecycle management
 - [x] safe sending-domain onboarding CLI and official SDK lifecycle gate
+- [x] secret-safe webhook lifecycle, delivery inspection, and replay CLI
 
 ## Next — Cloudflare and FolioMCP proof
 

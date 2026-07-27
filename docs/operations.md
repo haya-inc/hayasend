@@ -335,6 +335,19 @@ original `svix-id`. A delivery can therefore move from `failed` to
 `succeeded`; use its attempt count and last-attempt fields rather than treating
 the first failure as final.
 
+The same recovery flow is available without hand-built HTTP requests:
+
+```bash
+npm run cli -- webhooks deliveries WEBHOOK_ID --limit 20
+npm run cli -- webhooks inspect-delivery WEBHOOK_ID DELIVERY_ID
+npm run cli -- webhooks replay WEBHOOK_ID DELIVERY_ID --yes
+```
+
+Replay is intentionally gated by `--yes`. Webhook creation likewise requires
+`--secret-file PATH`; the CLI stores the one-time secret in a new mode-`0600`
+file and excludes it from JSON output. See the
+[CLI guide](cli.md#manage-and-recover-webhooks) for the full lifecycle.
+
 Set `WebhookDeliveryRetentionDays` to the shortest useful recovery window.
 Expired records are excluded from reads immediately, although DynamoDB TTL can
 take additional time to delete them physically. Delivery history contains
