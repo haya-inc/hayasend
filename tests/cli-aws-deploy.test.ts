@@ -139,6 +139,7 @@ describe("plan-first AWS deployment CLI", () => {
       parameters: {
         EnableInbound: "false",
         InboundRecipientSuffixes: "@example.invalid",
+        LogRetentionDays: "30",
         TemplateHistoryRetentionDays: "90",
         TemplateHistoryLimit: "50",
         WorkerReservedConcurrency: "10",
@@ -152,6 +153,9 @@ describe("plan-first AWS deployment CLI", () => {
     });
     expect(plan.template.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(plan.apply_command).toContain("--apply");
+    expect(plan.apply_command).toEqual(
+      expect.arrayContaining(["--log-retention-days", "30"]),
+    );
     expect(
       runner.mock.calls.some(
         ([command, args]) => command === "sam" && args[0] === "deploy",
@@ -468,6 +472,7 @@ describe("plan-first AWS deployment CLI", () => {
               StackStatus: "UPDATE_COMPLETE",
               Parameters: [
                 { ParameterKey: "EnableInbound", ParameterValue: "false" },
+                { ParameterKey: "LogRetentionDays", ParameterValue: "90" },
                 {
                   ParameterKey: "WebhookDeliveryRetentionDays",
                   ParameterValue: "14",
@@ -587,6 +592,7 @@ describe("plan-first AWS deployment CLI", () => {
     expect(deployCall?.[1]).toContain(
       "WebhookDeliveryRetentionDays=14",
     );
+    expect(deployCall?.[1]).toContain("LogRetentionDays=90");
     expect(deployCall?.[1]).toContain("Owner=platform");
     expect(deployCall?.[1]).not.toContain(
       "RemovedLegacyParameter=do-not-replay",
@@ -1026,6 +1032,23 @@ describe("plan-first AWS deployment CLI", () => {
       ),
     ).rejects.toThrow(
       "--worker-reserved-concurrency must be between 0 and 1000",
+    );
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--log-retention-days",
+          "2",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--log-retention-days must be a supported CloudWatch Logs retention value",
     );
     expect(runner.mock.calls).toHaveLength(
       callsBeforeTemplateHistoryValidation,

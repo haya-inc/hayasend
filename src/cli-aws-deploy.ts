@@ -9,9 +9,14 @@ const SHORT_COMMAND_TIMEOUT_MS = 30_000;
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 const DEPLOY_TIMEOUT_MS = 15 * 60_000;
 const STACK_TIMEOUT_MS = 35 * 60_000;
+const LOG_RETENTION_DAYS = new Set([
+  1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827,
+  2192, 2557, 2922, 3288, 3653,
+]);
 
 const TEMPLATE_DEFAULTS: Record<string, string> = {
   BootstrapSecretArn: "",
+  LogRetentionDays: "30",
   EnableInbound: "false",
   InboundRetentionDays: "7",
   InboundMaxMessageSizeBytes: "26214400",
@@ -65,6 +70,7 @@ export interface AwsDeployOptions {
   allowDestructiveChanges: boolean;
   enableInbound?: boolean;
   bootstrapSecretArn?: string;
+  logRetentionDays?: string;
   inboundRetentionDays?: string;
   inboundMaxMessageBytes?: string;
   inboundRecipientSuffixes?: string;
@@ -286,6 +292,23 @@ function normalizeOptions(
   }
   if (options.enableInbound !== undefined) {
     explicitParameters.EnableInbound = String(options.enableInbound);
+  }
+  const logRetention = requireInteger(
+    options.logRetentionDays,
+    "--log-retention-days",
+    1,
+    3653,
+  );
+  if (
+    logRetention !== undefined &&
+    !LOG_RETENTION_DAYS.has(Number(logRetention))
+  ) {
+    throw new Error(
+      "--log-retention-days must be a supported CloudWatch Logs retention value.",
+    );
+  }
+  if (logRetention) {
+    explicitParameters.LogRetentionDays = logRetention;
   }
   const inboundRetention = requireInteger(
     options.inboundRetentionDays,
@@ -652,6 +675,8 @@ function applyCommand(
           parameters.InboundRecipientSuffixes ?? "",
         ]
       : ["--disable-inbound"]),
+    "--log-retention-days",
+    parameters.LogRetentionDays ?? "30",
     "--inbound-retention-days",
     parameters.InboundRetentionDays ?? "7",
     "--inbound-max-message-bytes",

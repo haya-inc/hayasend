@@ -8,6 +8,33 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
     Description: Optional ARN of an existing Secrets Manager secret containing a 32+ character bootstrap key.
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues:
+      - 1
+      - 3
+      - 5
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+      - 120
+      - 150
+      - 180
+      - 365
+      - 400
+      - 545
+      - 731
+      - 1096
+      - 1827
+      - 2192
+      - 2557
+      - 2922
+      - 3288
+      - 3653
+    Description: CloudWatch Logs retention for all HayaSend Lambda functions, including adopted legacy groups.
   EnableInbound:
     Type: String
     Default: "false"
@@ -112,6 +139,55 @@ Resources:
         ThrottlingBurstLimit: 100
         ThrottlingRateLimit: 50
 
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/api
+      RetentionInDays: !Ref LogRetentionDays
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/worker
+      RetentionInDays: !Ref LogRetentionDays
+
+  DispatcherLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/dispatcher
+      RetentionInDays: !Ref LogRetentionDays
+
+  SesEventsLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/ses-events
+      RetentionInDays: !Ref LogRetentionDays
+
+  InboundLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: InboundEnabled
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/inbound
+      RetentionInDays: !Ref LogRetentionDays
+
+  LogRetentionFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /hayasend/${AWS::StackName}/log-retention
+      RetentionInDays: !Ref LogRetentionDays
+
   ApiFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -129,6 +205,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
+      LoggingConfig:
+        LogGroup: !Ref ApiLogGroup
       Environment:
         Variables:
           HAYASEND_INBOUND_BUCKET: !If
@@ -214,6 +292,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/worker.handler
+      LoggingConfig:
+        LogGroup: !Ref WorkerLogGroup
       ReservedConcurrentExecutions: !If
         - ReserveWorkerConcurrency
         - !Ref WorkerReservedConcurrency
@@ -271,6 +351,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/dispatcher.handler
+      LoggingConfig:
+        LogGroup: !Ref DispatcherLogGroup
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt JobQueue.QueueName
@@ -310,6 +392,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/ses-events.handler
+      LoggingConfig:
+        LogGroup: !Ref SesEventsLogGroup
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DataTable
@@ -339,6 +423,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/inbound.handler
+      LoggingConfig:
+        LogGroup: !Ref InboundLogGroup
       Environment:
         Variables:
           HAYASEND_INBOUND_BUCKET: !Ref InboundBucket
@@ -374,6 +460,71 @@ Resources:
                 - kms:Encrypt
                 - kms:GenerateDataKey
               Resource: !GetAtt InboundKey.Arn
+
+  LogRetentionFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/aws/log-retention.ts
+        Format: cjs
+        Minify: true
+        OutExtension:
+          - .js=.cjs
+        Sourcemap: true
+        Target: node24
+        UseNpmCi: true
+    Properties:
+      CodeUri: .
+      Handler: src/aws/log-retention.handler
+      LoggingConfig:
+        ApplicationLogLevel: ERROR
+        LogGroup: !Ref LogRetentionFunctionLogGroup
+        LogFormat: JSON
+        SystemLogLevel: WARN
+      Timeout: 60
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:DescribeLogGroups
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - logs:DeleteRetentionPolicy
+                - logs:PutRetentionPolicy
+              Resource:
+                - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ApiFunction}:*
+                - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WorkerFunction}:*
+                - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${DispatcherFunction}:*
+                - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${SesEventsFunction}:*
+                - !If
+                  - InboundEnabled
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${InboundFunction}:*
+                  - !Ref AWS::NoValue
+            - Effect: Allow
+              Action:
+                - logs:DeleteLogGroup
+              Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogRetentionFunctionLogGroup}:*
+
+  LegacyFunctionLogRetention:
+    Type: Custom::HayaSendLogRetention
+    DependsOn:
+      - LogRetentionFunctionLogGroup
+    Properties:
+      ServiceToken: !GetAtt LogRetentionFunction.Arn
+      ServiceTimeout: 180
+      RetentionInDays: !Ref LogRetentionDays
+      LogGroupNames:
+        - !Sub /aws/lambda/${ApiFunction}
+        - !Sub /aws/lambda/${WorkerFunction}
+        - !Sub /aws/lambda/${DispatcherFunction}
+        - !Sub /aws/lambda/${SesEventsFunction}
+        - !If
+          - InboundEnabled
+          - !Sub /aws/lambda/${InboundFunction}
+          - !Ref AWS::NoValue
 
   InboundKey:
     Type: AWS::KMS::Key
@@ -1059,6 +1210,22 @@ Outputs:
     Value: !Ref DispatcherFunction
   PayloadBucketName:
     Value: !Ref PayloadBucket
+  ApiLogGroupName:
+    Value: !Ref ApiLogGroup
+  WorkerLogGroupName:
+    Value: !Ref WorkerLogGroup
+  DispatcherLogGroupName:
+    Value: !Ref DispatcherLogGroup
+  SesEventsLogGroupName:
+    Value: !Ref SesEventsLogGroup
+  InboundLogGroupName:
+    Description: Inbound Lambda log group. Empty when inbound receiving is disabled.
+    Value: !If
+      - InboundEnabled
+      - !Ref InboundLogGroup
+      - ""
+  LogRetentionFunctionLogGroupName:
+    Value: !Ref LogRetentionFunctionLogGroup
   InboundBucketName:
     Description: Dedicated KMS-encrypted receiving bucket. Empty when inbound receiving is disabled.
     Value: !If

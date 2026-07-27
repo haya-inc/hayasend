@@ -157,6 +157,23 @@ Because Lambda, SQS, and webhooks are at-least-once systems, consumers still
 deduplicate webhook events on `data.email_id`. HayaSend never claims
 exactly-once notification delivery.
 
+## Observability storage
+
+Each Lambda writes to a named `/hayasend/<stack-name>/<function>` CloudWatch
+Logs group with explicit finite retention, 30 days by default. Inbound and its
+log group share the `InboundEnabled` condition. The migration provider has its
+own finite group and metadata-only permissions for exact legacy
+`/aws/lambda/<physical-function-name>` groups. It can describe groups and put or
+delete retention policies, but cannot read log events. Existing log events stay
+in their legacy group; only subsequent function output moves to the named
+stack-owned group.
+
+Stack-owned log groups use CloudWatch Logs' default service-side encryption
+without a customer-managed KMS key and are deleted with the stack. A replaced
+group is retained for recovery. Legacy groups remain outside CloudFormation
+ownership; the migration changes only retention, so any existing KMS
+association is preserved.
+
 ## Webhook signatures
 
 In AWS mode, webhook endpoints must use HTTPS and are resolved when registered
