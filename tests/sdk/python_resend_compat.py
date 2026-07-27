@@ -59,7 +59,7 @@ def main() -> None:
             "from": "HayaSend <sender@example.com>",
             "to": ["python-sdk@example.net"],
             "subject": "Official Python SDK compatibility",
-            "text": "No SDK fork required.",
+            "html": "<h1>Hello</h1><p>No SDK fork required.</p>",
             "tags": [{"name": "sdk", "value": "python"}],
         }
     )
@@ -79,6 +79,10 @@ def main() -> None:
         isinstance(retrieved.get("message_id"), str)
         and retrieved.get("message_id") == retrieved.get("provider_id"),
         "Emails.get omitted the provider-assigned Message-ID.",
+    )
+    require(
+        "No SDK fork required." in retrieved.get("text", ""),
+        "Emails.send did not derive text from HTML.",
     )
     require(retrieved.get("status") == "sent", "Local send did not complete.")
 
@@ -104,7 +108,8 @@ def main() -> None:
                 "from": "HayaSend <sender@example.com>",
                 "to": ["python-one@example.net"],
                 "subject": "Python batch one",
-                "text": "One",
+                "html": "<p>HTML-only batch message</p>",
+                "text": "",
             },
             {
                 "from": "HayaSend <sender@example.com>",
@@ -124,6 +129,11 @@ def main() -> None:
     ]
     require(len(batch_ids) == 2, "Batch.send returned an invalid result.")
     require(len(set(batch_ids)) == 2, "Batch.send reused an email ID.")
+    opted_out = resend.Emails.get(batch_ids[0])
+    require(
+        opted_out.get("text") == "",
+        "Batch.send did not preserve the empty-string text opt-out.",
+    )
 
     print(
         json.dumps(

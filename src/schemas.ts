@@ -66,7 +66,7 @@ export const sendEmailSchema = z
     to: recipientList,
     subject: safeString.max(998).optional(),
     html: z.string().min(1).optional(),
-    text: z.string().min(1).optional(),
+    text: z.string().optional(),
     template: z
       .object({
         id: z.string().trim().min(1).max(256),

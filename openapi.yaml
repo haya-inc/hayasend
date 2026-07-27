@@ -1201,7 +1201,10 @@ components:
             required: [template]
           anyOf:
             - required: [html]
-            - required: [text]
+            - properties:
+                text:
+                  minLength: 1
+              required: [text]
         - required: [template]
           not:
             anyOf:
@@ -1229,7 +1232,7 @@ components:
           minLength: 1
         text:
           type: string
-          minLength: 1
+          description: Plain-text body. Omit to derive it from HTML; use an empty string with HTML to disable derivation.
         template:
           $ref: "#/components/schemas/TemplateReference"
         cc:

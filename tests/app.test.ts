@@ -530,6 +530,47 @@ describe("HTTP API", () => {
     });
   });
 
+  it("matches direct-send text fallback and empty-string opt-out semantics", async () => {
+    const { request } = fixture();
+    const derivedResponse = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        text: undefined,
+        html: "<h1>Hello</h1><p>Derived by HayaSend.</p>",
+      }),
+    });
+    expect(derivedResponse.status).toBe(200);
+    const derivedId = ((await derivedResponse.json()) as { id: string }).id;
+    const derived = (await (
+      await request(`/emails/${derivedId}`)
+    ).json()) as Record<string, unknown>;
+    expect(derived.text).toEqual(expect.stringContaining("HELLO"));
+    expect(derived.text).toEqual(
+      expect.stringContaining("Derived by HayaSend."),
+    );
+
+    const optedOutResponse = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        text: "",
+        html: "<p>HTML only</p>",
+      }),
+    });
+    expect(optedOutResponse.status).toBe(200);
+    const optedOutId = ((await optedOutResponse.json()) as { id: string }).id;
+    await expect(
+      (await request(`/emails/${optedOutId}`)).json(),
+    ).resolves.toMatchObject({ text: "" });
+
+    const emptyResponse = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({ ...email, text: "", html: undefined }),
+    });
+    expect(emptyResponse.status).toBe(422);
+  });
+
   it("lists and retrieves received emails before the generic email route", async () => {
     const { inboundStorage, receivedEmailService, request } = fixture();
     inboundStorage.seedRaw(

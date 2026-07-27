@@ -124,7 +124,7 @@ try {
     from: "HayaSend Integration <sender@example.com>",
     to: "recipient@example.net",
     subject: `AWS integration ${runId}`,
-    text: "This message is canceled by the integration test.",
+    html: "<p>This message is canceled by the integration test.</p>",
     scheduled_at: "in 20 minutes",
     attachments: [{ attachment_id: upload.id }],
   });
@@ -137,6 +137,10 @@ try {
     applicationKey,
   );
   assert.equal(retrieved.status, "scheduled");
+  assert.match(
+    retrieved.text,
+    /This message is canceled by the integration test\./,
+  );
   assert.deepEqual(retrieved.attachments, [
     {
       attachment_id: upload.id,
@@ -238,6 +242,7 @@ try {
         "health",
         "scoped_api_keys",
         "direct_attachment_upload",
+        "api_plain_text_fallback",
         "schedule_reschedule_cancel",
         "public_attachment_privacy",
         "suppression",

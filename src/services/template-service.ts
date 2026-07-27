@@ -1,5 +1,5 @@
-import { convert } from "html-to-text";
 import { createId } from "../core/crypto.js";
+import { plainTextFromHtml } from "../core/email-content.js";
 import {
   ConflictError,
   NotFoundError,
@@ -430,16 +430,7 @@ function renderTemplateVersion(
   }
   const text =
     version.text === undefined
-      ? convert(html, {
-          wordwrap: false,
-          limits: {
-            ellipsis: "…",
-            maxBaseElements: 1,
-            maxChildNodes: 50_000,
-            maxDepth: 100,
-            maxInputLength: MAX_RENDERED_TEMPLATE_BYTES,
-          },
-        })
+      ? plainTextFromHtml(html, MAX_RENDERED_TEMPLATE_BYTES)
       : (renderValue(version.text, values) ?? "");
   if (
     Buffer.byteLength(html, "utf8") + Buffer.byteLength(text, "utf8") >

@@ -206,6 +206,15 @@ export type ConformanceResult = z.infer<typeof conformanceResultSchema>;
 
 export const CONFORMANCE_CASES = [
   {
+    case_id: "api-plain-text-fallback",
+    boundary: "API content normalization",
+    injected_condition:
+      "Direct or batch HTML is supplied with text omitted, explicit, or empty",
+    required_outcome:
+      "Omitted text is derived before persistence and MIME accounting; explicit text is unchanged; empty text with HTML remains an opt-out.",
+    required: true,
+  },
+  {
     case_id: "api-atomic-commit",
     boundary: "API commit",
     injected_condition: "Failure inside the atomic write",

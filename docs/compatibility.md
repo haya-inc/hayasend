@@ -5,7 +5,7 @@ migration path. It does not claim full Resend API coverage.
 
 | Resource            | Operation                                       |             Status | Notes                                                              |
 | ------------------- | ----------------------------------------------- | -----------------: | ------------------------------------------------------------------ |
-| Emails              | send                                            |        Implemented | HTML, text, recipients, headers, tags                              |
+| Emails              | send                                            |        Implemented | HTML, text, recipients, headers, tags; bounded text fallback       |
 | Emails              | retrieve/list                                   |        Implemented | resource-ID `after`; provider `message_id` after acceptance        |
 | Emails              | update/cancel                                   |        Implemented | queued or scheduled messages only                                  |
 | Batch               | send                                            |        Implemented | 1–100 messages; strict validation only, without permissive mode    |
@@ -57,3 +57,6 @@ payload that reproduces the issue, and the expected response shape.
 Sent-email retrieve/list responses and provider-accepted outbound email
 webhooks expose the SES identifier as `message_id`. Events emitted before SES
 acceptance omit it rather than fabricating an RFC Message-ID.
+
+For direct and batch sends, omitting `text` derives a bounded plain-text body
+from `html`. Set `text` to an empty string to keep an HTML-only message.

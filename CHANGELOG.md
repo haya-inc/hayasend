@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Derive a bounded plain-text body from HTML for direct and batch sends while
+  preserving explicit text and supporting `text: ""` as an opt-out.
 - Stop retrying permanent SES request rejections while preserving retries for
   throttling, provider availability, network, timeout, and unknown failures.
 - Repair missing SQS or EventBridge dispatch when an identical idempotent
