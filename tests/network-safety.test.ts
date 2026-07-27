@@ -5,7 +5,7 @@ import {
   createSafeWebhookFetch,
   isPublicIpAddress,
   type HostResolver,
-} from "../src/core/network-safety.js";
+} from "../src/adapters/node-network-safety.js";
 
 describe("webhook network safety", () => {
   it("classifies public and non-public IPv4 and IPv6 addresses", () => {

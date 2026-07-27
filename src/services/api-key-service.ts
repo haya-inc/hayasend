@@ -1,5 +1,9 @@
-import { randomBytes } from "node:crypto";
-import { createId, secretsEqual, sha256 } from "../core/crypto.js";
+import {
+  createId,
+  createRandomToken,
+  secretsEqual,
+  sha256,
+} from "../core/crypto.js";
 import { NotFoundError, UnauthorizedError, ValidationError } from "../core/errors.js";
 import type {
   ApiKeyRecord,
@@ -82,7 +86,7 @@ export class ApiKeyService {
     }
 
     const id = createId("key");
-    const secret = randomBytes(32).toString("base64url");
+    const secret = createRandomToken();
     const token = `re_hs_${id}.${secret}`;
     const record: ApiKeyRecord = {
       id,

@@ -6,6 +6,9 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add an explicitly non-production Cloudflare Workers runtime skeleton, a
+  Node/AWS dependency boundary, Web Worker type-checking, and a Wrangler
+  dry-run bundle gate while preserving the existing AWS runtime behavior.
 - Add scope-protected, privacy-safe recipient summaries and recovery
   diagnostics for mixed outcomes, ambiguous attempts, outbox age, stuck
   leases, SQS/DLQ depth, provider-event lag, and capability drift.

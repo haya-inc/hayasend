@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  bytesToBase64,
+  utf8ByteLength,
+} from "../core/bytes.js";
 import { createId, requestHash, sha256 } from "../core/crypto.js";
 import {
   InvalidStateError,
@@ -206,7 +210,7 @@ function ensureSafeHeaderValue(label: string, value: string) {
   if (/[\r\n]/.test(value)) {
     throw new ValidationError(`${label} must not contain line breaks.`);
   }
-  if (Buffer.byteLength(value, "utf8") > 998) {
+  if (utf8ByteLength(value) > 998) {
     throw new ValidationError(`${label} must not exceed 998 bytes.`);
   }
 }
@@ -249,7 +253,7 @@ function validateInput(
     ensureSafeHeaderValue(`header ${name}`, value);
   }
   if (
-    Buffer.byteLength(JSON.stringify(input), "utf8") >
+    utf8ByteLength(JSON.stringify(input)) >
     MAX_SERIALIZED_EMAIL_BYTES
   ) {
     throw new ValidationError("The serialized request must not exceed 9 MiB.");
@@ -313,7 +317,7 @@ export class EmailService {
       );
     }
     if (
-      Buffer.byteLength(JSON.stringify(inputs), "utf8") >
+      utf8ByteLength(JSON.stringify(inputs)) >
       MAX_SERIALIZED_EMAIL_BYTES
     ) {
       throw new ValidationError(
@@ -366,8 +370,8 @@ export class EmailService {
     const scheduledAt = parseScheduledAt(contentInput.scheduled_at, now);
     const resolvedAttachments = await this.attachments.resolve(
       contentInput.attachments,
-      Buffer.byteLength(contentInput.html ?? "", "utf8") +
-        Buffer.byteLength(contentInput.text ?? "", "utf8"),
+      utf8ByteLength(contentInput.html ?? "") +
+        utf8ByteLength(contentInput.text ?? ""),
       now,
     );
     const suppressedRecipients = await this.suppressions.findSuppressed([
@@ -862,9 +866,9 @@ export class EmailService {
             attachments: await Promise.all(
               sending.attachments.map(async (attachment) => ({
                 filename: attachment.filename,
-                content: Buffer.from(
+                content: bytesToBase64(
                   await this.attachments.read(attachment),
-                ).toString("base64"),
+                ),
                 ...(attachment.content_type
                   ? { content_type: attachment.content_type }
                   : {}),

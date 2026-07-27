@@ -35,6 +35,7 @@ function fixture() {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const webhooks = new WebhookService(store, queue, {
+    httpFetch: fetch,
     validateEndpoint: async () => undefined,
   });
   const inboundStorage = new MemoryInboundStorage();

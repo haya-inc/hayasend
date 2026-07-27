@@ -1,4 +1,5 @@
 import { createId } from "../core/crypto.js";
+import { utf8ByteLength } from "../core/bytes.js";
 import { plainTextFromHtml } from "../core/email-content.js";
 import {
   ConflictError,
@@ -111,7 +112,7 @@ function withoutNull<T>(value: T | null | undefined): T | undefined {
 }
 
 function templateBytes(version: TemplateVersion): number {
-  return Buffer.byteLength(
+  return utf8ByteLength(
     JSON.stringify({
       name: version.name,
       html: version.html,
@@ -122,7 +123,6 @@ function templateBytes(version: TemplateVersion): number {
       reply_to: version.reply_to,
       variables: version.variables,
     }),
-    "utf8",
   );
 }
 
@@ -362,7 +362,7 @@ function ensureSafeRenderedHeader(label: string, value: string) {
       `Rendered template ${label} must not contain line breaks.`,
     );
   }
-  if (Buffer.byteLength(value, "utf8") > 998) {
+  if (utf8ByteLength(value) > 998) {
     throw new ValidationError(
       `Rendered template ${label} must not exceed 998 bytes.`,
     );
@@ -423,7 +423,7 @@ function renderTemplateVersion(
   );
   const replyTo = input.reply_to ?? templateReplyTo;
   const html = renderValue(version.html, values, true) ?? version.html;
-  if (Buffer.byteLength(html, "utf8") > MAX_RENDERED_TEMPLATE_BYTES) {
+  if (utf8ByteLength(html) > MAX_RENDERED_TEMPLATE_BYTES) {
     throw new ValidationError(
       `Rendered template content must not exceed ${MAX_RENDERED_TEMPLATE_BYTES} bytes.`,
     );
@@ -433,7 +433,7 @@ function renderTemplateVersion(
       ? plainTextFromHtml(html, MAX_RENDERED_TEMPLATE_BYTES)
       : (renderValue(version.text, values) ?? "");
   if (
-    Buffer.byteLength(html, "utf8") + Buffer.byteLength(text, "utf8") >
+    utf8ByteLength(html) + utf8ByteLength(text) >
     MAX_RENDERED_TEMPLATE_BYTES
   ) {
     throw new ValidationError(

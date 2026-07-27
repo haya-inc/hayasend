@@ -16,6 +16,7 @@ implemented provider today. HayaSend never logs message bodies.
 [API reference](https://haya-inc.github.io/hayasend/api-reference.html) ·
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
+[Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Delivery model](docs/delivery-model.md) ·
 [Execution plan](docs/execution-plan.md) ·
 [Support](SUPPORT.md)
