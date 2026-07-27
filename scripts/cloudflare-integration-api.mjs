@@ -23,9 +23,14 @@ const payload = {
   text: "Controlled isolated-namespace integration message.",
 };
 const transientStatusCodes = new Set([404, 500, 502, 503, 504]);
+const edgePropagationAttempts = 30;
 let data;
 let error;
-for (let attempt = 0; attempt < 10; attempt += 1) {
+for (
+  let attempt = 0;
+  attempt < edgePropagationAttempts;
+  attempt += 1
+) {
   ({ data, error } = await resend.emails.send(payload, {
     idempotencyKey: `hayasend-cloudflare-integration-${runId}`,
   }));
@@ -36,7 +41,7 @@ for (let attempt = 0; attempt < 10; attempt += 1) {
     !error ||
     error.statusCode === null ||
     !transientStatusCodes.has(error.statusCode) ||
-    attempt === 9
+    attempt === edgePropagationAttempts - 1
   ) {
     break;
   }
