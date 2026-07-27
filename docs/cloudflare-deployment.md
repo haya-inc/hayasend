@@ -136,20 +136,22 @@ be completed.
 The manual `Cloudflare integration` GitHub Actions workflow uses the protected
 `cloudflare-integration` environment. Configure:
 
-| Type     | Name                                | Meaning                                 |
-| -------- | ----------------------------------- | --------------------------------------- |
-| Variable | `CLOUDFLARE_TEST_ACCOUNT_ID`        | Exact 32-character dedicated account ID |
-| Variable | `CLOUDFLARE_TEST_ACCOUNT_KIND`      | Literal `dedicated-disposable`          |
-| Variable | `CLOUDFLARE_TEST_WORKERS_SUBDOMAIN` | Account Workers subdomain               |
-| Variable | `CLOUDFLARE_TEST_FROM`              | Controlled enabled sender               |
-| Variable | `CLOUDFLARE_TEST_TO`                | Controlled, verified recipient          |
-| Secret   | `CLOUDFLARE_API_TOKEN`              | Account-scoped lifecycle token          |
-| Secret   | `HAYASEND_CLOUDFLARE_API_KEY`       | Strong `re_`-prefixed runtime key       |
+| Type     | Name                                | Meaning                           |
+| -------- | ----------------------------------- | --------------------------------- |
+| Variable | `CLOUDFLARE_TEST_ACCOUNT_ID`        | Exact approved test account ID    |
+| Variable | `CLOUDFLARE_TEST_ACCOUNT_KIND`      | Literal `general-purpose-test`    |
+| Variable | `CLOUDFLARE_TEST_WORKERS_SUBDOMAIN` | Account Workers subdomain         |
+| Variable | `CLOUDFLARE_TEST_FROM`              | Controlled enabled sender         |
+| Variable | `CLOUDFLARE_TEST_TO`                | Controlled, verified recipient    |
+| Secret   | `CLOUDFLARE_API_TOKEN`              | Account-scoped lifecycle token    |
+| Secret   | `HAYASEND_CLOUDFLARE_API_KEY`       | Strong `re_`-prefixed runtime key |
 
 The dispatcher must re-enter the exact account ID. The workflow refuses a
-mismatch or an environment that is not explicitly marked disposable. Cleanup
-and residue checks do not run unless that guard passed, preventing a failed
-confirmation from authorizing deletion.
+mismatch or an environment that is not explicitly marked as the approved
+general-purpose test account. It also proves the run-specific HayaSend
+namespace is unused before deployment. Cleanup and residue checks do not run
+unless the account guard passed, preventing a failed confirmation from
+authorizing deletion while preserving unrelated test resources.
 
 The workflow records pinned tools, plan, deployment result, doctor output,
 official Resend SDK send/retrieval, controlled health failure, explicit

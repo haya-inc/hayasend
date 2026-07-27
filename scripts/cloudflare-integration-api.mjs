@@ -20,7 +20,7 @@ const { data, error } = await resend.emails.send({
   from,
   to,
   subject: `HayaSend Cloudflare integration ${runId}`,
-  text: "Controlled disposable-account integration message.",
+  text: "Controlled isolated-namespace integration message.",
 });
 if (error || !data?.id) {
   throw new Error(

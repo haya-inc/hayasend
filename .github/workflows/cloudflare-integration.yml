@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_account:
-        description: Exact dedicated disposable Cloudflare account ID
+        description: Exact approved general-purpose test Cloudflare account ID
         type: string
         required: true
 
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate disposable-account configuration
+      - name: Validate isolated test-account configuration
         id: account_guard
         shell: bash
         run: |
@@ -48,8 +48,8 @@ jobs:
             echo "::error::The dispatch confirmation does not match the dedicated account."
             exit 1
           fi
-          if [[ "$CLOUDFLARE_TEST_ACCOUNT_KIND" != "dedicated-disposable" ]]; then
-            echo "::error::The environment must explicitly mark this as a dedicated disposable account."
+          if [[ "$CLOUDFLARE_TEST_ACCOUNT_KIND" != "general-purpose-test" ]]; then
+            echo "::error::The environment must explicitly mark this as an approved general-purpose test account."
             exit 1
           fi
           if [[ ! "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN" =~ ^[a-z0-9-]+$ ]]; then
@@ -97,6 +97,45 @@ jobs:
             --deployment-id "$DEPLOYMENT_ID" \
             --allowed-recipient "$CLOUDFLARE_TEST_TO" \
             > "$RUNNER_TEMP/cloudflare-plan.json"
+
+      - name: Verify isolated resource namespace is unused
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="hayasend-$DEPLOYMENT_NAME"
+          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          # shellcheck disable=SC2016
+          if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
+            echo "::error::The isolated D1 name already exists."
+            exit 1
+          fi
+          r2_list="$(npx --yes wrangler@4.114.0 r2 bucket list)"
+          if grep -F "$prefix-payloads" <<< "$r2_list"; then
+            echo "::error::The isolated R2 name already exists."
+            exit 1
+          fi
+          queue_list="$(npx --yes wrangler@4.114.0 queues list)"
+          if grep -F "$prefix-" <<< "$queue_list"; then
+            echo "::error::An isolated Queue name already exists."
+            exit 1
+          fi
+          set +e
+          worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$prefix" \
+              --json 2>&1
+          )"
+          worker_status="$?"
+          set -e
+          if [[ "$worker_status" -eq 0 ]]; then
+            echo "::error::The isolated Worker name already exists."
+            exit 1
+          fi
+          if ! grep -Fq "code: 10007" <<< "$worker_check"; then
+            echo "::error::Worker absence could not be verified before deployment."
+            printf '%s\n' "$worker_check"
+            exit 1
+          fi
 
       - name: Deploy reviewed proof
         shell: bash

@@ -135,7 +135,9 @@ and is still injected into the AWS runtime.
 
 The CLI now provides plan-first deploy, upgrade, rollback, cleanup, and doctor
 commands with exact account confirmation. The manual integration workflow
-must still run in a designated disposable account and prove a real official
-SDK send, controlled failure, rollback, cleanup, and fail-closed absence
-checks before the conformance report can pass. Local proof remains
-architectural and fault-test evidence, not a production-readiness claim.
+must still run in an approved general-purpose test account, use a unique
+disposable HayaSend resource namespace, and prove a real official SDK send,
+controlled failure, rollback, cleanup, and fail-closed absence checks before
+the conformance report can pass. Other test-account resources are preserved.
+Local proof remains architectural and fault-test evidence, not a
+production-readiness claim.

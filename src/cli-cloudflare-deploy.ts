@@ -222,7 +222,7 @@ function cloudflarePlan(
       "--apply",
       `--confirm-account ${options.account}`,
       "at least one --allowed-recipient",
-      "a dedicated disposable account",
+      "an approved non-production account and an isolated disposable namespace",
     ],
   };
 }

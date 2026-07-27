@@ -13,7 +13,10 @@ describe("Cloudflare hosted lifecycle workflow", () => {
 
     expect(workflow).toContain("environment: cloudflare-integration");
     expect(workflow).toContain(
-      'CLOUDFLARE_TEST_ACCOUNT_KIND" != "dedicated-disposable"',
+      'CLOUDFLARE_TEST_ACCOUNT_KIND" != "general-purpose-test"',
+    );
+    expect(workflow).toContain(
+      "Verify isolated resource namespace is unused",
     );
     expect(workflow).toContain(
       "steps.account_guard.outputs.validated == 'true'",

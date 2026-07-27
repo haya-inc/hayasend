@@ -3,7 +3,7 @@
 Customer-owned safety and reliability infrastructure for transactional email.
 AWS works today. The provider-neutral core, local Cloudflare D1/R2/Queues
 substrate, Beta Email Sending provider, and deployable Workers proof runtime
-are implemented; hosted disposable-account evidence remains.
+are implemented; hosted isolated test-account evidence remains.
 
 > **Project status: early beta.** The AWS deployment is available for
 > non-critical evaluation. The API and data model can still change before v1;
