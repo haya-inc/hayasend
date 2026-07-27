@@ -27,6 +27,7 @@ import {
   type DesiredTemplate,
   type RemoteTemplate,
 } from "./cli-templates.js";
+import { suppressionCommand } from "./cli-suppressions.js";
 import { webhookCommand } from "./cli-webhooks.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { startServer } from "./server.js";
@@ -1351,6 +1352,19 @@ Commands:
   webhooks replay ID DELIVERY_ID --yes
       Inspect retained delivery attempts or explicitly queue a replay.
 
+  suppressions add EMAIL [--detail-file FILE] [--endpoint URL]
+  suppressions add --email-file FILE [--detail-file FILE] [--endpoint URL]
+      Add a manual suppression. File inputs keep recipient data and controlled
+      audit context out of the process list.
+
+  suppressions list [--limit NUMBER] [--after ID] [--endpoint URL]
+  suppressions get EMAIL [--endpoint URL]
+  suppressions get --email-file FILE [--endpoint URL]
+  suppressions delete EMAIL --yes [--endpoint URL]
+  suppressions delete --email-file FILE --yes [--endpoint URL]
+      Inspect suppression records or explicitly remove one. JSON output
+      contains recipient data and must be handled as sensitive.
+
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
@@ -1415,6 +1429,13 @@ export async function runCli(
       break;
     case "webhooks":
       await webhookCommand(args.slice(1), {
+        cwd: dependencies.cwd,
+        log: dependencies.io.log,
+        request: (path, init) => request(path, args, dependencies, init),
+      });
+      break;
+    case "suppressions":
+      await suppressionCommand(args.slice(1), {
         cwd: dependencies.cwd,
         log: dependencies.io.log,
         request: (path, init) => request(path, args, dependencies, init),

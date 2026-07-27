@@ -19,7 +19,7 @@ migration path. It does not claim full Resend API coverage.
 | Webhooks            | delivery retry                                  |        Implemented | stable `svix-id`, SQS, and dead-letter queue                       |
 | Webhooks            | delivery history/replay                         | HayaSend extension | configurable 1–30 day TTL; replay creates a linked message ID      |
 | API keys            | scoped create/list/revoke                       | HayaSend extension | secrets stored as hashes                                           |
-| Suppressions        | hard bounce/complaint/manual                    | HayaSend extension | checked before enqueue                                             |
+| Suppressions        | hard bounce/complaint/manual                    | HayaSend extension | checked before enqueue; privacy-aware CLI operations               |
 | Receiving           | list/retrieve                                   |        Implemented | opt-in Mail Manager deployment; bounded `data_uri` or `cid` HTML   |
 | Receiving           | `email.received` webhook                        |        Implemented | metadata only; signed and retried through SQS                      |
 | Receiving           | raw MIME and attachments                        |        Implemented | 15-minute S3 download URLs                                         |

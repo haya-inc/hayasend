@@ -30,7 +30,8 @@ implemented provider today. HayaSend never logs message bodies.
   publication history, and restore-to-draft recovery
 - 24-hour idempotency using the `Idempotency-Key` header
 - hashed, scoped API keys with expiry and revocation
-- automatic hard-bounce and complaint suppressions plus manual suppression API
+- automatic hard-bounce and complaint suppressions plus a privacy-aware manual
+  suppression API and CLI
 - ISO 8601 and relative scheduling such as `in 10 minutes`, with
   EventBridge Scheduler for delays beyond 15 minutes
 - DynamoDB transactional outbox recovery with deterministic jobs,
@@ -400,6 +401,22 @@ The secret file is created exclusively with mode `0600`; existing paths are
 never overwritten. Delete and replay require `--yes`. See
 [the CLI guide](docs/cli.md#manage-and-recover-webhooks) for all lifecycle
 commands, least-privilege scopes, and output-handling guidance.
+
+Protect a known mailbox before a canary or migration without putting its
+address in the process list:
+
+```bash
+npm run cli -- suppressions add \
+  --email-file /secure/path/recipient.txt
+npm run cli -- suppressions get \
+  --email-file /secure/path/recipient.txt
+```
+
+Deletion requires `--yes` because restoring delivery to an invalid or
+complaining mailbox can damage sender reputation. Command output contains
+recipient data, and this HayaSend list remains separate from the Amazon SES
+account-level suppression list. See
+[the CLI guide](docs/cli.md#manage-suppressions-safely).
 
 Inbound receiving is deliberately disabled by default. Enable it only after
 reading [the inbound receiving guide](docs/inbound-receiving.md). The stack

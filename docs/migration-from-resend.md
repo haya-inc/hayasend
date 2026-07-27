@@ -38,6 +38,23 @@ organization's approved secret-handling process. The
 [CLI guide](cli.md#manage-and-recover-webhooks) covers delivery inspection and
 explicit replay.
 
+Recreate known blocked recipients in HayaSend before the first canary. For a
+small evaluation set, use the CLI so the address does not need to appear in the
+process list:
+
+```bash
+npm run cli -- suppressions add \
+  --email-file /secure/path/recipient.txt \
+  --detail-file /secure/path/migration-reference.txt
+```
+
+The command creates only a manual HayaSend suppression. It does not change the
+Amazon SES account-level suppression list, and it intentionally does not offer
+an unaudited bulk importer. Use a reviewed API migration program for a larger
+source list, reconcile counts before sending, and retain no exports longer than
+necessary. See
+[the CLI guide](cli.md#manage-suppressions-safely).
+
 The official SDK's inline base64 attachments continue to work. Files that
 would approach API Gateway's request limit should use HayaSend's
 `POST /attachments` HTTP extension and then be sent as
