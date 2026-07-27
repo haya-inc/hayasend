@@ -217,6 +217,60 @@ then verify that the consumer deduplicates `svix-id`. Delivery history can
 contain recipient and subject metadata; keep command output out of public
 tickets and general-purpose analytics.
 
+## Manage suppressions safely
+
+Add a manual suppression before sending or migration traffic:
+
+```bash
+npm run cli -- suppressions add blocked@example.net
+```
+
+For production operations, keep the mailbox and any controlled audit reference
+out of shell history and process listings:
+
+```bash
+npm run cli -- suppressions add \
+  --email-file /secure/path/recipient.txt \
+  --detail-file /secure/path/audit-reference.txt
+```
+
+The email file must be a regular file of at most 1,024 bytes containing one
+mailbox. Display-name syntax is accepted and normalized to a lowercase mailbox.
+The optional detail file is limited to 2,048 bytes and 500 characters after
+trimming. Both inputs must be valid UTF-8 regular files; symbolic links are
+rejected. Use only a bounded internal detail reference, not a message body,
+support transcript, or other personal data. Operators cannot use the CLI to
+create synthetic `bounce` or `complaint` entries: `add` always sends
+`reason: manual`.
+
+Inspect the list or one known mailbox:
+
+```bash
+npm run cli -- suppressions list --limit 20
+npm run cli -- suppressions list \
+  --after 8b279149185a9b8d7bd9fe5d66e194fb79be7dbce47296e0f58dc1b3d3311b20
+npm run cli -- suppressions get --email-file /secure/path/recipient.txt
+```
+
+Every suppression command can print recipient addresses and controlled detail
+references in its JSON response. Do not paste output into public issues, broad
+log aggregation, or general-purpose analytics. `--after` accepts only the
+64-character lowercase hexadecimal suppression ID returned by a preceding
+page. List and get need `suppressions:read`; add needs `suppressions:write`.
+
+Remove a suppression only after confirming that the recipient requested mail
+and that the mailbox is valid:
+
+```bash
+npm run cli -- suppressions delete \
+  --email-file /secure/path/recipient.txt \
+  --yes
+```
+
+Deletion requires `--yes` and a key with `suppressions:write`. It changes only
+HayaSend's application-level suppression record; it does not remove the
+destination from the Amazon SES account-level suppression list.
+
 ## Manage templates as code
 
 Keep a `hayasend.templates.json` manifest and its content files in the

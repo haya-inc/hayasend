@@ -384,6 +384,22 @@ use `POST /suppressions`. Removing an entry can damage sender reputation, so
 confirm the mailbox is valid and the recipient has requested mail before
 calling `DELETE /suppressions/{email}`.
 
+Use the CLI to avoid hand-building recipient-bearing URLs and JSON:
+
+```bash
+npm run cli -- suppressions add --email-file /secure/path/recipient.txt
+npm run cli -- suppressions get --email-file /secure/path/recipient.txt
+npm run cli -- suppressions delete \
+  --email-file /secure/path/recipient.txt \
+  --yes
+```
+
+`delete` requires an explicit acknowledgement. CLI responses contain recipient
+data; keep them out of public issues and broad log pipelines. HayaSend's
+suppression store is independent of the Amazon SES account-level suppression
+list, so investigate both before restoring delivery. See
+[the CLI guide](cli.md#manage-suppressions-safely) for file limits and scopes.
+
 Transient bounces are not automatically suppressed.
 
 ## Incident priorities

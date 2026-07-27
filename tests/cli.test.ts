@@ -1501,4 +1501,249 @@ describe("HayaSend CLI", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("adds only normalized manual suppressions with bounded detail files", async () => {
+    const directory = await temporaryDirectory();
+    const detailPath = join(directory, "suppression-detail.txt");
+    await writeFile(detailPath, "Consent request SUP-123\n");
+    const capture = capturingIo();
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("http://localhost:8787/suppressions");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        email: "blocked@example.net",
+        reason: "manual",
+        detail: "Consent request SUP-123",
+      });
+      return jsonResponse({
+        id: "suppression_hash",
+        email: "blocked@example.net",
+        reason: "manual",
+      });
+    });
+
+    await runCli(
+      [
+        "suppressions",
+        "add",
+        "Blocked User <Blocked@Example.NET>",
+        "--detail-file",
+        detailPath,
+      ],
+      {
+        cwd: directory,
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
+
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toEqual({
+      id: "suppression_hash",
+      email: "blocked@example.net",
+      reason: "manual",
+    });
+  });
+
+  it("lists, retrieves, and explicitly deletes suppressions", async () => {
+    const directory = await temporaryDirectory();
+    const emailPath = join(directory, "suppression-email.txt");
+    await writeFile(emailPath, "User+Tag@Example.NET\n");
+    const capture = capturingIo();
+    const cursor = "a".repeat(64);
+    const requests: Array<{ method: string; url: string }> = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      requests.push({
+        method: init?.method ?? "GET",
+        url: String(input),
+      });
+      return jsonResponse({ ok: true });
+    });
+
+    await runCli(
+      ["suppressions", "list", "--limit", "10", "--after", cursor],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(
+      ["suppressions", "get", "--email-file", emailPath],
+      {
+        cwd: directory,
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
+    await runCli(
+      ["suppressions", "delete", "--email-file", emailPath, "--yes"],
+      {
+        cwd: directory,
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
+
+    expect(requests).toEqual([
+      {
+        method: "GET",
+        url: `http://localhost:8787/suppressions?limit=10&after=${cursor}`,
+      },
+      {
+        method: "GET",
+        url: "http://localhost:8787/suppressions/user%2Btag%40example.net",
+      },
+      {
+        method: "DELETE",
+        url: "http://localhost:8787/suppressions/user%2Btag%40example.net",
+      },
+    ]);
+  });
+
+  it("validates suppression inputs before contacting HayaSend", async () => {
+    const directory = await temporaryDirectory();
+    const emailPath = join(directory, "suppression-email.txt");
+    const detailPath = join(directory, "suppression-detail.txt");
+    const largeEmailPath = join(directory, "large-email.txt");
+    const largeDetailPath = join(directory, "large-detail.txt");
+    const invalidUtf8Path = join(directory, "invalid-utf8.txt");
+    await writeFile(emailPath, "blocked@example.net\n");
+    await writeFile(detailPath, "x".repeat(501));
+    await writeFile(largeEmailPath, "x".repeat(1_025));
+    await writeFile(largeDetailPath, "x".repeat(2_049));
+    await writeFile(invalidUtf8Path, Buffer.from([0xff]));
+    const fetchMock = vi.fn<typeof fetch>();
+    const dependencies = {
+      cwd: directory,
+      fetch: fetchMock,
+      io: capturingIo().io,
+    };
+
+    await expect(
+      runCli(
+        [
+          "suppressions",
+          "add",
+          "blocked@example.net",
+          "--email-file",
+          emailPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("not both");
+    await expect(
+      runCli(["suppressions", "get", "not-an-email"], dependencies),
+    ).rejects.toThrow("mailbox is invalid");
+    await expect(
+      runCli(
+        [
+          "suppressions",
+          "add",
+          "blocked@example.net",
+          "--detail-file",
+          detailPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("between 1 and 500");
+    await expect(
+      runCli(
+        ["suppressions", "get", "--email-file", largeEmailPath],
+        dependencies,
+      ),
+    ).rejects.toThrow("exceeds 1024 bytes");
+    await expect(
+      runCli(
+        [
+          "suppressions",
+          "add",
+          "blocked@example.net",
+          "--detail-file",
+          largeDetailPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("exceeds 2048 bytes");
+    await expect(
+      runCli(
+        ["suppressions", "get", "--email-file", invalidUtf8Path],
+        dependencies,
+      ),
+    ).rejects.toThrow("valid UTF-8");
+    await expect(
+      runCli(["suppressions", "list", "--limit", "0"], dependencies),
+    ).rejects.toThrow("between 1 and 100");
+    await expect(
+      runCli(["suppressions", "list", "--after", "not-an-id"], dependencies),
+    ).rejects.toThrow("valid suppression ID");
+    await expect(
+      runCli(
+        ["suppressions", "add", "blocked@example.net", "--reason", "bounce"],
+        dependencies,
+      ),
+    ).rejects.toThrow("Unknown option: --reason");
+    await expect(
+      runCli(
+        ["suppressions", "get", "blocked@example.net", "--api-key", "secret"],
+        dependencies,
+      ),
+    ).rejects.toThrow("Unknown option: --api-key");
+    await expect(
+      runCli(
+        [
+          "suppressions",
+          "get",
+          "--email-file",
+          emailPath,
+          "--email-file",
+          emailPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("may be provided only once");
+    await expect(
+      runCli(["suppressions", "delete", "blocked@example.net"], dependencies),
+    ).rejects.toThrow("requires --yes");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("requires one regular mailbox input file", async () => {
+    const directory = await temporaryDirectory();
+    const regularPath = join(directory, "recipient.txt");
+    const symlinkPath = join(directory, "recipient-link.txt");
+    await writeFile(regularPath, "blocked@example.net\n");
+    await symlink(regularPath, symlinkPath);
+    const fetchMock = vi.fn<typeof fetch>();
+    const dependencies = {
+      cwd: directory,
+      fetch: fetchMock,
+      io: capturingIo().io,
+    };
+
+    await expect(
+      runCli(["suppressions", "get"], dependencies),
+    ).rejects.toThrow("argument or --email-file is required");
+    await expect(
+      runCli(
+        ["suppressions", "get", "--email-file", directory],
+        dependencies,
+      ),
+    ).rejects.toThrow("must be a regular file");
+    await expect(
+      runCli(
+        ["suppressions", "get", "--email-file", symlinkPath],
+        dependencies,
+      ),
+    ).rejects.toThrow("must be a regular file");
+    await expect(
+      runCli(
+        [
+          "suppressions",
+          "add",
+          "blocked@example.net",
+          "--detail-file",
+          symlinkPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("must be a regular file");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
