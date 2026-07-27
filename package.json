@@ -27,12 +27,14 @@
   "files": [
     "conformance",
     "dist",
+    "!dist/adapters/cloudflare",
     "!dist/workers",
     "NOTICE",
     "schemas",
     "scripts/clean-dist.mjs",
     "scripts/npm-sam-compat.mjs",
     "src",
+    "!src/adapters/cloudflare",
     "!src/workers",
     "template.yaml"
   ],
@@ -52,7 +54,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
-    "check:workers": "npm run check:workers:types && npm run check:workers:boundary && tsc -p tsconfig.workers.json && wrangler deploy --dry-run --outdir .wrangler/dist",
+    "check:workers": "npm run check:workers:types && npm run check:workers:boundary && tsc -p tsconfig.workers.json && npm run test:workers && wrangler deploy --dry-run --outdir .wrangler/dist",
     "check:workers:boundary": "node scripts/check-workers-boundary.mjs",
     "check:workers:types": "wrangler types worker-configuration.d.ts --env-interface CloudflareEnv --check",
     "check:conformance": "tsx scripts/check-conformance.ts",
@@ -68,6 +70,7 @@
     "site:verify": "node scripts/verify-site.mjs",
     "start": "node dist/server.js",
     "test": "vitest run",
+    "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -90,6 +93,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.8",
     "@react-email/render": "2.1.0",
     "@redocly/cli": "2.41.0",
     "@types/aws-lambda": "8.10.162",

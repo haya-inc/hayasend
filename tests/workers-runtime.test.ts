@@ -9,11 +9,11 @@ import worker, {
   CLOUDFLARE_WORKER_CAPABILITY,
 } from "../src/workers/index.js";
 
-describe("Cloudflare Workers runtime skeleton", () => {
+describe("Cloudflare Workers runtime substrate", () => {
   it("declares its incomplete, non-production capability honestly", async () => {
     expect(CLOUDFLARE_WORKER_CAPABILITY).toMatchObject({
       runtime: "cloudflare-workers",
-      maturity: "experimental-skeleton",
+      maturity: "experimental-substrate",
       production_ready: false,
       api: {
         health: true,
@@ -27,6 +27,12 @@ describe("Cloudflare Workers runtime skeleton", () => {
         scheduler: false,
         mail_transport: false,
         inbound_email: false,
+      },
+      substrate: {
+        d1_delivery_store: "implemented-not-wired",
+        r2_payload_storage: "implemented-not-wired",
+        queues_job_delivery: "implemented-not-wired",
+        local_fault_contract: true,
       },
     });
     expect(CLOUDFLARE_WORKER_CAPABILITY.capability_digest).toMatch(
@@ -49,7 +55,7 @@ describe("Cloudflare Workers runtime skeleton", () => {
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toMatchObject({
       runtime: "cloudflare-workers",
-      status: "skeleton",
+      status: "experimental-substrate",
       production_ready: false,
     });
 

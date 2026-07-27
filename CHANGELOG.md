@@ -9,6 +9,11 @@ minor releases before v1.0.
 - Add an explicitly non-production Cloudflare Workers runtime skeleton, a
   Node/AWS dependency boundary, Web Worker type-checking, and a Wrangler
   dry-run bundle gate while preserving the existing AWS runtime behavior.
+- Add experimental, not-yet-wired Cloudflare D1, R2, and Queues adapters with
+  the shared delivery-ledger and durable-outbox contract, transactional D1
+  commits, checksum-bound R2 payloads and orphan recovery, deterministic Queue
+  retries and DLQ recovery, privacy-safe diagnostics, and local workerd fault
+  tests.
 - Add scope-protected, privacy-safe recipient summaries and recovery
   diagnostics for mixed outcomes, ambiguous attempts, outbox age, stuck
   leases, SQS/DLQ depth, provider-event lag, and capability drift.
