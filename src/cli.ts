@@ -20,6 +20,7 @@ import {
 } from "./cli-aws-deploy.js";
 import { domainCommand } from "./cli-domains.js";
 import { emailCommand } from "./cli-emails.js";
+import { readStandardInput, sendEmail } from "./cli-send.js";
 import {
   loadTemplateManifest,
   parseRemoteTemplate,
@@ -45,6 +46,7 @@ interface CliDependencies {
   env: NodeJS.ProcessEnv;
   fetch: typeof fetch;
   io: CliIo;
+  readStdin(maximumBytes: number): Promise<Uint8Array>;
   runCommand: CommandRunner;
 }
 
@@ -53,6 +55,7 @@ const defaultDependencies: CliDependencies = {
   env: process.env,
   fetch,
   io: console,
+  readStdin: readStandardInput,
   runCommand: defaultCommandRunner,
 };
 
@@ -167,6 +170,7 @@ function redactHttpErrorBody(value: unknown): unknown {
         normalized.includes("secret") ||
         normalized.includes("token") ||
         normalized.includes("apikey") ||
+        normalized.includes("idempotencykey") ||
         normalized.includes("authorization");
       return [
         key,
@@ -1066,39 +1070,16 @@ async function initProject(args: string[], dependencies: CliDependencies) {
   );
 }
 
-async function send(args: string[], dependencies: CliDependencies) {
-  const from = flag(args, "from");
-  const to = flag(args, "to");
-  const subject = flag(args, "subject");
-  const text = flag(args, "text");
-  const template = flag(args, "template");
-  if (!to) {
-    throw new Error("send requires --to.");
-  }
-  if (template && text !== undefined) {
-    throw new Error("send cannot combine --template with --text.");
-  }
-  if (!template && (!from || !subject || !text)) {
-    throw new Error(
-      "send requires --from, --to, --subject, and --text arguments.",
-    );
-  }
-  const body = template
-    ? {
-        to,
-        ...(from ? { from } : {}),
-        ...(subject ? { subject } : {}),
-        template: {
-          id: template,
-          variables: parseTemplateVariables(flags(args, "var")),
-        },
-      }
-    : { from, to, subject, text };
-  const result = await request("/emails", args, dependencies, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-  dependencies.io.log(JSON.stringify(result, null, 2));
+function sendContext(args: string[], dependencies: CliDependencies) {
+  return {
+    baseUrl: endpoint(args, dependencies.env),
+    cwd: dependencies.cwd,
+    fetch: dependencies.fetch,
+    log: dependencies.io.log,
+    readStdin: dependencies.readStdin,
+    request: (path: string, init?: RequestInit) =>
+      request(path, args, dependencies, init),
+  };
 }
 
 async function testSend(args: string[], dependencies: CliDependencies) {
@@ -1299,11 +1280,16 @@ Commands:
       Send and retrieve an end-to-end test message. This sends real email when
       the endpoint is not local.
 
-  send --from ADDRESS --to ADDRESS --subject TEXT --text TEXT [--endpoint URL]
-      Send a plain-text email.
+  emails send --from ADDRESS --to ADDRESS --subject TEXT
+      Send text, HTML, files, hosted templates, scheduled messages, and local
+      attachments. The root-level send command remains an alias.
 
-  send --to ADDRESS --template ID [--var KEY=VALUE] [--from ADDRESS]
-      Send a published hosted template. Repeat --var for multiple variables.
+  emails send --to ADDRESS --template ID [--var KEY=VALUE] [--from ADDRESS]
+      Send a published hosted template. Repeat recipient and variable options.
+      Body: --text TEXT, --text-file FILE, --html HTML, --html-file FILE
+      Envelope: --cc ADDRESS, --bcc ADDRESS, --reply-to ADDRESS
+      Metadata: --header NAME=VALUE, --tag NAME=VALUE, --scheduled-at TIME
+      Safety: --idempotency-key KEY, --attachment FILE
 
   domains create --name DOMAIN [--endpoint URL]
   domains list [--limit NUMBER] [--after DOMAIN_ID] [--endpoint URL]
@@ -1418,11 +1404,7 @@ export async function runCli(
       await testSend(args, dependencies);
       break;
     case "send":
-      validateOptions(args, {
-        values: ["from", "to", "subject", "text", "template", "endpoint"],
-        repeatable: ["var"],
-      });
-      await send(args, dependencies);
+      await sendEmail(args, sendContext(args, dependencies));
       break;
     case "domains":
       await domainCommand(args.slice(1), {
@@ -1433,11 +1415,7 @@ export async function runCli(
       break;
     case "emails": {
       const emailArgs = args.slice(1);
-      await emailCommand(emailArgs, {
-        log: dependencies.io.log,
-        request: (path, init) =>
-          request(path, emailArgs, dependencies, init),
-      });
+      await emailCommand(emailArgs, sendContext(emailArgs, dependencies));
       break;
     }
     case "templates":

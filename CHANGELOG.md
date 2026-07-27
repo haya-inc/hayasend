@@ -6,6 +6,10 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a production-capable `emails send` CLI with body files and stdin,
+  multiple recipients, scheduling, metadata, idempotency, templates, and
+  checksum-bound direct attachment uploads whose verified content keeps
+  retries stable across fresh upload IDs.
 - Add a secret-safe webhook lifecycle and delivery-recovery CLI with local
   event validation, permission-`0600` one-time secret storage, retained
   delivery inspection, and acknowledgement-gated deletion and replay.

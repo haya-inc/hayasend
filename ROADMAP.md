@@ -42,6 +42,7 @@ No post-v0.1 draft merges into the frozen release candidate.
 - [x] secret-safe webhook lifecycle, delivery inspection, and replay CLI
 - [x] privacy-aware suppression operations CLI
 - [x] privacy-safe sent-email lifecycle CLI
+- [x] production-capable non-interactive email send CLI
 
 ## Next — Cloudflare and FolioMCP proof
 

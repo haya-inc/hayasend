@@ -941,7 +941,7 @@ describe("HayaSend CLI", () => {
     const capture = capturingIo();
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
       expect(JSON.parse(String(init?.body))).toEqual({
-        to: "person@example.net",
+        to: ["person@example.net"],
         template: {
           id: "welcome",
           variables: {
