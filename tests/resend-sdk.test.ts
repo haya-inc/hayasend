@@ -367,6 +367,33 @@ describe("official Resend Node SDK compatibility", () => {
     expect(secondEmailPage.data?.data).toHaveLength(1);
     expect(secondEmailPage.data?.data[0]?.id).not.toBe(emailCursor);
 
+    const htmlOnly = await resend.emails.send({
+      from: "HayaSend <sender@example.com>",
+      to: "html-only@example.net",
+      subject: "SDK plain-text fallback",
+      html: "<h1>Hello</h1><p>Derived through the Node SDK.</p>",
+    });
+    expect(htmlOnly.error).toBeNull();
+    await expect(
+      store.getEmail(htmlOnly.data?.id ?? ""),
+    ).resolves.toMatchObject({
+      text: expect.stringContaining("Derived through the Node SDK."),
+    });
+
+    const optedOutBatch = await resend.batch.send([
+      {
+        from: "HayaSend <sender@example.com>",
+        to: "html-only-batch@example.net",
+        subject: "SDK plain-text opt-out",
+        html: "<p>HTML only through the Node SDK.</p>",
+        text: "",
+      },
+    ]);
+    expect(optedOutBatch.error).toBeNull();
+    await expect(
+      store.getEmail(optedOutBatch.data?.data[0]?.id ?? ""),
+    ).resolves.toMatchObject({ text: "" });
+
     inboundStorage.seedRaw(
       "inbound/raw/sdk-inbound-1",
       [

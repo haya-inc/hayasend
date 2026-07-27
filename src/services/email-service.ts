@@ -10,6 +10,7 @@ import {
   safeFailureMessage,
   shouldRetryOperationalError,
 } from "../core/error-telemetry.js";
+import { plainTextFromHtml } from "../core/email-content.js";
 import {
   createProviderEventIdentity,
   createOutboxIdentity,
@@ -54,6 +55,7 @@ const FINAL_STATUSES = new Set<EmailStatus>([
   "canceled",
   "suppressed",
 ]);
+const MAX_SERIALIZED_EMAIL_BYTES = 9 * 1024 * 1024;
 
 const DEFAULT_PROVIDER: ProviderReference = {
   name: "aws-ses",
@@ -159,7 +161,10 @@ function validateInput(
     ensureSafeHeaderValue("header name", name);
     ensureSafeHeaderValue(`header ${name}`, value);
   }
-  if (Buffer.byteLength(JSON.stringify(input), "utf8") > 9 * 1024 * 1024) {
+  if (
+    Buffer.byteLength(JSON.stringify(input), "utf8") >
+    MAX_SERIALIZED_EMAIL_BYTES
+  ) {
     throw new ValidationError("The serialized request must not exceed 9 MiB.");
   }
 }
@@ -203,7 +208,10 @@ export class EmailService {
         "A batch must contain between 1 and 100 emails.",
       );
     }
-    if (Buffer.byteLength(JSON.stringify(inputs), "utf8") > 9 * 1024 * 1024) {
+    if (
+      Buffer.byteLength(JSON.stringify(inputs), "utf8") >
+      MAX_SERIALIZED_EMAIL_BYTES
+    ) {
       throw new ValidationError(
         "The serialized batch request must not exceed 9 MiB.",
       );
@@ -236,24 +244,33 @@ export class EmailService {
       input = await this.templates.resolveForSend(input);
     }
     validateInput(input);
-    const scheduledAt = parseScheduledAt(input.scheduled_at, now);
+    const contentInput =
+      input.html !== undefined && input.text === undefined
+        ? {
+            ...input,
+            text: plainTextFromHtml(input.html, MAX_SERIALIZED_EMAIL_BYTES),
+          }
+        : input;
+    const scheduledAt = parseScheduledAt(contentInput.scheduled_at, now);
     const resolvedAttachments = await this.attachments.resolve(
-      input.attachments,
-      Buffer.byteLength(input.html ?? "", "utf8") +
-        Buffer.byteLength(input.text ?? "", "utf8"),
+      contentInput.attachments,
+      Buffer.byteLength(contentInput.html ?? "", "utf8") +
+        Buffer.byteLength(contentInput.text ?? "", "utf8"),
       now,
     );
     const suppressedRecipients = await this.suppressions.findSuppressed([
-      ...input.to,
-      ...(input.cc ?? []),
-      ...(input.bcc ?? []),
+      ...contentInput.to,
+      ...(contentInput.cc ?? []),
+      ...(contentInput.bcc ?? []),
     ]);
-    const recipients = normalizeRecipients(input);
-    const { attachments: _inputAttachments, ...emailInput } = input;
+    const recipients = normalizeRecipients(contentInput);
+    const { attachments: _inputAttachments, ...emailInput } = contentInput;
     const normalized = {
       ...emailInput,
       ...recipients,
-      ...(input.reply_to ? { reply_to: [...new Set(input.reply_to)] } : {}),
+      ...(contentInput.reply_to
+        ? { reply_to: [...new Set(contentInput.reply_to)] }
+        : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
     };

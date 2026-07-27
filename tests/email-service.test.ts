@@ -138,6 +138,45 @@ describe("EmailService", () => {
     expect(queue.jobs).toHaveLength(0);
   });
 
+  it("[conformance:api-plain-text-fallback] derives text while preserving explicit text and opt-out", async () => {
+    const { service } = fixture();
+
+    const derived = await service.create({
+      ...input,
+      text: undefined,
+      html: "<h1>Hello</h1><p>Plain-text fallback</p>",
+    });
+    const explicit = await service.create({
+      ...input,
+      html: "<p>HTML</p>",
+      text: "Operator supplied text",
+    });
+    const optedOut = await service.create({
+      ...input,
+      html: "<p>HTML only</p>",
+      text: "",
+    });
+    const [batchDerived, batchOptedOut] = await service.createBatch([
+      {
+        ...input,
+        text: undefined,
+        html: "<p>Batch fallback</p>",
+      },
+      {
+        ...input,
+        html: "<p>Batch HTML only</p>",
+        text: "",
+      },
+    ]);
+
+    expect(derived.record.text).toContain("HELLO");
+    expect(derived.record.text).toContain("Plain-text fallback");
+    expect(explicit.record.text).toBe("Operator supplied text");
+    expect(optedOut.record.text).toBe("");
+    expect(batchDerived?.record.text).toContain("Batch fallback");
+    expect(batchOptedOut?.record.text).toBe("");
+  });
+
   it("preflights a strict batch before creating or queueing any email", async () => {
     const { queue, service, store } = fixture();
 
