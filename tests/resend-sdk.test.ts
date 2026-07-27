@@ -120,6 +120,15 @@ describe("official Resend Node SDK compatibility", () => {
       id: expect.stringMatching(/^dom_/),
       name: "example.com",
       status: "verified",
+      region: "ap-northeast-1",
+      records: expect.arrayContaining([
+        expect.objectContaining({
+          record: "DKIM",
+          name: expect.stringContaining("._domainkey.example.com"),
+          type: "CNAME",
+          status: "verified",
+        }),
+      ]),
     });
     const duplicateDomain = await resend.domains.create({
       name: "EXAMPLE.COM.",
@@ -131,6 +140,40 @@ describe("official Resend Node SDK compatibility", () => {
         name: "validation_error",
         message: "The `example.com` domain has been registered already.",
       },
+    });
+    const domainId = createdDomain.data?.id;
+    if (!domainId) {
+      throw new Error("Expected an SDK-created domain.");
+    }
+    await expect(resend.domains.list()).resolves.toMatchObject({
+      data: {
+        object: "list",
+        data: [expect.objectContaining({ id: domainId })],
+        has_more: false,
+      },
+      error: null,
+    });
+    await expect(resend.domains.get(domainId)).resolves.toMatchObject({
+      data: {
+        id: domainId,
+        name: "example.com",
+      },
+      error: null,
+    });
+    await expect(resend.domains.verify(domainId)).resolves.toMatchObject({
+      data: {
+        id: domainId,
+        status: "verified",
+      },
+      error: null,
+    });
+    await expect(resend.domains.remove(domainId)).resolves.toMatchObject({
+      data: {
+        object: "domain",
+        id: domainId,
+        deleted: true,
+      },
+      error: null,
     });
 
     const createdWebhook = await resend.webhooks.create({

@@ -14,7 +14,7 @@ migration path. It does not claim full Resend API coverage.
 | Attachments         | remote path                                     |           Rejected | avoids server-side URL fetching                                    |
 | Scheduling          | ISO 8601                                        |        Implemented | durable outbox; SQS wake up to 15 minutes, Scheduler beyond        |
 | Scheduling          | relative English                                |            Partial | `in N minutes/hours/days`                                          |
-| Domains             | create/get/list/delete/verify                   |        Implemented | Amazon SES identities                                              |
+| Domains             | create/get/list/delete/verify                   |        Implemented | Node SDK gate; safe CLI; Amazon SES identities                      |
 | Webhooks            | create/get/list/update/delete                   |        Implemented | signed `svix-*` headers; public HTTPS in AWS mode                  |
 | Webhooks            | delivery retry                                  |        Implemented | stable `svix-id`, SQS, and dead-letter queue                       |
 | Webhooks            | delivery history/replay                         | HayaSend extension | configurable 1–30 day TTL; replay creates a linked message ID      |
@@ -35,12 +35,13 @@ migration path. It does not claim full Resend API coverage.
 | Contacts/broadcasts | marketing APIs                                  | Not planned for v1 | compliance work required                                           |
 
 The CI suite constructs the official `resend` Node SDK with a custom `baseUrl`
-and exercises sending, resource-ID list pagination, webhook management,
-received-email listing/retrieval, received attachment listing/retrieval,
-raw-MIME forwarding, hosted-template lifecycle, React Email rendering, and
-template sending through the HayaSend application. A separate black-box gate
-points the official Resend Python SDK's `api_url` at a loopback HayaSend server
-and verifies send, retrieve, list, and batch behavior without an SDK fork.
+and exercises sending, resource-ID list pagination, domain lifecycle, webhook
+management, received-email listing/retrieval, received attachment
+listing/retrieval, raw-MIME forwarding, hosted-template lifecycle, React Email
+rendering, and template sending through the HayaSend application. A separate
+black-box gate points the official Resend Python SDK's `api_url` at a loopback
+HayaSend server and verifies send, retrieve, list, and batch behavior without
+an SDK fork.
 
 A third black-box gate runs the official Schemathesis v4.24.3 container,
 pinned by OCI digest, against all 46 operations in the published OpenAPI

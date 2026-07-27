@@ -18,6 +18,7 @@ import {
   deployAws,
   type CommandRunner,
 } from "./cli-aws-deploy.js";
+import { domainCommand } from "./cli-domains.js";
 import {
   loadTemplateManifest,
   parseRemoteTemplate,
@@ -1278,6 +1279,14 @@ Commands:
   send --to ADDRESS --template ID [--var KEY=VALUE] [--from ADDRESS]
       Send a published hosted template. Repeat --var for multiple variables.
 
+  domains create --name DOMAIN [--endpoint URL]
+  domains list [--limit NUMBER] [--after DOMAIN_ID] [--endpoint URL]
+  domains get DOMAIN_ID [--endpoint URL]
+  domains verify DOMAIN_ID [--endpoint URL]
+  domains delete DOMAIN_ID --yes [--endpoint URL]
+      Register and inspect sending-domain DNS records. Verification only
+      refreshes provider state; HayaSend never changes DNS.
+
   templates push [--file FILE] [--dry-run] [--publish] [--endpoint URL]
       Reconcile hayasend.templates.json. Changes remain drafts unless
       --publish is explicitly provided.
@@ -1350,6 +1359,13 @@ export async function runCli(
         repeatable: ["var"],
       });
       await send(args, dependencies);
+      break;
+    case "domains":
+      await domainCommand(args.slice(1), {
+        request: (path, init) =>
+          request(path, args.slice(1), dependencies, init),
+        log: dependencies.io.log,
+      });
       break;
     case "templates":
       await templateCommand(args.slice(1), dependencies);

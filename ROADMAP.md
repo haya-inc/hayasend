@@ -38,6 +38,7 @@ No post-v0.1 draft merges into the frozen release candidate.
 - [ ] first attestable, version-pinned CLI package publication (release
       automation is ready)
 - [x] secret-safe scoped API key lifecycle management
+- [x] safe sending-domain onboarding CLI and official SDK lifecycle gate
 
 ## Next — Cloudflare and FolioMCP proof
 
