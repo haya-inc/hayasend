@@ -40,7 +40,8 @@ implemented provider today. HayaSend never logs message bodies.
 - immutable provider-event and recipient-attempt history with exact
   recipient correlation, SNS deduplication, sticky safety outcomes, and
   conservative message aggregates
-- email retrieval, listing, cancellation, and rescheduling
+- email retrieval, listing, cancellation, and rescheduling, with a
+  privacy-safe lifecycle CLI
 - SES domain creation, DKIM record discovery, refresh, and explicit-deletion
   CLI with an official Node SDK lifecycle gate
 - signed webhooks with SQS retry, retained delivery history, manual replay,
@@ -205,6 +206,17 @@ reconciliation, and real-send behavior. The compiled package exposes local,
 diagnostic, send, and template commands through its `hayasend` executable;
 plan-first AWS deployment runs from the reviewed source embedded in that exact
 package version.
+
+Operators can inspect delivery state without printing recipient addresses,
+subjects, or bodies, then explicitly cancel or reschedule queued mail:
+
+```bash
+npm run cli -- emails list --limit 20
+npm run cli -- emails get email_0123456789abcdef0123456789abcdef
+npm run cli -- emails cancel email_0123456789abcdef0123456789abcdef --yes
+```
+
+Only `emails get ID --include-content` prints the complete stored record.
 
 ```bash
 HAYASEND_API_KEY=re_hayasend_dev

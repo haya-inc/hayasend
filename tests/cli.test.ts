@@ -1746,4 +1746,248 @@ describe("HayaSend CLI", () => {
     ).rejects.toThrow("must be a regular file");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("lists and retrieves privacy-safe email summaries by default", async () => {
+    const capture = capturingIo();
+    const emailId = `email_${"1".repeat(32)}`;
+    const nextCursor = `email_${"2".repeat(32)}`;
+    const previousCursor = `email_${"3".repeat(32)}`;
+    const record = {
+      object: "email",
+      id: emailId,
+      from: "Founder <founder@example.com>",
+      to: ["customer@example.net"],
+      cc: ["finance@example.com"],
+      bcc: ["audit@example.com"],
+      reply_to: ["support@example.com"],
+      subject: "Private acquisition",
+      html: "<p>Confidential terms</p>",
+      text: "Confidential terms",
+      headers: { "x-private-case": "merger-42" },
+      tags: [{ name: "account", value: "customer-7" }],
+      attachments: [{ filename: "cap-table.pdf" }],
+      status: "scheduled",
+      last_event: "scheduled",
+      scheduled_at: "2030-01-02T00:00:00.000Z",
+      provider_id: "provider_opaque",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:01:00.000Z",
+    };
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      requests.push(String(input));
+      return jsonResponse(
+        String(input).includes("?")
+          ? {
+              object: "list",
+              data: [record],
+              has_more: true,
+              next_cursor: nextCursor,
+              internal_note: "must not be copied",
+            }
+          : record,
+      );
+    });
+
+    await runCli(
+      ["emails", "list", "--limit", "20", "--after", previousCursor],
+      { fetch: fetchMock, io: capture.io },
+    );
+    await runCli(["emails", "get", emailId], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    const expectedSummary = {
+      object: "email_summary",
+      id: emailId,
+      status: "scheduled",
+      last_event: "scheduled",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:01:00.000Z",
+      scheduled_at: "2030-01-02T00:00:00.000Z",
+      provider_id: "provider_opaque",
+      recipient_count: 3,
+      attachment_count: 1,
+      has_content: true,
+    };
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toEqual({
+      object: "list",
+      data: [expectedSummary],
+      has_more: true,
+      next_cursor: nextCursor,
+    });
+    expect(JSON.parse(capture.logs[1] ?? "{}")).toEqual(expectedSummary);
+    expect(capture.logs.join("\n")).not.toContain("founder@example.com");
+    expect(capture.logs.join("\n")).not.toContain("customer@example.net");
+    expect(capture.logs.join("\n")).not.toContain("Private acquisition");
+    expect(capture.logs.join("\n")).not.toContain("Confidential terms");
+    expect(capture.logs.join("\n")).not.toContain("cap-table.pdf");
+    expect(capture.logs.join("\n")).not.toContain("merger-42");
+    expect(capture.logs.join("\n")).not.toContain("customer-7");
+    expect(capture.logs.join("\n")).not.toContain("must not be copied");
+    expect(requests).toEqual([
+      `http://localhost:8787/emails?limit=20&after=${previousCursor}`,
+      `http://localhost:8787/emails/${emailId}`,
+    ]);
+  });
+
+  it("reveals a complete email record only with an explicit flag", async () => {
+    const capture = capturingIo();
+    const record = {
+      id: `email_${"4".repeat(32)}`,
+      from: "sender@example.com",
+      to: ["recipient@example.net"],
+      subject: "Sensitive subject",
+      text: "Sensitive body",
+      status: "sent",
+      last_event: "sent",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:01:00.000Z",
+    };
+
+    await runCli(["emails", "get", record.id, "--include-content"], {
+      fetch: vi.fn<typeof fetch>(async () => jsonResponse(record)),
+      io: capture.io,
+    });
+
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toEqual(record);
+  });
+
+  it("cancels and reschedules valid email IDs only after confirmation", async () => {
+    const capture = capturingIo();
+    const emailId = `email_${"5".repeat(32)}`;
+    const requests: Array<{
+      url: string;
+      method: string;
+      body: unknown;
+    }> = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      requests.push({
+        url: String(input),
+        method: init?.method ?? "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return jsonResponse({
+        id: emailId,
+        recipient: "must-not-be-printed@example.net",
+      });
+    });
+    const future = new Date(Date.now() + 86_400_000)
+      .toISOString()
+      .replace("Z", "+00:00");
+
+    await runCli(["emails", "cancel", emailId, "--yes"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(
+      [
+        "emails",
+        "update",
+        emailId,
+        "--scheduled-at",
+        future,
+        "--yes",
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+
+    expect(requests).toEqual([
+      {
+        url: `http://localhost:8787/emails/${emailId}/cancel`,
+        method: "POST",
+        body: undefined,
+      },
+      {
+        url: `http://localhost:8787/emails/${emailId}`,
+        method: "PATCH",
+        body: { scheduled_at: new Date(future).toISOString() },
+      },
+    ]);
+    expect(capture.logs.map((entry) => JSON.parse(entry))).toEqual([
+      { id: emailId },
+      { id: emailId },
+    ]);
+    expect(capture.logs.join("\n")).not.toContain("must-not-be-printed");
+  });
+
+  it("fails closed before printing unsafe response metadata", async () => {
+    const capture = capturingIo();
+    const emailId = `email_${"6".repeat(32)}`;
+    const record = {
+      id: emailId,
+      to: ["recipient@example.net"],
+      status: "failed",
+      last_event: "failed",
+      error: "Mailbox recipient@example.net was rejected",
+      created_at: "2030-01-01T00:00:00.000Z",
+      updated_at: "2030-01-01T00:01:00.000Z",
+    };
+
+    await expect(
+      runCli(["emails", "get", emailId], {
+        fetch: vi.fn<typeof fetch>(async () => jsonResponse(record)),
+        io: capture.io,
+      }),
+    ).rejects.toThrow("invalid email record");
+
+    expect(capture.logs).toEqual([]);
+  });
+
+  it("rejects unsafe email lifecycle arguments before making a request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const io = capturingIo().io;
+
+    await expect(
+      runCli(["emails", "cancel", "email_queued"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("requires --yes");
+    await expect(
+      runCli(
+        [
+          "emails",
+          "update",
+          "email_queued",
+          "--scheduled-at",
+          "yesterday",
+          "--yes",
+        ],
+        { fetch: fetchMock, io },
+      ),
+    ).rejects.toThrow("scheduled_at");
+    await expect(
+      runCli(["emails", "list", "--limit", "101"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("1 to 100");
+    await expect(
+      runCli(["emails", "list", "--after", "not-an-email-id"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("valid HayaSend email ID");
+    await expect(
+      runCli(["emails", "get", "not-an-email-id"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("valid HayaSend email ID");
+    await expect(
+      runCli(["emails", "get", "--include-content"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("Email ID is required");
+    await expect(
+      runCli(["emails", "list", "--include-content"], {
+        fetch: fetchMock,
+        io,
+      }),
+    ).rejects.toThrow("Unknown option");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

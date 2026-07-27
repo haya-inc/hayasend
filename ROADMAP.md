@@ -41,6 +41,7 @@ No post-v0.1 draft merges into the frozen release candidate.
 - [x] safe sending-domain onboarding CLI and official SDK lifecycle gate
 - [x] secret-safe webhook lifecycle, delivery inspection, and replay CLI
 - [x] privacy-aware suppression operations CLI
+- [x] privacy-safe sent-email lifecycle CLI
 
 ## Next — Cloudflare and FolioMCP proof
 
