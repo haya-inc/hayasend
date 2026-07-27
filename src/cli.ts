@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import {
   access,
@@ -32,6 +32,7 @@ import {
 import { suppressionCommand } from "./cli-suppressions.js";
 import { webhookCommand } from "./cli-webhooks.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
+import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { startServer } from "./server.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -900,6 +901,47 @@ async function templateCommand(args: string[], dependencies: CliDependencies) {
   }
 }
 
+const queueDepthSchema = z.object({
+  visible: z.number().int().nonnegative(),
+  in_flight: z.number().int().nonnegative(),
+  delayed: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+const recoveryDiagnosticsSchema = z.object({
+  object: z.literal("recovery_diagnostics"),
+  generated_at: z.iso.datetime({ offset: true }),
+  outbox: z.object({
+    due: z.number().int().nonnegative(),
+    leased: z.number().int().nonnegative(),
+    stuck_leases: z.number().int().nonnegative(),
+    undispatched: z.number().int().nonnegative(),
+    oldest_due_age_seconds: z.number().int().nonnegative(),
+    publish_failures_total: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  }),
+  queues: z.object({
+    provider: z.enum(["memory", "aws-sqs"]),
+    primary: queueDepthSchema,
+    dead_letters: z.object({
+      delivery: queueDepthSchema.nullable(),
+      scheduler: queueDepthSchema.nullable(),
+      inbound: queueDepthSchema.nullable(),
+    }),
+  }),
+  provider_events: z.object({
+    latest_received_at: z.iso.datetime({ offset: true }).nullable(),
+    lag_seconds: z.number().int().nonnegative().nullable(),
+  }),
+  capability: z.object({
+    provider: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    adapter_version: z.string(),
+    capability_version: z.string(),
+    checked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+});
+
 async function doctor(args: string[], dependencies: CliDependencies) {
   const baseUrl = endpoint(args, dependencies.env);
   const healthResponse = await dependencies.fetch(`${baseUrl}/healthz`, {
@@ -922,6 +964,60 @@ async function doctor(args: string[], dependencies: CliDependencies) {
   }
 
   await request("/emails?limit=1", args, dependencies);
+  const recoveryResponse = await dependencies.fetch(
+    `${baseUrl}/diagnostics/recovery`,
+    {
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${apiKey(dependencies.env)}`,
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    },
+  );
+  let recoveryCheck: "pass" | "not_authorized" | "not_supported";
+  let recovery:
+    | (z.infer<typeof recoveryDiagnosticsSchema> & {
+        capability: z.infer<
+          typeof recoveryDiagnosticsSchema
+        >["capability"] & {
+          drift: boolean | null;
+        };
+      })
+    | undefined;
+  if (recoveryResponse.status === 403) {
+    recoveryCheck = "not_authorized";
+  } else if (recoveryResponse.status === 404) {
+    recoveryCheck = "not_supported";
+  } else if (recoveryResponse.ok) {
+    const parsed = recoveryDiagnosticsSchema.safeParse(
+      await readJsonResponse(recoveryResponse),
+    );
+    if (!parsed.success) {
+      throw new Error(
+        "HayaSend returned invalid recovery diagnostics.",
+      );
+    }
+    const expectedAwsDigest = createHash("sha256")
+      .update(JSON.stringify(AWS_SES_CAPABILITIES), "utf8")
+      .digest("hex");
+    recoveryCheck = "pass";
+    recovery = {
+      ...parsed.data,
+      capability: {
+        ...parsed.data.capability,
+        drift:
+          parsed.data.capability.provider ===
+          AWS_SES_CAPABILITIES.provider
+            ? parsed.data.capability.document_sha256 !==
+              expectedAwsDigest
+            : null,
+      },
+    };
+  } else {
+    throw new Error(
+      `HayaSend recovery diagnostics failed (HTTP ${recoveryResponse.status}).`,
+    );
+  }
   const previewResponse = await dependencies.fetch(`${baseUrl}/preview`, {
     redirect: "manual",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -937,9 +1033,11 @@ async function doctor(args: string[], dependencies: CliDependencies) {
           health: "pass",
           identity: "pass",
           authentication: "pass",
+          recovery: recoveryCheck,
           preview:
             previewResponse.status === 200 ? "available" : "not_available",
         },
+        ...(recovery ? { recovery } : {}),
       },
       null,
       2,
@@ -1301,8 +1399,10 @@ Commands:
 
   emails list [--limit NUMBER] [--after ID] [--endpoint URL]
   emails get ID [--include-content] [--endpoint URL]
+  emails recipients ID [--limit NUMBER] [--after RECIPIENT_ID] [--endpoint URL]
       Inspect sent-email lifecycle state. Output is metadata-only unless
       --include-content explicitly exposes recipients, subject, and bodies.
+      Recipient diagnostics use opaque IDs and never print addresses or content.
 
   emails cancel ID --yes [--endpoint URL]
   emails update ID --scheduled-at TIME --yes [--endpoint URL]

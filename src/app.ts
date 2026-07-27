@@ -43,6 +43,7 @@ import {
 import type { DomainService } from "./services/domain-service.js";
 import type { EmailService } from "./services/email-service.js";
 import type { ReceivedEmailService } from "./services/received-email-service.js";
+import type { RecoveryDiagnosticsService } from "./services/recovery-diagnostics-service.js";
 import { HAYASEND_VERSION } from "./version.js";
 import type { SuppressionService } from "./services/suppression-service.js";
 import type { WebhookService } from "./services/webhook-service.js";
@@ -61,6 +62,7 @@ export interface AppServices {
   domainService: DomainService;
   emailService: EmailService;
   receivedEmailService: ReceivedEmailService;
+  recoveryDiagnosticsService: RecoveryDiagnosticsService;
   suppressionService: SuppressionService;
   templateService: TemplateService;
   webhookService: WebhookService;
@@ -262,6 +264,13 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       service: "hayasend",
       version: HAYASEND_VERSION,
     }),
+  );
+
+  app.get(
+    "/diagnostics/recovery",
+    requireScope("diagnostics:read"),
+    async (context) =>
+      context.json(await services.recoveryDiagnosticsService.get()),
   );
 
   if (localPreview) {
@@ -621,6 +630,23 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
           context.req.param("attachmentId"),
         ),
       ),
+  );
+
+  app.get(
+    "/emails/:id/recipients",
+    requireScope("emails:read"),
+    zValidator("query", paginationSchema, validationCallback),
+    async (context) => {
+      const { limit, after } = context.req.valid("query");
+      return context.json({
+        object: "list",
+        ...(await services.emailService.listRecipientSummaries(
+          context.req.param("id"),
+          limit,
+          after,
+        )),
+      });
+    },
   );
 
   app.get("/emails/:id", requireScope("emails:read"), async (context) =>

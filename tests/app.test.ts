@@ -17,6 +17,7 @@ import { AttachmentService } from "../src/services/attachment-service.js";
 import { DomainService } from "../src/services/domain-service.js";
 import { EmailService } from "../src/services/email-service.js";
 import { ReceivedEmailService } from "../src/services/received-email-service.js";
+import { RecoveryDiagnosticsService } from "../src/services/recovery-diagnostics-service.js";
 import { SuppressionService } from "../src/services/suppression-service.js";
 import { WebhookService } from "../src/services/webhook-service.js";
 import { TemplateService } from "../src/services/template-service.js";
@@ -71,12 +72,27 @@ function fixture() {
     new LocalDomainProvider(),
     "ap-northeast-1",
   );
+  const recoveryDiagnostics = new RecoveryDiagnosticsService(
+    store,
+    queue,
+    {
+      provider: "local-console",
+      adapter_version: "0.2.0",
+      capability_version: "1.0.0",
+      checked_at: null,
+      document: {
+        provider: "local-console",
+        adapter_version: "0.2.0",
+      },
+    },
+  );
   const app = createApp({
     apiKeyService: apiKeys,
     attachmentService: attachments,
     domainService: domains,
     emailService: emails,
     receivedEmailService,
+    recoveryDiagnosticsService: recoveryDiagnostics,
     suppressionService: suppressions,
     templateService: templates,
     webhookService: webhooks,
@@ -104,6 +120,7 @@ function fixture() {
     queue,
     receivedEmailService,
     request,
+    recoveryDiagnostics,
     store,
     suppressions,
     templates,
@@ -123,6 +140,7 @@ function previewFixture() {
         domainService: result.domains,
         emailService: result.emails,
         receivedEmailService: result.receivedEmailService,
+        recoveryDiagnosticsService: result.recoveryDiagnostics,
         suppressionService: result.suppressions,
         templateService: result.templates,
         webhookService: result.webhooks,
@@ -482,6 +500,145 @@ describe("HTTP API", () => {
       from: email.from,
       to: [email.to],
       subject: email.subject,
+    });
+  });
+
+  it("[conformance:recovery-diagnostics-privacy] exposes privacy-safe recipient truth with explicit pagination and authorization", async () => {
+    const { emails, request } = fixture();
+    const firstAddress = "first-private@example.net";
+    const secondAddress = "second-private@example.net";
+    const created = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        to: [firstAddress, secondAddress],
+        subject: "Private mixed outcome",
+      }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    await emails.processSend(id);
+    await emails.applyProviderEvent(id, "email.bounced", {
+      provider_event_id: "mixed-bounce",
+      provider_message_id: `provider_${id}`,
+      provider_at: "2026-07-27T00:00:01.000Z",
+      received_at: "2026-07-27T00:00:02.000Z",
+      recipient_addresses: [firstAddress],
+    });
+    await emails.applyProviderEvent(id, "email.delivered", {
+      provider_event_id: "mixed-delivery",
+      provider_message_id: `provider_${id}`,
+      provider_at: "2026-07-27T00:00:03.000Z",
+      received_at: "2026-07-27T00:00:04.000Z",
+      recipient_addresses: [secondAddress],
+    });
+
+    const readerResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "recipient reader",
+        scopes: ["emails:read"],
+      }),
+    });
+    const reader = (await readerResponse.json()) as { token: string };
+    const firstPageResponse = await request(
+      `/emails/${id}/recipients?limit=1`,
+      {},
+      reader.token,
+    );
+    expect(firstPageResponse.status).toBe(200);
+    const firstPageText = await firstPageResponse.text();
+    expect(firstPageText).not.toContain(firstAddress);
+    expect(firstPageText).not.toContain(secondAddress);
+    expect(firstPageText).not.toContain("Private mixed outcome");
+    expect(firstPageText).not.toContain(`provider_${id}`);
+    const firstPage = JSON.parse(firstPageText) as {
+      aggregate_status: string;
+      data: Array<Record<string, unknown>>;
+      has_more: boolean;
+      next_cursor: string;
+    };
+    expect(firstPage).toMatchObject({
+      object: "list",
+      message_id: id,
+      aggregate_status: "partially_delivered",
+      recipient_count: 2,
+      has_more: true,
+      attempt_summary: { accepted: 1 },
+      data: [
+        {
+          role: "to",
+          ordinal: 0,
+          status: "bounced",
+          recovery_state: "settled",
+          requires_operator_attention: true,
+        },
+      ],
+    });
+    const secondPage = await request(
+      `/emails/${id}/recipients?limit=1&after=${encodeURIComponent(
+        firstPage.next_cursor,
+      )}`,
+      {},
+      reader.token,
+    );
+    await expect(secondPage.json()).resolves.toMatchObject({
+      has_more: false,
+      data: [
+        {
+          role: "to",
+          ordinal: 1,
+          status: "delivered",
+          recovery_state: "settled",
+          requires_operator_attention: false,
+        },
+      ],
+    });
+    const invalidCursor = await request(
+      `/emails/${id}/recipients?after=rcpt_missing`,
+      {},
+      reader.token,
+    );
+    expect(invalidCursor.status).toBe(422);
+
+    const diagnosticsWithEmailScope = await request(
+      "/diagnostics/recovery",
+      {},
+      reader.token,
+    );
+    expect(diagnosticsWithEmailScope.status).toBe(403);
+    const diagnosticsKeyResponse = await request("/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "recovery reader",
+        scopes: ["diagnostics:read"],
+      }),
+    });
+    const diagnosticsKey = (await diagnosticsKeyResponse.json()) as {
+      token: string;
+    };
+    const diagnostics = await request(
+      "/diagnostics/recovery",
+      {},
+      diagnosticsKey.token,
+    );
+    expect(diagnostics.status).toBe(200);
+    const diagnosticsText = await diagnostics.text();
+    expect(diagnosticsText).not.toContain(firstAddress);
+    expect(diagnosticsText).not.toContain(secondAddress);
+    expect(diagnosticsText).not.toContain("Private mixed outcome");
+    await expect(
+      Promise.resolve(JSON.parse(diagnosticsText)),
+    ).resolves.toMatchObject({
+      object: "recovery_diagnostics",
+      queues: {
+        provider: "memory",
+      },
+      provider_events: {
+        latest_received_at: "2026-07-27T00:00:04.000Z",
+      },
+      capability: {
+        provider: "local-console",
+      },
     });
   });
 

@@ -49,7 +49,7 @@ describe("OpenAPI contract-test network safety", () => {
         /^        default:\n          \$ref: "#\/components\/responses\/Error"$/gm,
       ) ?? [];
 
-    expect(operations).toHaveLength(46);
+    expect(operations).toHaveLength(48);
     expect(defaultErrors).toHaveLength(operations.length);
   });
 });

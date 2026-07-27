@@ -274,6 +274,17 @@ identical payload with the same key when the caller did not receive a response.
 A changed payload conflicts, while a new key creates a distinct delivery
 intent.
 
+Use `GET /diagnostics/recovery` or `hayasend doctor` with a
+`diagnostics:read` key to inspect the same outbox measures together with SQS
+queue and DLQ depth, latest provider-event lag, and the running capability
+document digest. Use `GET /emails/{id}/recipients` or
+`hayasend emails recipients ID` with `emails:read` for canonical
+mixed-recipient truth. Both outputs are allowlisted: they exclude addresses,
+subject and body content, credentials, signed URLs, provider message IDs, raw
+provider errors, and unrecognized fields. A `submitting` attempt older than 60
+seconds is shown as `ambiguous` for recovery triage; do not retry it blindly
+because the provider may have accepted the message.
+
 ## Recipient ledger and provider-event recovery
 
 Provider submission attempts are stored beside their message and recipients.

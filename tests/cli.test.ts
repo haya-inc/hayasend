@@ -555,6 +555,58 @@ describe("HayaSend CLI", () => {
       if (url.includes("/emails?limit=1")) {
         return jsonResponse({ object: "list", data: [] });
       }
+      if (url.endsWith("/diagnostics/recovery")) {
+        return jsonResponse({
+          object: "recovery_diagnostics",
+          generated_at: "2026-07-27T00:00:00.000Z",
+          outbox: {
+            due: 1,
+            leased: 0,
+            stuck_leases: 0,
+            undispatched: 1,
+            oldest_due_age_seconds: 12,
+            publish_failures_total: 0,
+            truncated: false,
+          },
+          queues: {
+            provider: "memory",
+            primary: {
+              visible: 1,
+              in_flight: 0,
+              delayed: 0,
+              total: 1,
+            },
+            dead_letters: {
+              delivery: {
+                visible: 0,
+                in_flight: 0,
+                delayed: 0,
+                total: 0,
+              },
+              scheduler: {
+                visible: 0,
+                in_flight: 0,
+                delayed: 0,
+                total: 0,
+              },
+              inbound: null,
+            },
+          },
+          provider_events: {
+            latest_received_at: null,
+            lag_seconds: null,
+          },
+          capability: {
+            provider: "aws-ses",
+            adapter_version: "0.2.0",
+            capability_version: "1.0.0",
+            checked_at: "2026-07-27",
+            document_sha256: "a".repeat(64),
+          },
+          ignored_private_field:
+            "recipient@example.net private body re_secret_token",
+        });
+      }
       return new Response("<!doctype html>", {
         status: 200,
         headers: { "content-type": "text/html" },
@@ -580,6 +632,10 @@ describe("HayaSend CLI", () => {
         url: "http://localhost:8787/emails?limit=1",
       },
       {
+        authorization: "Bearer re_private_test_key",
+        url: "http://localhost:8787/diagnostics/recovery",
+      },
+      {
         authorization: null,
         url: "http://localhost:8787/preview",
       },
@@ -591,10 +647,64 @@ describe("HayaSend CLI", () => {
         health: "pass",
         identity: "pass",
         authentication: "pass",
+        recovery: "pass",
         preview: "available",
+      },
+      recovery: {
+        outbox: {
+          oldest_due_age_seconds: 12,
+        },
+        capability: {
+          drift: true,
+        },
       },
     });
     expect(output).not.toContain("re_private_test_key");
+    expect(output).not.toContain("recipient@example.net");
+  });
+
+  it("keeps existing doctor checks useful without diagnostics scope", async () => {
+    const capture = capturingIo();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/healthz")) {
+        return jsonResponse({
+          ok: true,
+          service: "hayasend",
+          version: "0.2.0",
+        });
+      }
+      if (url.includes("/emails?limit=1")) {
+        return jsonResponse({ object: "list", data: [] });
+      }
+      if (url.endsWith("/diagnostics/recovery")) {
+        return jsonResponse(
+          {
+            name: "forbidden",
+            message: "private policy detail must not be printed",
+          },
+          403,
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    await runCli(["doctor"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    const output = capture.logs[0] ?? "";
+    expect(JSON.parse(output)).toMatchObject({
+      ok: true,
+      checks: {
+        health: "pass",
+        authentication: "pass",
+        recovery: "not_authorized",
+        preview: "not_available",
+      },
+    });
+    expect(output).not.toContain("private policy detail");
   });
 
   it("rejects an endpoint that does not identify as HayaSend", async () => {
@@ -1833,6 +1943,93 @@ describe("HayaSend CLI", () => {
       `http://localhost:8787/emails?limit=20&after=${previousCursor}`,
       `http://localhost:8787/emails/${emailId}`,
     ]);
+  });
+
+  it("prints only allowlisted recipient recovery fields", async () => {
+    const capture = capturingIo();
+    const emailId = `email_${"7".repeat(32)}`;
+    const recipientId = `rcpt_${"8".repeat(32)}`;
+    const previousCursor = `rcpt_${"9".repeat(32)}`;
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        object: "list",
+        message_id: emailId,
+        aggregate_status: "bounced",
+        recipient_count: 2,
+        attempt_summary: {
+          pending: 0,
+          submitting: 0,
+          accepted: 1,
+          ambiguous: 0,
+          retryable_failed: 0,
+          permanent_failed: 0,
+        },
+        unattributed_event_count: 0,
+        data: [
+          {
+            id: recipientId,
+            role: "to",
+            ordinal: 0,
+            status: "bounced",
+            recovery_state: "settled",
+            requires_operator_attention: true,
+            latest_attempt: {
+              id: `attempt_${"a".repeat(32)}`,
+              sequence: 1,
+              status: "accepted",
+              diagnostic_category: null,
+              started_at: "2030-01-01T00:00:00.000Z",
+              completed_at: "2030-01-01T00:00:01.000Z",
+              provider_message_id: "private-provider-id",
+            },
+            updated_at: "2030-01-01T00:00:02.000Z",
+            address: "private-recipient@example.net",
+            raw_provider_error: "private SMTP response",
+          },
+        ],
+        has_more: false,
+        internal_subject: "Private subject",
+      }),
+    );
+
+    await runCli(
+      [
+        "emails",
+        "recipients",
+        emailId,
+        "--limit",
+        "1",
+        "--after",
+        previousCursor,
+      ],
+      { fetch: fetchMock, io: capture.io },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:8787/emails/${emailId}/recipients?limit=1&after=${previousCursor}`,
+      expect.any(Object),
+    );
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toMatchObject({
+      object: "list",
+      message_id: emailId,
+      aggregate_status: "bounced",
+      data: [
+        {
+          id: recipientId,
+          status: "bounced",
+          recovery_state: "settled",
+          requires_operator_attention: true,
+          latest_attempt: {
+            status: "accepted",
+          },
+        },
+      ],
+    });
+    const output = capture.logs.join("\n");
+    expect(output).not.toContain("private-recipient@example.net");
+    expect(output).not.toContain("Private subject");
+    expect(output).not.toContain("private SMTP response");
+    expect(output).not.toContain("private-provider-id");
   });
 
   it("reveals a complete email record only with an explicit flag", async () => {

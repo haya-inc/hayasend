@@ -44,6 +44,8 @@ implemented provider today. HayaSend never logs message bodies.
 - immutable provider-event and recipient-attempt history with exact
   recipient correlation, SNS deduplication, sticky safety outcomes, and
   conservative message aggregates
+- privacy-safe recipient summaries and recovery diagnostics for outbox age,
+  stuck leases, queue/DLQ depth, event lag, and capability drift
 - email retrieval, listing, cancellation, and rescheduling, with a
   privacy-safe lifecycle CLI
 - SES domain creation, DKIM record discovery, refresh, and explicit-deletion

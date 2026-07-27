@@ -988,6 +988,12 @@ export class MemoryStore implements Store, DeliveryOutboxStore {
     return event ? structuredClone(event) : undefined;
   }
 
+  async getLatestProviderEventReceivedAt(): Promise<string | undefined> {
+    return [...this.providerEvents.values()]
+      .map((event) => event.received_at)
+      .sort((left, right) => right.localeCompare(left))[0];
+  }
+
   async getOutboxItem(id: string): Promise<OutboxItemRecord | undefined> {
     const item = this.outboxItems.get(id);
     return item ? structuredClone(item) : undefined;
