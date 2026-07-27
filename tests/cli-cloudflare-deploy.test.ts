@@ -538,6 +538,58 @@ describe("plan-first Cloudflare lifecycle", () => {
     });
   });
 
+  it("verifies Worker absence when Wrangler fails after deleting it", async () => {
+    const logs: string[] = [];
+    const runner: CommandRunner = async (_command, args) => {
+      const operation = args.slice(2);
+      if (operation[0] === "delete") {
+        return result(
+          "",
+          "KV namespace cleanup failed. Authentication error [code: 10000]",
+          1,
+        );
+      }
+      if (
+        operation[0] === "versions" &&
+        operation[1] === "list"
+      ) {
+        return result(
+          "",
+          "This Worker does not exist on your account. [code: 10007]",
+          1,
+        );
+      }
+      return result();
+    };
+
+    await cleanupCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+      },
+    );
+
+    const cleanup = JSON.parse(logs.at(-1)!) as {
+      complete: boolean;
+      results: Array<Record<string, unknown>>;
+    };
+    expect(cleanup.complete).toBe(true);
+    expect(cleanup.results[3]).toMatchObject({
+      resource: "hayasend-proof",
+      ok: true,
+      diagnostic:
+        "Worker deletion postcondition verified after Wrangler cleanup failed.",
+    });
+  });
+
   it("makes a partially completed cleanup fully idempotent", async () => {
     const logs: string[] = [];
     const runner: CommandRunner = async (_command, args) => {

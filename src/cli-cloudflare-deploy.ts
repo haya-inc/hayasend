@@ -879,14 +879,30 @@ export async function cleanupCloudflare(
       )),
     });
   }
-  results.push({
-    resource: names.worker,
-    ...(await bestEffortWrangler(
+  let workerDeletion = await bestEffortWrangler(
+    dependencies,
+    account,
+    ["delete", names.worker],
+    [10007, 10090],
+  );
+  if (!workerDeletion.ok) {
+    const workerAbsence = await bestEffortWrangler(
       dependencies,
       account,
-      ["delete", names.worker],
+      ["versions", "list", "--name", names.worker],
       [10007, 10090],
-    )),
+    );
+    if (workerAbsence.ok && workerAbsence.diagnostic) {
+      workerDeletion = {
+        ok: true,
+        diagnostic:
+          "Worker deletion postcondition verified after Wrangler cleanup failed.",
+      };
+    }
+  }
+  results.push({
+    resource: names.worker,
+    ...workerDeletion,
   });
   let payloadKeys: string[] = [];
   try {
