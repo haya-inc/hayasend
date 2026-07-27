@@ -318,6 +318,34 @@ export const CONFORMANCE_CASES = [
       "No message content, address, credential, signed URL, or raw provider error leaves the data plane.",
     required: true,
   },
+  {
+    case_id: "provider-send-idempotency",
+    boundary: "Provider submission",
+    injected_condition:
+      "The caller requires a provider-enforced send idempotency key",
+    required_outcome:
+      "The adapter either proves provider-side idempotency or reports the capability as unsupported.",
+    required: false,
+    unsupported_capability_path: "features.provider_idempotency.status",
+  },
+  {
+    case_id: "provider-open-events",
+    boundary: "Provider events",
+    injected_condition: "The caller requires an open lifecycle event",
+    required_outcome:
+      "The adapter either consumes a documented open event or reports the capability as unsupported.",
+    required: false,
+    unsupported_capability_path: "events.opened.status",
+  },
+  {
+    case_id: "provider-click-events",
+    boundary: "Provider events",
+    injected_condition: "The caller requires a click lifecycle event",
+    required_outcome:
+      "The adapter either consumes a documented click event or reports the capability as unsupported.",
+    required: false,
+    unsupported_capability_path: "events.clicked.status",
+  },
 ] as const satisfies readonly ConformanceCase[];
 
 function capabilityStatusAtPath(

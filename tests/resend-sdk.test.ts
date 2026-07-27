@@ -8,6 +8,7 @@ import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
 import { MemoryStore } from "../src/adapters/memory-store.js";
 import { QueueEmailScheduler } from "../src/adapters/email-scheduler.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
+import { assertCloudflareEmailPreflight } from "../src/adapters/cloudflare/email-sending-transport.js";
 import type {
   MailTransport,
   MailTransportResult,
@@ -67,6 +68,14 @@ describe("official Resend Node SDK compatibility", () => {
       suppressions,
       attachments,
       templateService,
+      {
+        provider: {
+          name: "cloudflare-email",
+          adapter_version: "0.2.0",
+          capability_version: "1.0.0",
+        },
+        pre_commit_validator: assertCloudflareEmailPreflight,
+      },
     );
     const app = createApp({
       apiKeyService: new ApiKeyService(store, "re_hayasend_compatible"),
@@ -388,6 +397,51 @@ describe("official Resend Node SDK compatibility", () => {
     if (!data?.id) {
       throw new Error("Expected an SDK-created email.");
     }
+    await expect(store.getDeliveryLedger(data.id)).resolves.toMatchObject({
+      message: {
+        provider: {
+          name: "cloudflare-email",
+          adapter_version: "0.2.0",
+          capability_version: "1.0.0",
+        },
+      },
+    });
+    const committedBeforeBoundaryChecks = (
+      await store.listEmails(100)
+    ).data.length;
+    const oversized = await resend.emails.send({
+      from: "HayaSend <sender@example.com>",
+      to: "oversized@example.net",
+      subject: "Cloudflare 5 MiB boundary",
+      text: "x".repeat(5 * 1024 * 1024),
+    });
+    expect(oversized).toMatchObject({
+      data: null,
+      error: {
+        name: "validation_error",
+        message:
+          "Cloudflare Email Sending messages must not exceed 5 MiB including attachments.",
+      },
+    });
+    const tooManyRecipients = await resend.emails.send({
+      from: "HayaSend <sender@example.com>",
+      to: Array.from(
+        { length: 51 },
+        (_, index) => `recipient-${index}@example.net`,
+      ),
+      subject: "Cloudflare recipient boundary",
+      text: "Body",
+    });
+    expect(tooManyRecipients).toMatchObject({
+      data: null,
+      error: {
+        name: "validation_error",
+        message: expect.stringContaining('"maximum":50'),
+      },
+    });
+    expect((await store.listEmails(100)).data).toHaveLength(
+      committedBeforeBoundaryChecks,
+    );
     await expect(
       resend.webhooks.update(webhookId, {
         events: ["email.sent"],

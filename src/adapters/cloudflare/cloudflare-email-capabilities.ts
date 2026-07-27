@@ -1,0 +1,164 @@
+import {
+  providerCapabilityDocumentSchema,
+  type ProviderCapabilityDocument,
+} from "../../core/provider-capabilities.js";
+import { HAYASEND_VERSION } from "../../version.js";
+
+const MEBIBYTE = 1024 * 1024;
+
+export const CLOUDFLARE_EMAIL_CAPABILITIES =
+  providerCapabilityDocumentSchema.parse({
+    schema_version: "1.0.0",
+    provider: "cloudflare-email",
+    adapter_version: HAYASEND_VERSION,
+    checked_at: "2026-07-27",
+    service_maturity: "beta",
+    required_plan:
+      "Cloudflare Email Service is Beta and outbound Email Sending requires a Workers Paid plan.",
+    limits: {
+      max_serialized_request_bytes: 9 * MEBIBYTE,
+      max_mime_message_bytes: 5 * MEBIBYTE,
+      max_combined_recipients: 50,
+      max_attachments: 20,
+      max_decoded_attachment_bytes: 3_800_000,
+      max_batch_messages: 100,
+      max_schedule_delay_seconds: 30 * 86_400,
+    },
+    features: {
+      attachments: {
+        status: "conditional",
+        notes:
+          "Cloudflare allows up to 32 attachments; HayaSend keeps its lower effective limit of 20 inside the ordinary 5 MiB total message boundary.",
+      },
+      custom_headers: {
+        status: "conditional",
+        notes:
+          "Only Cloudflare allowlisted custom headers are accepted and HayaSend preflights its own reserved headers.",
+      },
+      scheduling: {
+        status: "supported",
+        notes:
+          "HayaSend schedules before provider submission using its customer-owned queue and scheduler substrate.",
+      },
+      cancellation: {
+        status: "conditional",
+        notes:
+          "Queued or scheduled messages can be canceled before provider submission.",
+      },
+      batch: {
+        status: "conditional",
+        notes:
+          "HayaSend accepts 1 to 100 messages with strict preflight validation; the binding submits each message separately.",
+      },
+      provider_message_id: {
+        status: "supported",
+        notes:
+          "The Workers Email Sending binding returns one messageId for each accepted send call.",
+      },
+      provider_event_id: {
+        status: "supported",
+        notes:
+          "Per-domain Queue events include an opaque eventId retained as the immutable event identity.",
+      },
+      provider_idempotency: {
+        status: "unsupported",
+        notes:
+          "Cloudflare documentation does not promise a durable provider-side send idempotency key.",
+      },
+      domain_verification: {
+        status: "conditional",
+        notes:
+          "Sending domains must be onboarded in Email Service; deployment lifecycle automation is not wired in this adapter proof.",
+      },
+      suppression_handling: {
+        status: "conditional",
+        notes:
+          "HayaSend preflights customer-owned suppression records and consumes bounced and complained events; Cloudflare may also reject suppressed recipients.",
+      },
+    },
+    events: {
+      accepted: {
+        status: "supported",
+        notes:
+          "HayaSend records synchronous binding acceptance and its provider message ID.",
+      },
+      delivered: {
+        status: "supported",
+        notes:
+          "Per-domain Email Sending subscriptions emit recipient-level delivered events through Queues.",
+      },
+      delayed: {
+        status: "supported",
+        notes:
+          "Per-domain Email Sending subscriptions emit recipient-level deferred events through Queues.",
+      },
+      bounced: {
+        status: "supported",
+        notes:
+          "Per-domain Email Sending subscriptions emit terminal recipient-level bounced events through Queues.",
+      },
+      complained: {
+        status: "supported",
+        notes:
+          "Per-domain Email Sending subscriptions emit terminal recipient-level complained events through Queues.",
+      },
+      rejected: {
+        status: "supported",
+        notes:
+          "Synchronous documented rejection codes and recipient-level rejected or failed events map to privacy-safe failure categories.",
+      },
+      opened: {
+        status: "unsupported",
+        notes:
+          "Cloudflare Email Sending event subscriptions do not currently publish open events.",
+      },
+      clicked: {
+        status: "unsupported",
+        notes:
+          "Cloudflare Email Sending event subscriptions do not currently publish click events.",
+      },
+    },
+    error_mapping: {
+      retryable_categories: [
+        "application_error",
+        "network_dns",
+        "network_refused",
+        "network_reset",
+        "provider_error",
+        "provider_throttled",
+        "provider_unavailable",
+        "timeout",
+      ],
+      permanent_categories: ["invalid_data", "provider_rejected"],
+      unknown_error_behavior: "retry",
+    },
+    privacy: {
+      content_exported_by_default: false,
+      addresses_exported_by_default: false,
+      raw_provider_errors_retained: false,
+    },
+    sources: [
+      {
+        title: "Cloudflare Email Service Workers API",
+        url: "https://developers.cloudflare.com/email-service/api/send-emails/workers-api/",
+        checked_at: "2026-07-27",
+      },
+      {
+        title: "Cloudflare Email Service limits",
+        url: "https://developers.cloudflare.com/email-service/platform/limits/",
+        checked_at: "2026-07-27",
+      },
+      {
+        title: "Cloudflare Queues Email Sending event schemas",
+        url: "https://developers.cloudflare.com/queues/event-subscriptions/events-schemas/",
+        checked_at: "2026-07-27",
+      },
+    ],
+    limitations: [
+      "Email Service is Beta and this adapter is implemented but not wired to the production Workers runtime.",
+      "A provider acceptance followed by a crash before the attempt update remains an explicit duplicate-send ambiguity.",
+      "Open events, click events, and provider-side send idempotency are unsupported.",
+      "The Workers binding accepts at most one Reply-To address while the Resend-shaped API can represent multiple addresses.",
+      "Daily sending limits adapt by account and are not represented as a fixed HayaSend quota.",
+    ],
+  }) satisfies ProviderCapabilityDocument;

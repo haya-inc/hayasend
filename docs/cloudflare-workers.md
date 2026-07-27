@@ -4,7 +4,9 @@ HayaSend includes an experimental Cloudflare Workers substrate. The
 provider-neutral core and service layer compile without Node globals, Node
 built-ins, AWS SDK imports, or the `nodejs_compat` flag. Cloudflare-specific
 D1, R2, and Queues adapters implement the same delivery-ledger and durable
-outbox ports used by the AWS and in-memory paths.
+outbox ports used by the AWS and in-memory paths. A Beta Email Sending binding
+transport and per-domain Queue event consumer are also implemented and tested,
+but remain deliberately unwired.
 
 This is not yet a usable email service and must not receive production
 traffic. Only `/healthz` and `/capabilities` are exposed. The capability
@@ -14,10 +16,11 @@ that are actually wired into the runtime; all runtime adapter flags remain
 
 ## Storage and delivery substrate
 
-The D1 migration in `migrations/0001_cloudflare_delivery.sql` creates strict,
+The D1 migrations in `migrations/` create strict,
 foreign-keyed records for messages, recipients, delivery attempts, normalized
 provider events, idempotency claims, durable outbox items, and optimistic
-ledger revisions.
+ledger revisions. The second migration adds a unique, indexed
+provider-message correlation field for Email Sending lifecycle events.
 
 The D1 adapter:
 
@@ -62,6 +65,37 @@ Queues remain an at-least-once wake-up mechanism. Duplicate delivery is
 expected; D1 idempotency, deterministic job identity, and durable outbox state
 remain the source of truth.
 
+## Email Sending provider proof
+
+The binding transport accepts the existing provider-neutral email record,
+preflights the 50-recipient, HayaSend-effective 20-attachment, and 5 MiB
+total-message boundaries before the durable commit, calls the structured Workers
+`SendEmail.send()` API, and retains its returned `messageId`. Documented
+provider errors are reduced to `invalid_data`, `provider_rejected`,
+`provider_throttled`, `provider_unavailable`, or `provider_error`; raw error
+text is never retained or emitted.
+
+The event consumer validates the current Cloudflare event schema and accepts
+only the six documented lifecycle types: delivered, deferred, bounced,
+failed, rejected, and complained. It resolves `messageId` through the unique
+D1 attempt index, uses `eventId` as the immutable provider-event identity, and
+correlates the single event recipient through the canonical recipient ledger.
+Invalid poison messages are acknowledged, while a legitimate event that
+arrives before its accepted attempt is indexed is retried. Duplicate and
+out-of-order Queue deliveries therefore converge through the same ledger rules
+used by AWS.
+
+Open and click events are not published by the current Cloudflare subscription
+contract, and Cloudflare does not document provider-side send idempotency.
+Those three capabilities are explicitly `unsupported`; they are not emulated.
+The machine-readable
+[`cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
+keeps the provider maturity at Beta. The local
+[`conformance report`](../conformance/reports/cloudflare-email.local.v1.json)
+intentionally remains failed only on production deploy/rollback evidence,
+which is owned by issue #104, and records the three capability differences as
+unsupported.
+
 ## Privacy boundary
 
 Private email content and recipient addresses remain in the operator's
@@ -99,7 +133,7 @@ APIs, runs the isolated workerd integration suite, and performs a Wrangler
 dry-run bundle. Node-specific webhook DNS pinning remains in the Node adapter
 and is still injected into the AWS runtime.
 
-The remaining roadmap gates add Cloudflare Email Sending and normalized event
-adapters, runtime wiring, safe deploy/rollback/doctor commands, hosted
-conformance, and measured cost evidence. Passing the substrate gate is
-architectural and fault-test evidence, not a production-readiness claim.
+The remaining roadmap gates wire the adapters into a deployable runtime, add
+safe deploy/rollback/doctor commands, run hosted conformance, and publish
+measured cost evidence. Passing the local provider proof is architectural and
+fault-test evidence, not a production-readiness claim.

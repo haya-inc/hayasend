@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
+import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
+import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import {
   CONFORMANCE_CASES,
   providerCapabilityDocumentSchema,
@@ -75,6 +77,45 @@ describe("provider capability contract", () => {
     expect(serialized).not.toMatch(
       /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|re_[A-Za-z0-9_-]{8,})/i,
     );
+  });
+
+  it("publishes honest Cloudflare Beta limits and capability gaps", () => {
+    expect(CLOUDFLARE_EMAIL_CAPABILITIES).toMatchObject({
+      provider: "cloudflare-email",
+      service_maturity: "beta",
+      limits: {
+        max_mime_message_bytes: 5 * 1024 * 1024,
+        max_combined_recipients: 50,
+        max_attachments: 20,
+      },
+      features: {
+        provider_message_id: { status: "supported" },
+        provider_event_id: { status: "supported" },
+        provider_idempotency: { status: "unsupported" },
+      },
+      events: {
+        delivered: { status: "supported" },
+        delayed: { status: "supported" },
+        bounced: { status: "supported" },
+        complained: { status: "supported" },
+        rejected: { status: "supported" },
+        opened: { status: "unsupported" },
+        clicked: { status: "unsupported" },
+      },
+    });
+    expect(CLOUDFLARE_EMAIL_CONFORMANCE_REPORT).toMatchObject({
+      provider: "cloudflare-email",
+      status: "failed",
+      summary: { failed: 1, unsupported: 3 },
+    });
+    expect(
+      CLOUDFLARE_EMAIL_CONFORMANCE_REPORT.results.find(
+        (result) => result.case_id === "deploy-interruption",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("issue #104"),
+    });
   });
 
   it("accepts a complete conformance report with consistent totals", () => {
