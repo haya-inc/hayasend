@@ -6,7 +6,7 @@ import { HAYASEND_VERSION } from "../version.js";
 const capabilityBase = {
   schema_version: "1.0.0",
   runtime: "cloudflare-workers",
-  maturity: "experimental-skeleton",
+  maturity: "experimental-substrate",
   production_ready: false,
   api: {
     health: true,
@@ -21,10 +21,17 @@ const capabilityBase = {
     mail_transport: false,
     inbound_email: false,
   },
+  substrate: {
+    d1_delivery_store: "implemented-not-wired",
+    r2_payload_storage: "implemented-not-wired",
+    queues_job_delivery: "implemented-not-wired",
+    local_fault_contract: true,
+  },
   limitations: [
     "No email API is wired to the Workers runtime.",
-    "No provider, persistence, queue, scheduler, or inbound adapter is configured.",
-    "This skeleton must not be deployed for production traffic.",
+    "D1, R2, and Queues adapters pass local workerd contract and fault tests but are not configured in this runtime.",
+    "No mail provider, scheduler, deployment lifecycle, or inbound adapter is configured.",
+    "This experimental substrate must not be deployed for production traffic.",
   ],
 } as const;
 
@@ -50,7 +57,7 @@ export default {
         service: "hayasend",
         version: HAYASEND_VERSION,
         runtime: CLOUDFLARE_WORKER_CAPABILITY.runtime,
-        status: "skeleton",
+        status: "experimental-substrate",
         production_ready: false,
       });
     }
@@ -62,7 +69,7 @@ export default {
         error: {
           name: "not_found",
           message:
-            "The Cloudflare Workers runtime is an experimental skeleton and does not expose the HayaSend email API.",
+            "The Cloudflare Workers runtime is an experimental substrate and does not expose the HayaSend email API.",
         },
       },
       404,

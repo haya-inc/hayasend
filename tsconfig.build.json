@@ -8,5 +8,9 @@
     "noEmit": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/workers/**/*.ts", "tests/**/*.ts"]
+  "exclude": [
+    "src/adapters/cloudflare/**/*.ts",
+    "src/workers/**/*.ts",
+    "tests/**/*.ts"
+  ]
 }

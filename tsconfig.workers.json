@@ -9,6 +9,7 @@
   },
   "include": [
     "worker-configuration.d.ts",
+    "src/adapters/cloudflare/**/*.ts",
     "src/app.ts",
     "src/core/**/*.ts",
     "src/ports/**/*.ts",

@@ -1,7 +1,8 @@
 # HayaSend
 
 Customer-owned safety and reliability infrastructure for transactional email.
-AWS works today; a provider-neutral core and Cloudflare proof are next.
+AWS works today. The provider-neutral core and local Cloudflare D1, R2, and
+Queues substrate are implemented; provider and hosted deployment proof remain.
 
 > **Project status: early beta.** The AWS deployment is available for
 > non-critical evaluation. The API and data model can still change before v1;

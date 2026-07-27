@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const portableRoots = [
+  "src/adapters/cloudflare",
   "src/core",
   "src/ports",
   "src/services",
@@ -26,7 +27,15 @@ const forbiddenModuleSegments = [
 ];
 
 async function sourceFiles(path) {
-  const entries = await readdir(path, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
   const files = [];
   for (const entry of entries) {
     const candidate = join(path, entry.name);
