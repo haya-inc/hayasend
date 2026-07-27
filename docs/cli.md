@@ -43,6 +43,46 @@ The command checks every target first. If either file already exists, it writes
 nothing and reports the conflicts. It never edits an application's existing
 `.env`, `.gitignore`, dependency manifest, or source.
 
+## Manage least-privilege API keys
+
+Use the bootstrap administrator key only while issuing scoped application
+keys. Pass it through the environment, never as a command-line argument:
+
+```bash
+HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
+  npm run --silent cli -- keys create \
+    --name "production transactional sender" \
+    --scope emails:send \
+    --scope emails:read \
+    --token-out ./hayasend-production-sender.token
+```
+
+`--scope` is repeatable and accepts `emails`, `templates`, `domains`,
+`webhooks`, `suppressions`, or `api_keys` with a `:read` or `:write` suffix,
+except that email delivery uses `emails:send`. Add `--expires-at` with the
+workload's next rotation deadline when the key must expire; it must be a future
+UTC date-time.
+
+`--token-out` is required. The CLI reserves the path before contacting
+HayaSend, creates it with mode `0600`, refuses an existing path, and removes
+the empty file if the API request fails. The one-time token is never printed
+or included in the command's JSON metadata. Import the file into an approved
+secret manager and remove the local copy. If the process is forcibly
+interrupted after the API accepts the request, use `keys list` to find and
+revoke any unused key.
+
+Manage metadata and revocation without exposing token material:
+
+```bash
+npm run --silent cli -- keys list --limit 20
+npm run --silent cli -- keys get key_0123456789abcdef0123456789abcdef
+npm run --silent cli -- keys revoke key_0123456789abcdef0123456789abcdef
+```
+
+`create` and `revoke` require `api_keys:write`; `list` and `get` require
+`api_keys:read`. A scoped key cannot grant permissions that it does not
+already hold. Tokens are never returned by list or get.
+
 Start the generated service from the application directory:
 
 ```bash

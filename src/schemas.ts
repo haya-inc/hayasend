@@ -299,6 +299,18 @@ export const apiKeySchema = z
   })
   .strict();
 
+export const publicApiKeySchema = z
+  .object({
+    id: z.string().regex(/^key_[a-f0-9]{32}$/),
+    name: z.string().trim().min(1).max(100),
+    prefix: z.string().min(1),
+    scopes: z.array(apiScopeSchema).min(1),
+    created_at: z.iso.datetime(),
+    expires_at: z.iso.datetime().optional(),
+    revoked_at: z.iso.datetime().optional(),
+  })
+  .strict();
+
 export const suppressionSchema = z
   .object({
     email: z.email(),

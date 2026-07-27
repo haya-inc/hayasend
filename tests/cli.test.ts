@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isMainModule, normalizeEndpoint, runCli } from "../src/cli.js";
@@ -201,6 +201,331 @@ describe("HayaSend CLI", () => {
         io: capturingIo().io,
       }),
     ).rejects.toThrow("filesystem root");
+  });
+
+  it("creates a scoped API key without printing its one-time token", async () => {
+    const directory = await temporaryDirectory();
+    const tokenPath = join(directory, "production-sender.token");
+    const capture = capturingIo();
+    const id = "key_1234567890abcdef1234567890abcdef";
+    const token = `re_hs_${id}.${"A".repeat(43)}`;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("http://localhost:8787/api-keys");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("authorization")).toBe(
+        "Bearer bootstrap-administrator-secret",
+      );
+      expect(JSON.parse(String(init?.body))).toEqual({
+        name: "production sender",
+        scopes: ["emails:send", "emails:read"],
+        expires_at: "2099-01-01T00:00:00.000Z",
+      });
+      return jsonResponse({
+        id,
+        name: "production sender",
+        prefix: "re_hs_key_123456789…",
+        scopes: ["emails:send", "emails:read"],
+        created_at: "2026-07-26T00:00:00.000Z",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        token,
+      });
+    });
+
+    await runCli(
+      [
+        "keys",
+        "create",
+        "--name",
+        "production sender",
+        "--scope",
+        "emails:send",
+        "--scope",
+        "emails:read",
+        "--scope",
+        "emails:send",
+        "--expires-at",
+        "2099-01-01T00:00:00.000Z",
+        "--token-out",
+        tokenPath,
+      ],
+      {
+        cwd: directory,
+        env: { HAYASEND_API_KEY: "bootstrap-administrator-secret" },
+        fetch: fetchMock,
+        io: capture.io,
+      },
+    );
+
+    expect(await readFile(tokenPath, "utf8")).toBe(token);
+    if (process.platform !== "win32") {
+      expect((await stat(tokenPath)).mode & 0o777).toBe(0o600);
+    }
+    const output = capture.logs[0] ?? "";
+    expect(output).not.toContain(token);
+    expect(output).not.toContain("bootstrap-administrator-secret");
+    expect(JSON.parse(output)).toMatchObject({
+      id,
+      token_file: tokenPath,
+      token_written: true,
+    });
+  });
+
+  it("rejects secret-bearing or mismatched key creation metadata", async () => {
+    const id = "key_1234567890abcdef1234567890abcdef";
+    const otherId = "key_abcdef1234567890abcdef1234567890";
+    const token = `re_hs_${otherId}.${"A".repeat(43)}`;
+    const metadata = {
+      id,
+      name: "production sender",
+      prefix: "re_hs_key_123456789…",
+      scopes: ["emails:send"],
+      created_at: "2026-07-26T00:00:00.000Z",
+      token,
+    };
+
+    for (const response of [
+      metadata,
+      { ...metadata, token: `re_hs_${id}.${"A".repeat(43)}`, backup_token: token },
+    ]) {
+      const directory = await temporaryDirectory();
+      const tokenPath = join(directory, "rejected.token");
+      const capture = capturingIo();
+      await expect(
+        runCli(
+          [
+            "keys",
+            "create",
+            "--name",
+            "production sender",
+            "--scope",
+            "emails:send",
+            "--token-out",
+            tokenPath,
+          ],
+          {
+            cwd: directory,
+            fetch: vi.fn<typeof fetch>(async () => jsonResponse(response)),
+            io: capture.io,
+          },
+        ),
+      ).rejects.toThrow("valid API key and token");
+      expect(capture.logs).toEqual([]);
+      await expect(stat(tokenPath)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("validates key creation and output conflicts before sending", async () => {
+    const directory = await temporaryDirectory();
+    const tokenPath = join(directory, "existing.token");
+    await writeFile(tokenPath, "do-not-overwrite\n");
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({}));
+    const dependencies = {
+      cwd: directory,
+      fetch: fetchMock,
+      io: capturingIo().io,
+    };
+
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "emails:send",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("requires --token-out");
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "unknown:scope",
+          "--token-out",
+          "invalid.token",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("API key input is invalid");
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "emails:send",
+          "--expires-at",
+          "2020-01-01T00:00:00.000Z",
+          "--token-out",
+          "expired.token",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("must be in the future");
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "emails:send",
+          "--token-out",
+          parse(directory).root,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("filesystem root");
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "emails:send",
+          "--token-out",
+          tokenPath,
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("Refusing to overwrite");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readFile(tokenPath, "utf8")).toBe("do-not-overwrite\n");
+  });
+
+  it("removes the reserved token file when key creation fails", async () => {
+    const directory = await temporaryDirectory();
+    const tokenPath = join(directory, "failed.token");
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
+        {
+          statusCode: 503,
+          name: "service_unavailable",
+          message: "Try again later.",
+        },
+        503,
+      ),
+    );
+
+    await expect(
+      runCli(
+        [
+          "keys",
+          "create",
+          "--name",
+          "sender",
+          "--scope",
+          "emails:send",
+          "--token-out",
+          tokenPath,
+        ],
+        { cwd: directory, fetch: fetchMock, io: capturingIo().io },
+      ),
+    ).rejects.toThrow("HTTP 503");
+    await expect(stat(tokenPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("lists, inspects, and revokes API keys without returning tokens", async () => {
+    const capture = capturingIo();
+    const id = "key_1234567890abcdef1234567890abcdef";
+    const metadata = {
+      id,
+      name: "production sender",
+      prefix: "re_hs_key_123456789…",
+      scopes: ["emails:send"],
+      created_at: "2026-07-26T00:00:00.000Z",
+    };
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      requests.push(request);
+      if (request.startsWith("DELETE")) {
+        return jsonResponse({
+          ...metadata,
+          revoked_at: "2026-07-27T00:00:00.000Z",
+          revoked: true,
+        });
+      }
+      if (String(input).includes("?")) {
+        return jsonResponse({ object: "list", data: [], has_more: false });
+      }
+      return jsonResponse(metadata);
+    });
+
+    await runCli(["keys", "list", "--limit", "10", "--after", id], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(["keys", "get", id], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(["keys", "revoke", id], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    expect(requests).toEqual([
+      `GET http://localhost:8787/api-keys?limit=10&after=${id}`,
+      `GET http://localhost:8787/api-keys/${id}`,
+      `DELETE http://localhost:8787/api-keys/${id}`,
+    ]);
+    expect(capture.logs.join("\n")).not.toContain("token");
+
+    await expect(
+      runCli(["keys", "get", "not-a-key"], {
+        fetch: fetchMock,
+        io: capture.io,
+      }),
+    ).rejects.toThrow("API key ID is invalid");
+    await expect(
+      runCli(["keys", "list", "--limit", "0"], {
+        fetch: fetchMock,
+        io: capture.io,
+      }),
+    ).rejects.toThrow("--limit must be an integer between 1 and 100");
+    await expect(
+      runCli(["keys", "list", "--after", "not-a-key"], {
+        fetch: fetchMock,
+        io: capture.io,
+      }),
+    ).rejects.toThrow("--after must be a valid API key ID");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("never prints unexpected fields from key metadata endpoints", async () => {
+    const id = "key_1234567890abcdef1234567890abcdef";
+    const leakedToken = `re_hs_${id}.${"A".repeat(43)}`;
+    const capture = capturingIo();
+
+    await expect(
+      runCli(["keys", "get", id], {
+        fetch: vi.fn<typeof fetch>(async () =>
+          jsonResponse({
+            id,
+            name: "production sender",
+            prefix: "re_hs_key_123456789…",
+            scopes: ["emails:send"],
+            created_at: "2026-07-26T00:00:00.000Z",
+            token: leakedToken,
+          }),
+        ),
+        io: capture.io,
+      }),
+    ).rejects.toThrow("valid API key metadata");
+    expect(capture.logs.join("\n")).not.toContain(leakedToken);
   });
 
   it("checks service identity, authentication, and preview availability", async () => {

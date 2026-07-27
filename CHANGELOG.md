@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add secret-safe CLI lifecycle management for scoped API keys, including
+  exclusive mode-`0600` token files that are never printed or overwritten.
 - Add a clean-built, install-tested HayaSend CLI package to signed releases
   and prepare public npm distribution with OIDC provenance, exact-integrity
   rerun protection, and a documented one-time bootstrap; npm-generated
