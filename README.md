@@ -127,6 +127,21 @@ variable safety, limits, and least-privilege scopes.
 
 ## Run locally
 
+For a released version, use the exact CLI version shown on its GitHub release.
+The CLI writes a Compose file pinned to the matching container instead of
+installing anything into your application:
+
+```bash
+HAYASEND_VERSION=X.Y.Z
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" init
+docker compose -f compose.hayasend.yaml up -d
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
+```
+
+Do not use an unpinned `latest` invocation in deployment automation. The npm
+package and downloadable `.tgz` are built from the signed release tag and
+carry npm and GitHub provenance respectively.
+
 With Docker, the API starts in hardened, read-only local mode:
 
 ```bash
@@ -167,8 +182,8 @@ key `re_hayasend_dev`. Source development binds to `127.0.0.1` by default.
 If you deliberately change `HAYASEND_HOST`, remember that the preview contains
 message bodies and must not be exposed to an untrusted network.
 
-To add a pinned local setup to another application without overwriting its
-files, run this from a HayaSend checkout:
+To add the same pinned setup from a HayaSend source checkout without
+overwriting application files:
 
 ```bash
 npm run cli -- init --dir ../my-application
@@ -177,14 +192,16 @@ npm run cli -- doctor
 ```
 
 The command creates a hardened Compose file and `.env.hayasend.example`. Use
-`npm run cli -- help` for the full command list and read
+`hayasend help` or `npm run cli -- help` for the full command list and read
 [the CLI guide](docs/cli.md) for secret handling, template-as-code
-reconciliation, and real-send behavior. The compiled package exposes the same
-commands through its `hayasend` executable.
+reconciliation, and real-send behavior. The compiled package exposes local,
+diagnostic, send, and template commands through its `hayasend` executable;
+plan-first AWS deployment still runs from a reviewed source checkout.
 
 ```bash
+HAYASEND_API_KEY=re_hayasend_dev
 curl http://localhost:8787/emails \
-  -H 'Authorization: Bearer re_hayasend_dev' \
+  -H "Authorization: Bearer ${HAYASEND_API_KEY}" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: welcome-user-42' \
   -d '{
@@ -202,7 +219,9 @@ stdout. It does not contact SES or deliver real messages.
 
 Tagged releases publish a multi-platform image to
 `ghcr.io/haya-inc/hayasend`, along with a source archive, the OpenAPI contract,
-the AWS SAM template, a CycloneDX SBOM, checksums, and signed build provenance.
+the AWS SAM template, an installable CLI tarball, a CycloneDX SBOM, checksums,
+and signed build provenance. The same CLI bytes are published as
+`@haya-inc/hayasend` with npm provenance.
 After the first release, run an exact version rather than a floating tag:
 
 ```bash

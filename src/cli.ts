@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1019,7 +1020,7 @@ Commands:
       Create a pinned, hardened local Compose setup without overwriting files.
 
   dev
-      Start HayaSend from source in local mode.
+      Start HayaSend in local mode.
 
   deploy aws --account ACCOUNT_ID [--region REGION] [--stack NAME]
       Validate tools, identity, SES readiness, the SAM template, and a local
@@ -1115,7 +1116,21 @@ export async function runCli(
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+export function isMainModule(
+  entrypoint: string | undefined,
+  moduleUrl: string,
+) {
+  if (!entrypoint) {
+    return false;
+  }
+  try {
+    return realpathSync(entrypoint) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(process.argv[1], import.meta.url)) {
   runCli(process.argv.slice(2)).catch((error) => {
     defaultDependencies.io.error(
       JSON.stringify({

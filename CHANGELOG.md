@@ -6,6 +6,10 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a clean-built, install-tested HayaSend CLI package to signed releases
+  and prepare public npm distribution with OIDC provenance, exact-integrity
+  rerun protection, and a documented one-time bootstrap; npm-generated
+  executable symlinks now invoke the CLI instead of exiting without output.
 - Return Resend-compatible `403 validation_error` responses when an Amazon SES
   identity or local development domain has already been registered.
 - Make the public HTTP API throttle configurable with conservative new-stack
