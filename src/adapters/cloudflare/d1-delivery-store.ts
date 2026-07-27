@@ -14,7 +14,10 @@ import {
   type ProviderEventRecord,
   type RecipientRecord,
 } from "../../core/delivery-model.js";
-import { ConflictError } from "../../core/errors.js";
+import {
+  ConflictError,
+  ValidationError,
+} from "../../core/errors.js";
 import {
   planAttemptCompletion,
   planAttemptStart,
@@ -23,7 +26,13 @@ import {
   type AttemptCompletion,
   type DeliveryLedgerPlan,
 } from "../../core/recipient-ledger.js";
-import type { EmailRecord, IdempotencyClaim } from "../../core/types.js";
+import type {
+  EmailRecord,
+  EmailStatus,
+  IdempotencyClaim,
+  Page,
+  SuppressionRecord,
+} from "../../core/types.js";
 import type {
   DeliveryCommit,
   DeliveryCommitResult,
@@ -51,6 +60,10 @@ interface D1DeliveryStoreOptions {
 
 interface EntityRow {
   entity: string;
+}
+
+interface IdentifiedEntityRow extends EntityRow {
+  id: string;
 }
 
 interface LedgerHeaderRow {
@@ -124,6 +137,367 @@ export class D1DeliveryStore
     private readonly payloadStorage?: R2PayloadStorage,
     private readonly options: D1DeliveryStoreOptions = {},
   ) {}
+
+  async getEmail(id: string): Promise<EmailRecord | undefined> {
+    const row = await this.first<EntityRow>(
+      "read",
+      "email",
+      this.database
+        .prepare("SELECT entity FROM emails WHERE id = ?")
+        .bind(id),
+    );
+    const persisted = parseEntity<EmailRecord>(row);
+    if (!persisted) {
+      return undefined;
+    }
+    return this.payloadStorage
+      ? this.payloadStorage.hydrateEmail(persisted)
+      : persisted;
+  }
+
+  async listEmails(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<EmailRecord>> {
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 100) {
+      throw new ValidationError(
+        "The email page limit must be between 1 and 100.",
+      );
+    }
+    let cursorRow: { created_at: string; id: string } | null = null;
+    if (cursor) {
+      cursorRow = await this.first<{ created_at: string; id: string }>(
+        "read",
+        "email-cursor",
+        this.database
+          .prepare("SELECT created_at, id FROM emails WHERE id = ?")
+          .bind(cursor),
+      );
+      if (!cursorRow) {
+        throw new ValidationError("The pagination cursor is invalid.");
+      }
+    }
+    const statement = cursorRow
+      ? this.database
+          .prepare(
+            "SELECT id, entity FROM emails WHERE created_at < ? OR (created_at = ? AND id < ?) ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .bind(
+            cursorRow.created_at,
+            cursorRow.created_at,
+            cursorRow.id,
+            limit + 1,
+          )
+      : this.database
+          .prepare(
+            "SELECT id, entity FROM emails ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .bind(limit + 1);
+    const rows = await this.all<IdentifiedEntityRow>(
+      "read",
+      "email-page",
+      statement,
+    );
+    const hasMore = rows.results.length > limit;
+    const persisted = rows.results.slice(0, limit).map((row) => ({
+      id: row.id,
+      record: JSON.parse(row.entity) as EmailRecord,
+    }));
+    const data = await Promise.all(
+      persisted.map(({ record }) =>
+        this.payloadStorage
+          ? this.payloadStorage.hydrateEmail(record)
+          : record,
+      ),
+    );
+    return {
+      data,
+      has_more: hasMore,
+      ...(hasMore && persisted.length > 0
+        ? { next_cursor: persisted.at(-1)?.id }
+        : {}),
+    };
+  }
+
+  async claimEmailForSend(
+    id: string,
+    attempt: number,
+    now: Date,
+  ): Promise<EmailRecord | undefined> {
+    if (!Number.isSafeInteger(attempt) || attempt <= 0) {
+      throw new ValidationError("The delivery attempt must be positive.");
+    }
+    const row = await this.first<EntityRow>(
+      "read",
+      "email-claim-source",
+      this.database
+        .prepare("SELECT entity FROM emails WHERE id = ?")
+        .bind(id),
+    );
+    const current = parseEntity<EmailRecord>(row);
+    if (!current) {
+      return undefined;
+    }
+    const nowEpochSeconds = Math.floor(now.getTime() / 1_000);
+    const leaseExpired =
+      current.status === "sending" &&
+      current.send_lease_until !== undefined &&
+      current.send_lease_until < nowEpochSeconds;
+    if (
+      !["queued", "scheduled"].includes(current.status) &&
+      !leaseExpired
+    ) {
+      return undefined;
+    }
+    const updated: EmailRecord = {
+      ...current,
+      status: "sending",
+      last_event: "sending",
+      attempts: Math.max(current.attempts + 1, attempt),
+      updated_at: now.toISOString(),
+      send_lease_until: nowEpochSeconds + 120,
+      error: undefined,
+    };
+    const result = await this.first<EntityRow>(
+      "claim",
+      "email",
+      this.database
+        .prepare(
+          "UPDATE emails SET entity = ?, updated_at = ? WHERE id = ? AND entity = ? RETURNING entity",
+        )
+        .bind(
+          json(updated),
+          updated.updated_at,
+          id,
+          row!.entity,
+        ),
+    );
+    const persisted = parseEntity<EmailRecord>(result);
+    if (!persisted) {
+      return undefined;
+    }
+    return this.payloadStorage
+      ? this.payloadStorage.hydrateEmail(persisted)
+      : persisted;
+  }
+
+  async updateEmail(
+    id: string,
+    updates: Partial<EmailRecord>,
+    fromStatuses?: EmailStatus[],
+  ): Promise<EmailRecord | undefined> {
+    const row = await this.first<EntityRow>(
+      "read",
+      "email-update-source",
+      this.database
+        .prepare("SELECT entity FROM emails WHERE id = ?")
+        .bind(id),
+    );
+    const current = parseEntity<EmailRecord>(row);
+    if (
+      !current ||
+      (fromStatuses !== undefined && !fromStatuses.includes(current.status))
+    ) {
+      return undefined;
+    }
+    const updated: EmailRecord = {
+      ...current,
+      ...structuredClone(updates),
+    };
+    const result = await this.first<EntityRow>(
+      "update",
+      "email",
+      this.database
+        .prepare(
+          "UPDATE emails SET entity = ?, updated_at = ? WHERE id = ? AND entity = ? RETURNING entity",
+        )
+        .bind(json(updated), updated.updated_at, id, row!.entity),
+    );
+    const persisted = parseEntity<EmailRecord>(result);
+    if (!persisted) {
+      return undefined;
+    }
+    return this.payloadStorage
+      ? this.payloadStorage.hydrateEmail(persisted)
+      : persisted;
+  }
+
+  async rescheduleEmailAndOutbox(
+    id: string,
+    scheduledAt: string,
+    now: Date,
+  ): Promise<EmailRecord | undefined> {
+    const [stored, outbox] = await Promise.all([
+      this.getStoredDeliveryState(id),
+      this.first<EntityRow>(
+        "read",
+        "outbox-reschedule-source",
+        this.database
+          .prepare(
+            "SELECT entity FROM outbox_items WHERE message_id = ?",
+          )
+          .bind(id),
+      ),
+    ]);
+    const currentOutbox = parseEntity<OutboxItemRecord>(outbox);
+    if (
+      !stored ||
+      !["queued", "scheduled"].includes(stored.snapshot.email.status) ||
+      !currentOutbox ||
+      currentOutbox.dispatched_at !== undefined ||
+      currentOutbox.lease_owner !== undefined
+    ) {
+      return undefined;
+    }
+    const timestamp = now.toISOString();
+    const updatedEmail: EmailRecord = {
+      ...stored.snapshot.email,
+      scheduled_at: scheduledAt,
+      status: "scheduled",
+      last_event: "scheduled",
+      updated_at: timestamp,
+    };
+    const updatedMessage = deliveryMessageRecordSchema.parse({
+      ...stored.snapshot.message,
+      scheduled_at: scheduledAt,
+      status: "scheduled",
+      updated_at: timestamp,
+    });
+    const updatedOutbox = outboxItemRecordSchema.parse({
+      ...currentOutbox,
+      due_at: scheduledAt,
+      updated_at: timestamp,
+    });
+    await this.executeBatch("reschedule", id, [
+      this.database
+        .prepare(
+          "UPDATE emails SET entity = ?, updated_at = ? WHERE id = ? AND entity = ?",
+        )
+        .bind(
+          json(updatedEmail),
+          timestamp,
+          id,
+          json(stored.snapshot.email),
+        ),
+      this.database
+        .prepare(
+          "UPDATE delivery_messages SET entity = ?, updated_at = ? WHERE id = ? AND entity = ?",
+        )
+        .bind(
+          json(updatedMessage),
+          timestamp,
+          id,
+          json(stored.snapshot.message),
+        ),
+      this.database
+        .prepare(
+          "UPDATE outbox_items SET due_at = ?, entity = ?, updated_at = ? WHERE id = ? AND entity = ?",
+        )
+        .bind(
+          scheduledAt,
+          json(updatedOutbox),
+          timestamp,
+          currentOutbox.id,
+          outbox!.entity,
+        ),
+    ]);
+    return this.payloadStorage
+      ? this.payloadStorage.hydrateEmail(updatedEmail)
+      : updatedEmail;
+  }
+
+  async putSuppression(record: SuppressionRecord): Promise<void> {
+    await this.database
+      .prepare(
+        "INSERT INTO suppressions(id, entity, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET entity = excluded.entity, updated_at = excluded.updated_at",
+      )
+      .bind(
+        record.id,
+        json(record),
+        record.created_at,
+        record.updated_at,
+      )
+      .run();
+  }
+
+  async getSuppression(
+    id: string,
+  ): Promise<SuppressionRecord | undefined> {
+    const row = await this.first<EntityRow>(
+      "read",
+      "suppression",
+      this.database
+        .prepare("SELECT entity FROM suppressions WHERE id = ?")
+        .bind(id),
+    );
+    return parseEntity<SuppressionRecord>(row);
+  }
+
+  async deleteSuppression(id: string): Promise<boolean> {
+    const result = await this.database
+      .prepare("DELETE FROM suppressions WHERE id = ?")
+      .bind(id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  async listSuppressions(
+    limit: number,
+    cursor?: string,
+  ): Promise<Page<SuppressionRecord>> {
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 100) {
+      throw new ValidationError(
+        "The suppression page limit must be between 1 and 100.",
+      );
+    }
+    let cursorRow: { created_at: string; id: string } | null = null;
+    if (cursor) {
+      cursorRow = await this.first<{ created_at: string; id: string }>(
+        "read",
+        "suppression-cursor",
+        this.database
+          .prepare(
+            "SELECT created_at, id FROM suppressions WHERE id = ?",
+          )
+          .bind(cursor),
+      );
+      if (!cursorRow) {
+        throw new ValidationError("The pagination cursor is invalid.");
+      }
+    }
+    const statement = cursorRow
+      ? this.database
+          .prepare(
+            "SELECT id, entity FROM suppressions WHERE created_at < ? OR (created_at = ? AND id < ?) ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .bind(
+            cursorRow.created_at,
+            cursorRow.created_at,
+            cursorRow.id,
+            limit + 1,
+          )
+      : this.database
+          .prepare(
+            "SELECT id, entity FROM suppressions ORDER BY created_at DESC, id DESC LIMIT ?",
+          )
+          .bind(limit + 1);
+    const rows = await this.all<IdentifiedEntityRow>(
+      "read",
+      "suppression-page",
+      statement,
+    );
+    const hasMore = rows.results.length > limit;
+    const selected = rows.results.slice(0, limit);
+    return {
+      data: selected.map(
+        (row) => JSON.parse(row.entity) as SuppressionRecord,
+      ),
+      has_more: hasMore,
+      ...(hasMore && selected.length > 0
+        ? { next_cursor: selected.at(-1)?.id }
+        : {}),
+    };
+  }
 
   async commitDelivery(
     input: DeliveryCommit,
@@ -395,9 +769,11 @@ export class D1DeliveryStore
     if (
       providerMessageId.length < 1 ||
       providerMessageId.length > 512 ||
-      !/^[\x21-\x3F\x41-\x7E]+$/.test(providerMessageId)
+      !/^[\x21-\x7E]+$/.test(providerMessageId)
     ) {
-      throw new Error("Provider message ID is not privacy-safe opaque data.");
+      throw new Error(
+        "Provider message ID must contain only visible ASCII characters.",
+      );
     }
     const row = await this.first<{ message_id: string }>(
       "read",

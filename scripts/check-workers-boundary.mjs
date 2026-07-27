@@ -71,13 +71,20 @@ export async function collectWorkersBoundaryViolations(projectRoot) {
   for (const file of files.sort()) {
     const source = await readFile(file, "utf8");
     for (const moduleName of importedModules(source)) {
+      const isWorkerEntrypoint = relative(projectRoot, file).startsWith(
+        "src/workers/",
+      );
+      const isCloudflareRuntimeAdapter =
+        isWorkerEntrypoint &&
+        moduleName.startsWith("../adapters/cloudflare/");
       if (
         forbiddenModulePrefixes.some((prefix) =>
           moduleName.startsWith(prefix),
         ) ||
-        forbiddenModuleSegments.some((segment) =>
-          moduleName.includes(segment),
-        )
+        (!isCloudflareRuntimeAdapter &&
+          forbiddenModuleSegments.some((segment) =>
+            moduleName.includes(segment),
+          ))
       ) {
         violations.push(
           `${relative(projectRoot, file)} imports forbidden module ${JSON.stringify(moduleName)}`,

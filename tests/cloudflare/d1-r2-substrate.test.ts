@@ -159,17 +159,20 @@ describe("D1 provider message correlation", () => {
       message_id: value.message.id,
       attempt_id: attempt.id,
       status: "accepted",
-      provider_message_id: "cf-provider-correlation-1",
+      provider_message_id:
+        "<cf-provider-correlation-1@hayasend.com>",
       completed_at: "2026-07-27T14:00:02.000Z",
     });
 
     await expect(
       store.findMessageIdByProviderMessageId(
-        "cf-provider-correlation-1",
+        "<cf-provider-correlation-1@hayasend.com>",
       ),
     ).resolves.toBe(value.message.id);
     await expect(
-      store.findMessageIdByProviderMessageId("cf-provider-unknown"),
+      store.findMessageIdByProviderMessageId(
+        "<cf-provider-unknown@hayasend.com>",
+      ),
     ).resolves.toBeUndefined();
   });
 });

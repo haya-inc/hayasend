@@ -1,7 +1,69 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hayasend-workers-skeleton",
+  "name": "hayasend-workers-proof",
   "main": "src/workers/index.ts",
   "compatibility_date": "2026-07-27",
-  "workers_dev": false
+  "workers_dev": false,
+  "vars": {
+    "HAYASEND_DEPLOYMENT_ID": "local-proof",
+    "HAYASEND_PROVIDER": "cloudflare-email",
+    "HAYASEND_HEALTH_MODE": "ready",
+    "PRIMARY_QUEUE_NAME": "hayasend-local-primary",
+    "DLQ_QUEUE_NAME": "hayasend-local-dlq",
+    "EMAIL_EVENTS_QUEUE_NAME": "hayasend-local-email-events",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hayasend-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PAYLOADS",
+      "bucket_name": "hayasend-local-payloads",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "PRIMARY_QUEUE",
+        "queue": "hayasend-local-primary",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "hayasend-local-primary",
+        "dead_letter_queue": "hayasend-local-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "retry_delay": 30,
+      },
+      {
+        "queue": "hayasend-local-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+      },
+      {
+        "queue": "hayasend-local-email-events",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 10,
+        "retry_delay": 30,
+      },
+    ],
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["recipient@example.net"],
+    },
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
 }

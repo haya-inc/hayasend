@@ -24,6 +24,11 @@ const providerOpaqueIdSchema = z
   .min(1)
   .max(512)
   .regex(/^[\x21-\x3F\x41-\x7E]+$/);
+const providerMessageIdSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .regex(/^[\x21-\x7E]+$/);
 const providerEventIdentitySchema = z
   .string()
   .min(1)
@@ -205,7 +210,7 @@ const deliveryAttemptRecordObject = z
     sequence: z.number().int().positive(),
     provider: providerReferenceSchema,
     status: deliveryAttemptStatusSchema,
-    provider_message_id: providerOpaqueIdSchema.optional(),
+    provider_message_id: providerMessageIdSchema.optional(),
     diagnostic_category: deliveryDiagnosticCategorySchema.optional(),
     started_at: timestampSchema,
     completed_at: timestampSchema.optional(),
@@ -263,7 +268,7 @@ const providerEventRecordObject = z
     message_id: messageIdSchema,
     attempt_id: attemptIdSchema.optional(),
     recipient_ids: z.array(recipientIdSchema),
-    provider_message_id: providerOpaqueIdSchema.optional(),
+    provider_message_id: providerMessageIdSchema.optional(),
     type: providerEventTypeSchema,
     provider_at: timestampSchema,
     received_at: timestampSchema,

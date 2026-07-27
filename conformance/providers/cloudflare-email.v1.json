@@ -130,7 +130,7 @@
     }
   ],
   "limitations": [
-    "Email Service is Beta and this adapter is implemented but not wired to the production Workers runtime.",
+    "Email Service is Beta and this adapter is wired only to a non-production proof runtime pending hosted isolated-namespace evidence.",
     "A provider acceptance followed by a crash before the attempt update remains an explicit duplicate-send ambiguity.",
     "Open events, click events, and provider-side send idempotency are unsupported.",
     "The Workers binding accepts at most one Reply-To address while the Resend-shaped API can represent multiple addresses.",

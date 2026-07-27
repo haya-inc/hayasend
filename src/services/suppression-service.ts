@@ -7,6 +7,14 @@ import type {
 } from "../core/types.js";
 import type { Store } from "../ports/store.js";
 
+type SuppressionStore = Pick<
+  Store,
+  | "putSuppression"
+  | "getSuppression"
+  | "deleteSuppression"
+  | "listSuppressions"
+>;
+
 export function normalizeMailbox(value: string): string {
   const trimmed = value.trim();
   const angleAddress = /<([^<>\s]+@[^<>\s]+)>$/.exec(trimmed)?.[1];
@@ -18,7 +26,7 @@ export function normalizeMailbox(value: string): string {
 }
 
 export class SuppressionService {
-  constructor(private readonly store: Store) {}
+  constructor(private readonly store: SuppressionStore) {}
 
   async put(input: {
     email: string;

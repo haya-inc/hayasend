@@ -2,8 +2,8 @@
 
 Customer-owned safety and reliability infrastructure for transactional email.
 AWS works today. The provider-neutral core, local Cloudflare D1/R2/Queues
-substrate, and Beta Email Sending provider proof are implemented; runtime
-wiring and hosted deployment proof remain.
+substrate, Beta Email Sending provider, and deployable Workers proof runtime
+are implemented; hosted isolated test-account evidence remains.
 
 > **Project status: early beta.** The AWS deployment is available for
 > non-critical evaluation. The API and data model can still change before v1;
@@ -12,15 +12,15 @@ wiring and hosted deployment proof remain.
 
 HayaSend provides the developer experience of a modern email API while the
 delivery provider and data plane stay in your cloud account. Amazon SES is the
-deployed provider today. The Cloudflare Email Sending transport and lifecycle
-consumer are tested but not wired to production traffic. HayaSend never logs
-message bodies.
+deployed provider today. The Cloudflare runtime is wired for controlled Beta
+proofs only and is not production-ready. HayaSend never logs message bodies.
 
 [Project site](https://haya-inc.github.io/hayasend/) ·
 [API reference](https://haya-inc.github.io/hayasend/api-reference.html) ·
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
+[Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
 [Execution plan](docs/execution-plan.md) ·
 [Support](SUPPORT.md)

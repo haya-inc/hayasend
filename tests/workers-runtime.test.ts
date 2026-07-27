@@ -7,40 +7,52 @@ import {
 } from "../scripts/check-workers-boundary.mjs";
 import worker, {
   CLOUDFLARE_WORKER_CAPABILITY,
+  type HayaSendCloudflareEnv,
 } from "../src/workers/index.js";
 
+function testEnv(
+  overrides: Partial<HayaSendCloudflareEnv> = {},
+): HayaSendCloudflareEnv {
+  return {
+    HAYASEND_API_KEY: "re_cloudflare_test",
+    HAYASEND_DEPLOYMENT_ID: "test-deployment",
+    HAYASEND_PROVIDER: "cloudflare-email",
+    HAYASEND_HEALTH_MODE: "ready",
+    PRIMARY_QUEUE_NAME: "test-primary",
+    DLQ_QUEUE_NAME: "test-dlq",
+    EMAIL_EVENTS_QUEUE_NAME: "test-events",
+    ...overrides,
+  } as HayaSendCloudflareEnv;
+}
+
 describe("Cloudflare Workers runtime substrate", () => {
-  it("declares its incomplete, non-production capability honestly", async () => {
+  it("declares its Beta, non-production capability honestly", async () => {
     expect(CLOUDFLARE_WORKER_CAPABILITY).toMatchObject({
       runtime: "cloudflare-workers",
-      maturity: "experimental-substrate",
+      maturity: "beta-proof",
       production_ready: false,
       api: {
         health: true,
         capabilities: true,
-        email_api: false,
+        email_api: true,
+        email_send: true,
       },
       adapters: {
-        metadata_store: false,
-        payload_storage: false,
-        queue: false,
-        scheduler: false,
-        mail_transport: false,
+        metadata_store: "d1",
+        payload_storage: "r2",
+        queue: "cloudflare-queues",
+        scheduler: "queue-delay-plus-cron",
+        mail_transport: "cloudflare-email-sending-beta",
         inbound_email: false,
-      },
-      substrate: {
-        d1_delivery_store: "implemented-not-wired",
-        r2_payload_storage: "implemented-not-wired",
-        queues_job_delivery: "implemented-not-wired",
-        local_fault_contract: true,
       },
     });
     expect(CLOUDFLARE_WORKER_CAPABILITY.capability_digest).toMatch(
       /^[0-9a-f]{64}$/,
     );
 
-    const response = worker.fetch(
+    const response = await worker.fetch(
       new Request("https://workers.invalid/capabilities"),
+      testEnv(),
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual(
@@ -48,25 +60,25 @@ describe("Cloudflare Workers runtime substrate", () => {
     );
   });
 
-  it("exposes only skeleton health and capability routes", async () => {
-    const health = worker.fetch(
+  it("exposes health and protects email routes", async () => {
+    const health = await worker.fetch(
       new Request("https://workers.invalid/healthz"),
+      testEnv(),
     );
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toMatchObject({
       runtime: "cloudflare-workers",
-      status: "experimental-substrate",
+      status: "ready",
       production_ready: false,
     });
 
-    const emailApi = worker.fetch(
+    const emailApi = await worker.fetch(
       new Request("https://workers.invalid/emails"),
+      testEnv(),
     );
-    expect(emailApi.status).toBe(404);
+    expect(emailApi.status).toBe(401);
     await expect(emailApi.json()).resolves.toMatchObject({
-      error: {
-        name: "not_found",
-      },
+      name: "validation_error",
     });
   });
 

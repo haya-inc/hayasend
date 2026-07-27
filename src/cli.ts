@@ -18,6 +18,12 @@ import {
   deployAws,
   type CommandRunner,
 } from "./cli-aws-deploy.js";
+import {
+  cleanupCloudflare,
+  deployCloudflare,
+  doctorCloudflare,
+  rollbackCloudflare,
+} from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
 import { emailCommand } from "./cli-emails.js";
 import { readStandardInput, sendEmail } from "./cli-send.js";
@@ -1247,6 +1253,56 @@ async function deployCommand(
   dependencies: CliDependencies,
 ) {
   const target = args[0] ?? "";
+  if (target === "cloudflare") {
+    validateOptions(args, {
+      values: [
+        "account",
+        "name",
+        "deployment-id",
+        "confirm-account",
+        "health-mode",
+      ],
+      booleans: ["apply"],
+      repeatable: ["allowed-recipient"],
+    });
+    const account = flag(args, "account");
+    const name = flag(args, "name");
+    const healthMode = flag(args, "health-mode");
+    if (!account || !name) {
+      throw new Error(
+        "deploy cloudflare requires --account and --name.",
+      );
+    }
+    if (
+      healthMode !== undefined &&
+      healthMode !== "ready" &&
+      healthMode !== "fail"
+    ) {
+      throw new Error("--health-mode must be ready or fail.");
+    }
+    await deployCloudflare(
+      {
+        account,
+        name,
+        apply: hasFlag(args, "apply"),
+        ...(flag(args, "deployment-id")
+          ? { deploymentId: flag(args, "deployment-id") }
+          : {}),
+        ...(flag(args, "confirm-account")
+          ? { confirmAccount: flag(args, "confirm-account") }
+          : {}),
+        ...(healthMode ? { healthMode } : {}),
+        allowedRecipients: flags(args, "allowed-recipient"),
+      },
+      {
+        cwd: dependencies.cwd,
+        env: dependencies.env,
+        log: dependencies.io.log,
+        runCommand: dependencies.runCommand,
+      },
+    );
+    return;
+  }
   if (target !== "aws") {
     throw new Error(
       `Unknown deploy target: ${target || "(missing)"}. Run hayasend help.`,
@@ -1354,6 +1410,176 @@ async function deployCommand(
   );
 }
 
+async function upgradeCloudflareCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] !== "cloudflare") {
+    throw new Error(
+      `Unknown upgrade target: ${args[0] || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: [
+      "account",
+      "name",
+      "database-id",
+      "deployment-id",
+      "confirm-account",
+      "health-mode",
+    ],
+    booleans: ["apply"],
+    repeatable: ["allowed-recipient"],
+  });
+  const account = flag(args, "account");
+  const name = flag(args, "name");
+  const databaseId = flag(args, "database-id");
+  const healthMode = flag(args, "health-mode");
+  if (!account || !name || !databaseId) {
+    throw new Error(
+      "upgrade cloudflare requires --account, --name, and --database-id.",
+    );
+  }
+  if (
+    healthMode !== undefined &&
+    healthMode !== "ready" &&
+    healthMode !== "fail"
+  ) {
+    throw new Error("--health-mode must be ready or fail.");
+  }
+  await deployCloudflare(
+    {
+      account,
+      name,
+      databaseId,
+      apply: hasFlag(args, "apply"),
+      ...(flag(args, "deployment-id")
+        ? { deploymentId: flag(args, "deployment-id") }
+        : {}),
+      ...(flag(args, "confirm-account")
+        ? { confirmAccount: flag(args, "confirm-account") }
+        : {}),
+      ...(healthMode ? { healthMode } : {}),
+      allowedRecipients: flags(args, "allowed-recipient"),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function rollbackCloudflareCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] !== "cloudflare") {
+    throw new Error(
+      `Unknown rollback target: ${args[0] || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: [
+      "account",
+      "name",
+      "version-id",
+      "confirm-account",
+    ],
+    booleans: ["apply"],
+  });
+  const account = flag(args, "account");
+  const name = flag(args, "name");
+  const versionId = flag(args, "version-id");
+  if (!account || !name || !versionId) {
+    throw new Error(
+      "rollback cloudflare requires --account, --name, and --version-id.",
+    );
+  }
+  await rollbackCloudflare(
+    {
+      account,
+      name,
+      versionId,
+      apply: hasFlag(args, "apply"),
+      ...(flag(args, "confirm-account")
+        ? { confirmAccount: flag(args, "confirm-account") }
+        : {}),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function cleanupCloudflareCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] !== "cloudflare") {
+    throw new Error(
+      `Unknown cleanup target: ${args[0] || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: ["account", "name", "confirm-account"],
+    booleans: ["apply"],
+  });
+  const account = flag(args, "account");
+  const name = flag(args, "name");
+  if (!account || !name) {
+    throw new Error(
+      "cleanup cloudflare requires --account and --name.",
+    );
+  }
+  await cleanupCloudflare(
+    {
+      account,
+      name,
+      apply: hasFlag(args, "apply"),
+      ...(flag(args, "confirm-account")
+        ? { confirmAccount: flag(args, "confirm-account") }
+        : {}),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function doctorCloudflareCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  validateOptions(args, {
+    values: ["endpoint", "deployment-id"],
+  });
+  const endpoint = flag(args, "endpoint");
+  if (!endpoint) {
+    throw new Error("doctor cloudflare requires --endpoint.");
+  }
+  await doctorCloudflare(
+    {
+      endpoint,
+      ...(flag(args, "deployment-id")
+        ? { deploymentId: flag(args, "deployment-id") }
+        : {}),
+    },
+    {
+      env: dependencies.env,
+      fetch: dependencies.fetch,
+      log: dependencies.io.log,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -1369,6 +1595,31 @@ Commands:
       build without changing AWS. Add --apply to create, inspect, and execute
       an exact CloudFormation change set. Destructive changes require the
       additional --allow-destructive-changes acknowledgement.
+
+  deploy cloudflare --account ACCOUNT_ID --name NAME
+      Print a pinned, plan-first disposable Cloudflare deployment. Add --apply
+      and the exact --confirm-account value to create D1, R2, Queues, apply
+      migrations, and deploy one version. Requires CLOUDFLARE_API_TOKEN and
+      HAYASEND_CLOUDFLARE_API_KEY only when applying.
+      Repeat --allowed-recipient to constrain the Email Sending binding; at
+      least one controlled, Cloudflare-verified address is required for apply.
+
+  upgrade cloudflare --account ACCOUNT_ID --name NAME --database-id ID
+      Apply additive migrations and deploy a new tagged Worker version without
+      recreating durable resources. Plan-only unless --apply and the exact
+      --confirm-account value are provided.
+      Repeat the reviewed --allowed-recipient values for the new version.
+
+  rollback cloudflare --account ACCOUNT_ID --name NAME --version-id ID
+      Plan or apply a 100% rollback to an explicit Worker version.
+
+  cleanup cloudflare --account ACCOUNT_ID --name NAME
+      Plan or explicitly delete only the deterministic HayaSend resources,
+      including referenced private R2 payloads before deleting the bucket.
+
+  doctor cloudflare --endpoint URL [--deployment-id ID]
+      Verify health, capability digests, Beta truth, deployment identity, and
+      the authenticated email API when HAYASEND_CLOUDFLARE_API_KEY is set.
 
   doctor [--endpoint URL]
       Check HayaSend identity, health, authentication, and preview availability.
@@ -1493,9 +1744,22 @@ export async function runCli(
     case "deploy":
       await deployCommand(args.slice(1), dependencies);
       break;
+    case "upgrade":
+      await upgradeCloudflareCommand(args.slice(1), dependencies);
+      break;
+    case "rollback":
+      await rollbackCloudflareCommand(args.slice(1), dependencies);
+      break;
+    case "cleanup":
+      await cleanupCloudflareCommand(args.slice(1), dependencies);
+      break;
     case "doctor":
-      validateOptions(args, { values: ["endpoint"] });
-      await doctor(args, dependencies);
+      if (args[1] === "cloudflare") {
+        await doctorCloudflareCommand(args.slice(1), dependencies);
+      } else {
+        validateOptions(args, { values: ["endpoint"] });
+        await doctor(args, dependencies);
+      }
       break;
     case "test":
       validateOptions(args, {
