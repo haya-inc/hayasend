@@ -32,6 +32,9 @@ minor releases before v1.0.
   errors.
 - Make all list APIs use stable resource-ID cursors, matching the documented
   `after` contract across local and DynamoDB-backed deployments.
+- Publish a searchable, versioned API reference and downloadable OpenAPI
+  contract through the project site, with reproducible generation, a
+  checksum-pinned renderer, and CI verification.
 
 ## 0.1.0 - 2026-07-26
 

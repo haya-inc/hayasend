@@ -11,6 +11,7 @@ delivery provider and data plane stay in your cloud account. Amazon SES is the
 implemented provider today. HayaSend never logs message bodies.
 
 [Project site](https://haya-inc.github.io/hayasend/) ·
+[API reference](https://haya-inc.github.io/hayasend/api-reference.html) ·
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
 [Delivery model](docs/delivery-model.md) ·
@@ -54,6 +55,8 @@ implemented provider today. HayaSend never logs message bodies.
   property-based direct HTTP contract tests
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
+Browse the generated [API reference](https://haya-inc.github.io/hayasend/api-reference.html)
+or download its versioned [OpenAPI contract](openapi.yaml).
 The dedicated-account deployment gate is documented in
 [AWS integration testing](docs/aws-integration-testing.md).
 
