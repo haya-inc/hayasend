@@ -27,11 +27,13 @@
   "files": [
     "conformance",
     "dist",
+    "!dist/workers",
     "NOTICE",
     "schemas",
     "scripts/clean-dist.mjs",
     "scripts/npm-sam-compat.mjs",
     "src",
+    "!src/workers",
     "template.yaml"
   ],
   "publishConfig": {
