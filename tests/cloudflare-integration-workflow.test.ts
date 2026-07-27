@@ -39,5 +39,19 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain("wrangler@4.114.0");
     expect(workflow).toContain("node-version: 26.5.0");
     expect(workflow).toContain("npm@12.0.1");
+
+    const apiProof = await readFile(
+      new URL(
+        "../scripts/cloudflare-integration-api.mjs",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(apiProof).toContain(
+      "idempotencyKey: `hayasend-cloudflare-integration-${runId}`",
+    );
+    expect(apiProof).toContain(
+      "transientStatusCodes.has(error.statusCode)",
+    );
   });
 });

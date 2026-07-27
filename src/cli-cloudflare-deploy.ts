@@ -963,23 +963,70 @@ export async function doctorCloudflare(
   },
   dependencies: Pick<CloudflareDependencies, "env" | "log"> & {
     fetch: typeof fetch;
+    sleep?: ((milliseconds: number) => Promise<void>) | undefined;
   },
 ): Promise<void> {
   const endpoint = new URL(input.endpoint);
   if (endpoint.protocol !== "https:") {
     throw new Error("Cloudflare doctor requires an HTTPS endpoint.");
   }
-  const healthResponse = await dependencies.fetch(
-    new URL("/healthz", endpoint),
-    { signal: AbortSignal.timeout(5_000) },
-  );
-  const health = (await healthResponse.json()) as Record<string, unknown>;
-  const capabilityResponse = await dependencies.fetch(
-    new URL("/capabilities", endpoint),
-    { signal: AbortSignal.timeout(5_000) },
-  );
-  const capability =
-    (await capabilityResponse.json()) as Record<string, unknown>;
+  const fetchJson = async (
+    pathname: string,
+    init: RequestInit = {},
+  ): Promise<{
+    response: Response;
+    body: Record<string, unknown>;
+  }> => {
+    const transientStatuses = new Set([404, 500, 502, 503, 504]);
+    let lastStatus: number | undefined;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        const response = await dependencies.fetch(
+          new URL(pathname, endpoint),
+          {
+            ...init,
+            signal: AbortSignal.timeout(5_000),
+          },
+        );
+        lastStatus = response.status;
+        if (!response.ok && !transientStatuses.has(response.status)) {
+          return { response, body: {} };
+        }
+        if (response.ok) {
+          try {
+            return {
+              response,
+              body: (await response.json()) as Record<string, unknown>,
+            };
+          } catch {
+            lastStatus = response.status;
+          }
+        }
+      } catch {
+        lastStatus = undefined;
+      }
+      if (attempt < 9) {
+        await (dependencies.sleep ??
+          ((milliseconds) =>
+            new Promise((resolve) =>
+              setTimeout(resolve, milliseconds),
+            )))(1_000);
+      }
+    }
+    throw new Error(
+      `Cloudflare endpoint did not stabilize after deployment${
+        lastStatus === undefined ? "" : ` (HTTP ${lastStatus})`
+      }.`,
+    );
+  };
+  const {
+    response: healthResponse,
+    body: health,
+  } = await fetchJson("/healthz");
+  const {
+    response: capabilityResponse,
+    body: capability,
+  } = await fetchJson("/capabilities");
   const checks = {
     health_status: healthResponse.status === 200,
     runtime: health.runtime === "cloudflare-workers",
@@ -998,13 +1045,9 @@ export async function doctorCloudflare(
   const apiKey = dependencies.env.HAYASEND_CLOUDFLARE_API_KEY;
   let authenticatedApi: boolean | null = null;
   if (apiKey) {
-    const api = await dependencies.fetch(
-      new URL("/emails?limit=1", endpoint),
-      {
-        headers: { authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(5_000),
-      },
-    );
+    const { response: api } = await fetchJson("/emails?limit=1", {
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
     authenticatedApi = api.status === 200;
   }
   const healthy =

@@ -588,4 +588,54 @@ describe("plan-first Cloudflare lifecycle", () => {
       provider_maturity: "beta",
     });
   });
+
+  it("waits through transient Workers propagation responses", async () => {
+    const logs: string[] = [];
+    const attempts = new Map<string, number>();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      const attempt = (attempts.get(path) ?? 0) + 1;
+      attempts.set(path, attempt);
+      if (attempt === 1) {
+        return new Response("error code: 1042", { status: 404 });
+      }
+      if (path === "/healthz") {
+        return Response.json({
+          runtime: "cloudflare-workers",
+          production_ready: false,
+          deployment_id: "integration-propagation",
+        });
+      }
+      if (path === "/capabilities") {
+        const { CLOUDFLARE_WORKER_CAPABILITY } =
+          await import("../src/cloudflare-worker-capability.js");
+        return Response.json(CLOUDFLARE_WORKER_CAPABILITY);
+      }
+      return Response.json({ object: "list", data: [] });
+    });
+    const sleep = vi.fn(async () => undefined);
+
+    await doctorCloudflare(
+      {
+        endpoint: "https://hayasend-proof.example.workers.dev",
+        deploymentId: "integration-propagation",
+      },
+      {
+        env: {
+          HAYASEND_CLOUDFLARE_API_KEY:
+            "re_cloudflare_integration_secret",
+        },
+        fetch: fetchMock,
+        sleep,
+        log: (message) => logs.push(message),
+      },
+    );
+
+    expect(sleep).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(logs[0]!)).toMatchObject({
+      object: "cloudflare_doctor",
+      healthy: true,
+      authenticated_api: true,
+    });
+  });
 });

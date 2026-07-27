@@ -16,12 +16,32 @@ const from = required("CLOUDFLARE_TEST_FROM");
 const to = required("CLOUDFLARE_TEST_TO");
 const runId = required("GITHUB_RUN_ID");
 const resend = new Resend(apiKey, { baseUrl: endpoint.origin });
-const { data, error } = await resend.emails.send({
+const payload = {
   from,
   to,
   subject: `HayaSend Cloudflare integration ${runId}`,
   text: "Controlled isolated-namespace integration message.",
-});
+};
+const transientStatusCodes = new Set([404, 500, 502, 503, 504]);
+let data;
+let error;
+for (let attempt = 0; attempt < 10; attempt += 1) {
+  ({ data, error } = await resend.emails.send(payload, {
+    idempotencyKey: `hayasend-cloudflare-integration-${runId}`,
+  }));
+  if (data?.id) {
+    break;
+  }
+  if (
+    !error ||
+    error.statusCode === null ||
+    !transientStatusCodes.has(error.statusCode) ||
+    attempt === 9
+  ) {
+    break;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
 if (error || !data?.id) {
   throw new Error(
     `Resend SDK send failed (${error?.name ?? "missing_id"}).`,
@@ -38,6 +58,13 @@ for (let attempt = 0; attempt < 30; attempt += 1) {
     },
   );
   if (!response.ok) {
+    if (
+      transientStatusCodes.has(response.status) &&
+      attempt < 29
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      continue;
+    }
     throw new Error(`Email retrieval failed with HTTP ${response.status}.`);
   }
   const record = await response.json();
