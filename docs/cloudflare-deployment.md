@@ -199,6 +199,12 @@ and every retained resource. Provider acceptance or a HayaSend `sent` status
 alone is not delivery proof. Confirm the unique subject in the controlled
 recipient mailbox, including spam and trash, before accepting the evidence.
 
+The proof retries a timed-out SDK submission with the same idempotency key, so
+an edge response loss cannot create a second HayaSend record. It also tolerates
+transient retrieval failures while retaining the last safe aggregate and
+recipient observation in the workflow artifact. A missing terminal event,
+non-transient API error, or exhausted deadline still fails closed.
+
 ## Beta limitations
 
 - Cloudflare Email Sending itself is Beta and account quotas adapt over time.

@@ -189,7 +189,9 @@ jobs:
             | tee "$RUNNER_TEMP/cloudflare-terminal-subscription.json"
           CF_ENDPOINT="$endpoint" \
             node scripts/cloudflare-terminal-delivery.mjs \
-            | tee "$RUNNER_TEMP/cloudflare-terminal-delivery.json"
+            | tee "$RUNNER_TEMP/cloudflare-terminal-observations.jsonl"
+          tail -n 1 "$RUNNER_TEMP/cloudflare-terminal-observations.jsonl" \
+            > "$RUNNER_TEMP/cloudflare-terminal-delivery.json"
           email_id="$(
             node -e 'const fs=require("node:fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(x.email_id)' \
               "$RUNNER_TEMP/cloudflare-terminal-delivery.json"
@@ -277,6 +279,7 @@ jobs:
           name: cloudflare-terminal-${{ inputs.phase }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/cloudflare-terminal-*.json
+            ${{ runner.temp }}/cloudflare-terminal-*.jsonl
             ${{ runner.temp }}/cloudflare-terminal-*.txt
           if-no-files-found: error
           retention-days: 30

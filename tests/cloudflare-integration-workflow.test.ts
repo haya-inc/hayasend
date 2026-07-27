@@ -91,5 +91,12 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(proof).toContain(
       "Cloudflare remained provider-accepted without a delivered event",
     );
+    expect(proof).toContain("signal: AbortSignal.timeout(sendTimeoutMs)");
+    expect(proof).toContain("send_transient_failures");
+    expect(proof).toContain("poll_transient_failures");
+    expect(workflow).toContain("cloudflare-terminal-observations.jsonl");
+    expect(proof).toContain(
+      "idempotencyKey = `hayasend-cloudflare-terminal-${runId}-${runAttempt}`",
+    );
   });
 });
