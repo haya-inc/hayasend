@@ -27,8 +27,10 @@ Object.assign(process.env, {
 const bundles = [
   ["ApiFunction", "api.cjs"],
   ["WorkerFunction", "worker.cjs"],
+  ["DispatcherFunction", "dispatcher.cjs"],
   ["SesEventsFunction", "ses-events.cjs"],
   ["InboundFunction", "inbound.cjs"],
+  ["LogRetentionFunction", "log-retention.cjs"],
 ];
 
 for (const [functionName, fileName] of bundles) {

@@ -71,12 +71,11 @@ accumulates. The model uses 2 KiB of durable metadata per message, 2 KiB per
 temporarily retained webhook delivery, and 1 KiB per 24-hour idempotency
 claim. Payload bodies use the checked-in 45-day S3 lifecycle.
 
-Generated Lambda log groups currently use CloudWatch's no-expiration default.
-The table deliberately models a 30-day operator retention policy. Without that
-policy, archived log storage accumulates rather than reaching the modeled
-steady state. Apply and audit log retention in the deployment account; never
-reduce it below an incident-response or compliance requirement merely to
-match this estimate.
+The checked-in stack configures every Lambda log group for 30-day retention by
+default, matching the model. `LogRetentionDays` can select another
+CloudWatch-supported finite period; rerun the estimate when operational log
+volume or retention changes. Never reduce it below an incident-response or
+compliance requirement merely to match this estimate.
 
 ## Recalculate
 

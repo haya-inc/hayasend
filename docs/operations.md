@@ -54,6 +54,61 @@ If inbound receiving is enabled, complete the separate pre-MX checklist in
 webhook, send a canary to the receiving subdomain, retrieve its raw MIME and
 attachment through the API, and only then move important mail flow.
 
+## Lambda log retention
+
+Every deployed function writes to a stack-owned log group under
+`/hayasend/<stack-name>/`. `LogRetentionDays` defaults to 30 and accepts only
+CloudWatch Logs' supported finite retention values. Select a value that meets
+incident-response, legal, and audit requirements; cost alone is not a reason to
+discard required evidence. CloudWatch Logs encrypts these groups at rest with
+its default service-side encryption; HayaSend does not attach a
+customer-managed KMS key. The legacy migration changes only retention and
+therefore preserves any existing KMS association.
+
+Audit the effective value without reading log events:
+
+```bash
+stack_name=hayasend
+aws logs describe-log-groups \
+  --log-group-name-prefix "/hayasend/$stack_name/" \
+  --query 'logGroups[].{name:logGroupName,retention:retentionInDays}'
+```
+
+An update from an older HayaSend template may already have Lambda-created
+groups named `/aws/lambda/<physical-function-name>`. CloudFormation cannot
+automatically import those dynamically named groups. The checked-in migration
+custom resource therefore inspects only exact log-group metadata and applies
+the selected finite retention to groups that exist. It never calls log-event
+read APIs, moves events, deletes a legacy group, or creates a missing legacy
+group. New invocations switch to the stack-owned groups.
+
+The migration is transactional within an invocation. If a later update fails,
+the helper restores every group it already changed to its observed prior
+finite policy—or removes the policy if it was previously unlimited—before
+reporting failure. CloudFormation rollback then invokes it with the old
+parameter. If a stack reaches `UPDATE_ROLLBACK_FAILED`, inspect the
+`LegacyFunctionLogRetention` event, continue rollback, and audit both prefixes
+before retrying. Do not delete a legacy group to make an update pass.
+
+To roll back a retention change, redeploy an earlier allowed
+`LogRetentionDays` value. Reducing retention can mark older events for deletion;
+AWS notes that physical deletion can take up to 72 hours. Stack deletion
+deliberately deletes the stack-owned `/hayasend/...` groups so the same stack
+name can be recreated. Legacy `/aws/lambda/...` groups are not owned or deleted
+by the migration and retain their last finite policy. A replacement of a
+stack-owned group is retained as a recovery safeguard. The migration resource
+has an explicit dependency on its provider log group. Lambda can still
+re-create that exact group when CloudFormation invokes the provider's delete
+callback, so the callback suppresses successful platform logs and removes only
+its own stack-derived group before acknowledging deletion. Its role cannot
+delete legacy function groups or read log events.
+
+See the AWS documentation for
+[custom Lambda log groups](https://docs.aws.amazon.com/lambda/latest/dg/monitoring-cloudwatchlogs-loggroups.html),
+[log-group retention](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-logs-loggroup.html),
+and
+[`PutRetentionPolicy`](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutRetentionPolicy.html).
+
 ## Template publication history
 
 Choose retention as part of the deployment review. The defaults keep the

@@ -309,6 +309,7 @@ npm run cli -- deploy aws \
   --account "$aws_account_id" \
   --region ap-northeast-1 \
   --stack hayasend \
+  --log-retention-days 30 \
   --apply
 ```
 
@@ -317,7 +318,8 @@ HayaSend retrieves the exact new change-set ARN, prints its resource changes,
 and refuses removals, indeterminate actions, or possible replacements unless
 `--allow-destructive-changes` is also present. It never changes DNS. See the
 [CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
-preservation, failure recovery, and output privacy.
+preservation, finite Lambda log retention, failure recovery, and output
+privacy.
 
 Before choosing a Region or comparing hosted alternatives, review the
 [reproducible AWS cost model](docs/aws-costs.md). It separates SES charges

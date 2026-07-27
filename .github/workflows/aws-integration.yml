@@ -21,7 +21,7 @@ jobs:
   deploy-test-delete:
     name: Deploy, test, and delete
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     environment: aws-integration
     env:
       AWS_REGION: ${{ vars.AWS_TEST_REGION || 'ap-northeast-1' }}
@@ -90,6 +90,7 @@ jobs:
             --stack "$STACK_NAME" \
             --region "$AWS_REGION" \
             --worker-reserved-concurrency 0 \
+            --log-retention-days 7 \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/hayasend-deploy-plan.json"
@@ -106,6 +107,7 @@ jobs:
             --stack "$STACK_NAME" \
             --region "$AWS_REGION" \
             --worker-reserved-concurrency 0 \
+            --log-retention-days 7 \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             --apply \
@@ -125,6 +127,13 @@ jobs:
               --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" \
               --output text
           }
+          stack_resource() {
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?LogicalResourceId=='$1'].PhysicalResourceId | [0]" \
+              --output text
+          }
           api_base_url="$(stack_output ApiBaseUrl)"
           http_api_id="$(
             aws cloudformation describe-stack-resource \
@@ -139,6 +148,17 @@ jobs:
           data_table="$(stack_output TableName)"
           dispatcher_function="$(stack_output DispatcherFunctionName)"
           schedule_group="$(stack_output EmailScheduleGroupName)"
+          api_log_group="$(stack_output ApiLogGroupName)"
+          worker_log_group="$(stack_output WorkerLogGroupName)"
+          dispatcher_log_group="$(stack_output DispatcherLogGroupName)"
+          ses_events_log_group="$(stack_output SesEventsLogGroupName)"
+          retention_log_group="$(stack_output LogRetentionFunctionLogGroupName)"
+          api_function="$(stack_resource ApiFunction)"
+          worker_function="$(stack_resource WorkerFunction)"
+          ses_events_function="$(stack_resource SesEventsFunction)"
+          legacy_retention_resource="$(
+            stack_resource LegacyFunctionLogRetention
+          )"
           for value in \
             "$api_base_url" \
             "$http_api_id" \
@@ -146,7 +166,16 @@ jobs:
             "$payload_bucket" \
             "$data_table" \
             "$dispatcher_function" \
-            "$schedule_group"; do
+            "$schedule_group" \
+            "$api_log_group" \
+            "$worker_log_group" \
+            "$dispatcher_log_group" \
+            "$ses_events_log_group" \
+            "$retention_log_group" \
+            "$api_function" \
+            "$worker_function" \
+            "$ses_events_function" \
+            "$legacy_retention_resource"; do
             if [[ -z "$value" || "$value" = "None" ]]; then
               echo "::error::A required CloudFormation output is missing."
               exit 1
@@ -160,7 +189,73 @@ jobs:
             echo "DATA_TABLE=$data_table"
             echo "DISPATCHER_FUNCTION=$dispatcher_function"
             echo "SCHEDULE_GROUP=$schedule_group"
+            echo "MANAGED_LOG_GROUPS=$api_log_group $worker_log_group $dispatcher_log_group $ses_events_log_group $retention_log_group"
+            echo "LEGACY_LOG_GROUPS=/aws/lambda/$api_function /aws/lambda/$worker_function /aws/lambda/$dispatcher_function /aws/lambda/$ses_events_function"
+            echo "LEGACY_RETENTION_RESOURCE=$legacy_retention_resource"
           } >> "$GITHUB_ENV"
+
+      - name: Prove legacy log-group adoption
+        shell: bash
+        run: |
+          set -euo pipefail
+          for log_group in $LEGACY_LOG_GROUPS; do
+            aws logs create-log-group \
+              --log-group-name "$log_group" \
+              --region "$AWS_REGION"
+          done
+
+          npm run --silent cli -- deploy aws \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --stack "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --worker-reserved-concurrency 0 \
+            --log-retention-days 14 \
+            --allow-destructive-changes \
+            --tag Purpose=IntegrationTest \
+            --tag "GitHubRun=$GITHUB_RUN_ID" \
+            --apply \
+            > "$RUNNER_TEMP/hayasend-retention-update.jsonl"
+          node -e \
+            'require("node:fs").readFileSync(process.argv[1], "utf8").trim().split("\n").forEach(JSON.parse)' \
+            "$RUNNER_TEMP/hayasend-retention-update.jsonl"
+
+          updated_retention_resource="$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?LogicalResourceId=='LegacyFunctionLogRetention'].PhysicalResourceId | [0]" \
+              --output text
+          )"
+          if [[ "$updated_retention_resource" != "$LEGACY_RETENTION_RESOURCE" ]]; then
+            echo "::error::The legacy retention custom resource was replaced during update."
+            exit 1
+          fi
+
+          for log_group in $MANAGED_LOG_GROUPS $LEGACY_LOG_GROUPS; do
+            retention="$(
+              aws logs describe-log-groups \
+                --log-group-name-prefix "$log_group" \
+                --region "$AWS_REGION" \
+                --query "logGroups[?logGroupName=='$log_group'].retentionInDays | [0]" \
+                --output text
+            )"
+            if [[ "$retention" != "14" ]]; then
+              echo "::error::$log_group has retention $retention instead of 14 days."
+              exit 1
+            fi
+          done
+
+          inbound_count="$(
+            aws logs describe-log-groups \
+              --log-group-name-prefix "/hayasend/$STACK_NAME/inbound" \
+              --region "$AWS_REGION" \
+              --query "length(logGroups[?logGroupName=='/hayasend/$STACK_NAME/inbound'])" \
+              --output text
+          )"
+          if [[ "$inbound_count" != "0" ]]; then
+            echo "::error::Inbound-disabled deployment created an inbound log group."
+            exit 1
+          fi
 
       - name: Exercise deployed API
         shell: bash
@@ -291,6 +386,13 @@ jobs:
             if [[ -z "${SCHEDULE_GROUP:-}" || "$SCHEDULE_GROUP" = "None" ]]; then
               SCHEDULE_GROUP="$(resource_id EmailScheduleGroup)"
             fi
+            if [[ -z "${LEGACY_LOG_GROUPS:-}" ]]; then
+              api_function="$(resource_id ApiFunction)"
+              worker_function="$(resource_id WorkerFunction)"
+              dispatcher_function="$(resource_id DispatcherFunction)"
+              ses_events_function="$(resource_id SesEventsFunction)"
+              LEGACY_LOG_GROUPS="/aws/lambda/$api_function /aws/lambda/$worker_function /aws/lambda/$dispatcher_function /aws/lambda/$ses_events_function"
+            fi
           fi
 
           aws sesv2 delete-email-identity \
@@ -348,14 +450,37 @@ jobs:
           fi
 
           log_group_prefix="/aws/lambda/${STACK_NAME}-"
-          log_groups="$(
+          legacy_log_groups="$(
             aws logs describe-log-groups \
               --log-group-name-prefix "$log_group_prefix" \
               --region "$AWS_REGION" \
               --query "logGroups[].logGroupName" \
-              --output text
+              --output text 2>/dev/null || true
           )"
-          for log_group in $log_groups; do
+          for log_group in $legacy_log_groups; do
+            aws logs delete-log-group \
+              --log-group-name "$log_group" \
+              --region "$AWS_REGION"
+          done
+
+          managed_log_groups=""
+          for attempt in {1..12}; do
+            managed_log_groups="$(
+              aws logs describe-log-groups \
+                --log-group-name-prefix "/hayasend/$STACK_NAME/" \
+                --region "$AWS_REGION" \
+                --query "logGroups[].logGroupName" \
+                --output text 2>/dev/null || true
+            )"
+            if [[ -z "$managed_log_groups" ]]; then
+              break
+            fi
+            if [[ "$attempt" -lt 12 ]]; then
+              sleep 5
+            fi
+          done
+          for log_group in $managed_log_groups; do
+            echo "::error::Stack-owned log group remained after stack deletion: $log_group"
             aws logs delete-log-group \
               --log-group-name "$log_group" \
               --region "$AWS_REGION"
@@ -367,14 +492,18 @@ jobs:
             echo "::error::CloudFormation stack still exists after cleanup."
             exit 1
           fi
-          if [[ -n "$(
+          remaining_legacy_log_groups="$(
             aws logs describe-log-groups \
               --log-group-name-prefix "$log_group_prefix" \
               --region "$AWS_REGION" \
               --query "logGroups[].logGroupName" \
               --output text
-          )" ]]; then
-            echo "::error::Lambda log groups still exist after cleanup."
+          )"
+          if [[ -n "$remaining_legacy_log_groups" ]]; then
+            echo "::error::Legacy Lambda log groups still exist after cleanup."
+            exit 1
+          fi
+          if [[ -n "$managed_log_groups" ]]; then
             exit 1
           fi
 

@@ -916,6 +916,7 @@ async function deployCommand(
       "stack",
       "profile",
       "bootstrap-secret-arn",
+      "log-retention-days",
       "inbound-retention-days",
       "inbound-max-message-bytes",
       "inbound-recipient-suffixes",
@@ -948,6 +949,7 @@ async function deployCommand(
   const stack = flag(args, "stack");
   const profile = flag(args, "profile");
   const bootstrapSecretArn = flag(args, "bootstrap-secret-arn");
+  const logRetentionDays = flag(args, "log-retention-days");
   const inboundRetentionDays = flag(args, "inbound-retention-days");
   const inboundMaxMessageBytes = flag(args, "inbound-max-message-bytes");
   const inboundRecipientSuffixes = flag(
@@ -979,6 +981,7 @@ async function deployCommand(
           ? { enableInbound: false }
           : {}),
       ...(bootstrapSecretArn ? { bootstrapSecretArn } : {}),
+      ...(logRetentionDays ? { logRetentionDays } : {}),
       ...(inboundRetentionDays ? { inboundRetentionDays } : {}),
       ...(inboundMaxMessageBytes ? { inboundMaxMessageBytes } : {}),
       ...(inboundRecipientSuffixes ? { inboundRecipientSuffixes } : {}),

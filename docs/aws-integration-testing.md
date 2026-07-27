@@ -6,10 +6,22 @@ retained data resources. It is intentionally manual and never runs for pull
 requests from forks.
 
 Before creating resources, the workflow runs `hayasend deploy aws` in
-non-mutating plan mode. It then repeats the exact account, Region, stack, and
-tags with explicit `--apply`. This proves account pinning, SES and stack
-preflight, clean SAM validation/build, creation of an unexecuted change set,
-change-set inspection, and execution by the retrieved change-set ARN.
+non-mutating plan mode. It then repeats the exact account, Region, stack, log
+retention, and tags with explicit `--apply`. This proves account pinning, SES
+and stack preflight, clean SAM validation/build, creation of an unexecuted
+change set, change-set inspection, and execution by the retrieved change-set
+ARN.
+
+After the clean install, the workflow creates empty groups at the four legacy
+Lambda-generated names with no retention policy, changes `LogRetentionDays`
+from 7 to 14, and applies a second reviewed change set. It asserts that both
+the stack-owned and synthetic legacy groups report 14-day retention and that a
+disabled inbound deployment created no inbound log group. SAM reports generated
+permissions, subscriptions, and custom-resource updates as conditionally
+replacing resources, so this disposable-account update supplies the CLI's
+explicit destructive-change acknowledgement. The workflow then proves that the
+legacy-retention custom resource kept the same physical ID. This exercises the
+non-destructive adoption path without reading or fabricating log events.
 
 The workflow sets `WorkerReservedConcurrency=0` so a newly created account can
 use its unreserved Lambda concurrency pool without weakening the production
@@ -26,8 +38,13 @@ AWS Budget and root-account alerts before the first run. The workflow:
 - creates a unique CloudFormation stack per run;
 - sends no email to SES;
 - cancels every test schedule and deletes its temporary SES identity;
+- deletes the synthetic legacy and stack-owned CloudWatch log groups;
 - deletes the stack, then explicitly deletes the S3 bucket and DynamoDB table
   retained by HayaSend's production-safe deletion policies.
+
+Cleanup allows up to 60 seconds for CloudWatch's post-stack deletion view to
+converge. A stack-owned group still visible after that bound is reported,
+deleted to leave the account clean, and treated as a failed run.
 
 The `retain_stack` input defaults to false. Enable it only for active
 debugging, and delete the retained resources immediately afterward.
@@ -97,11 +114,12 @@ gh api repos/haya-inc/hayasend/actions/oidc/customization/sub
 ```
 
 The role must be able to deploy and delete the resources in `template.yaml`,
-use the SAM-managed artifact bucket, read the generated bootstrap secret, and
-delete retained integration S3/DynamoDB resources. Prefer a tightly scoped
-policy. If the first bootstrap uses administrator access, do so only in the
-empty dedicated account, review CloudTrail after the run, and replace it with
-a generated least-privilege policy before making the workflow routine.
+use the SAM-managed artifact bucket, read the generated bootstrap secret,
+create/describe/delete the exact synthetic integration log groups, and delete
+retained integration S3/DynamoDB resources. Prefer a tightly scoped policy. If
+the first bootstrap uses administrator access, do so only in the empty
+dedicated account, review CloudTrail after the run, and replace it with a
+generated least-privilege policy before making the workflow routine.
 
 ## Run and audit
 
@@ -126,7 +144,8 @@ After every run, confirm:
 2. the CloudFormation stack no longer exists;
 3. no `it-<run-id>.example.com` SES identity remains;
 4. no integration payload bucket or DynamoDB table remains;
-5. the SAM-managed artifact bucket contains no unexpected old artifacts.
+5. no `/hayasend/<integration-stack>/...` or synthetic legacy log group remains;
+6. the SAM-managed artifact bucket contains no unexpected old artifacts.
 
 Official references:
 

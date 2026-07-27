@@ -251,6 +251,7 @@ command explicitly overrides them. Parameters removed from the current
 template are not replayed. Supported overrides are:
 
 - `--bootstrap-secret-arn ARN`;
+- `--log-retention-days 1|3|5|7|14|30|60|90|120|150|180|365|400|545|731|1096|1827|2192|2557|2922|3288|3653`;
 - `--enable-inbound` or `--disable-inbound`;
 - `--inbound-recipient-suffixes @example.com,@example.org`;
 - `--inbound-retention-days 1..30`;
@@ -269,6 +270,8 @@ and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
 The production default reserves 10 worker executions. New or quota-constrained
 accounts can set the override to `0`; queue scaling still caps worker
 concurrency at 10.
+Lambda logs default to 30-day retention. The same parameter is visible in the
+plan, carried forward on update, and used by the manual SAM workflow.
 
 After execution, the CLI waits for CloudFormation, reads the API URL, bootstrap
 secret ARN, alarm topic, dashboard, and optional inbound MX target, then prints
