@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: HayaSend API
-  version: 0.1.0
+  version: 0.2.0
   description: Resend-compatible transactional email API backed by Amazon SES.
   license:
     name: Apache-2.0

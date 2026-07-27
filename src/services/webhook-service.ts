@@ -20,6 +20,7 @@ import type {
 } from "../core/types.js";
 import type { JobQueue } from "../ports/job-queue.js";
 import type { Store } from "../ports/store.js";
+import { HAYASEND_VERSION } from "../version.js";
 
 const SUPPORTED_EVENTS = new Set<WebhookEventType>([
   "email.sent",
@@ -339,7 +340,7 @@ export class WebhookService {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "user-agent": "HayaSend-Webhooks/0.1.0",
+          "user-agent": `HayaSend-Webhooks/${HAYASEND_VERSION}`,
           "svix-id": deliveryId,
           "svix-timestamp": timestamp,
           "svix-signature": signWebhook(

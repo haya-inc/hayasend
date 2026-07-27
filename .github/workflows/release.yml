@@ -256,11 +256,28 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              --field "tag_name=${RELEASE_TAG}" \
+              --jq '.body' > generated-release-notes.md
+            {
+              cat <<'EOF'
+          > **Early beta:** HayaSend is intended for non-critical evaluation.
+          > APIs and data models can change before v1. Cloudflare support is
+          > not production-ready.
+
+          EOF
+              cat generated-release-notes.md
+            } > release-notes.md
             gh release create "$RELEASE_TAG" \
               --draft \
-              --generate-notes \
+              --notes-file release-notes.md \
               --title "$RELEASE_TAG" \
               --verify-tag
           fi
+          gh release view "$RELEASE_TAG" --json body --jq '.body' |
+            grep --fixed-strings --quiet \
+              "**Early beta:** HayaSend is intended for non-critical evaluation."
           gh release upload "$RELEASE_TAG" release/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false

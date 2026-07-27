@@ -27,7 +27,9 @@ build provenance.
    releases, confirm the npm Trusted Publisher instead.
 6. Watch the `Release` workflow. It rejects a tag that does not exactly match
    `package.json`, reruns the complete validation gate, and publishes the
-   GitHub release only after its assets and attestations are ready.
+   GitHub release only after its assets and attestations are ready. The
+   workflow prepends the required early-beta and non-critical-use limitation
+   to every generated release note and refuses to publish without it.
 7. For the first release, make the `haya-inc/hayasend` package public in the
    GitHub Container Registry settings. Later releases inherit that visibility.
 8. Verify the released image and checksum before announcing it:

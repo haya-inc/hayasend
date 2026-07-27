@@ -43,6 +43,7 @@ import {
 import type { DomainService } from "./services/domain-service.js";
 import type { EmailService } from "./services/email-service.js";
 import type { ReceivedEmailService } from "./services/received-email-service.js";
+import { HAYASEND_VERSION } from "./version.js";
 import type { SuppressionService } from "./services/suppression-service.js";
 import type { WebhookService } from "./services/webhook-service.js";
 import type { TemplateService } from "./services/template-service.js";
@@ -259,7 +260,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     context.json({
       ok: true,
       service: "hayasend",
-      version: "0.1.0",
+      version: HAYASEND_VERSION,
     }),
   );
 

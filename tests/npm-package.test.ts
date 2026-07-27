@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { npmPackageIntegrity } from "../scripts/npm-package-integrity.mjs";
+import { HAYASEND_VERSION } from "../src/version.js";
 
 describe("npm CLI distribution", () => {
   it("publishes a public package tied to the canonical repository", async () => {
@@ -10,6 +11,7 @@ describe("npm CLI distribution", () => {
     ) as Record<string, unknown>;
 
     expect(packageJson).not.toHaveProperty("private");
+    expect(packageJson.version).toBe(HAYASEND_VERSION);
     expect(packageJson).toMatchObject({
       name: "@haya-inc/hayasend",
       homepage: "https://haya-inc.github.io/hayasend/",

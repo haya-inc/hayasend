@@ -269,7 +269,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount < 260 and
+            .entryCount < 270 and
             .size < 400000 and
             .unpackedSize < 2000000 and
             ([.files[].path] | index("dist/cli.js") != null) and
