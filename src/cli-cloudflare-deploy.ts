@@ -1001,7 +1001,7 @@ export async function doctorCloudflare(
   }> => {
     const transientStatuses = new Set([404, 500, 502, 503, 504]);
     let lastStatus: number | undefined;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
       try {
         const response = await dependencies.fetch(
           new URL(pathname, endpoint),
@@ -1027,7 +1027,7 @@ export async function doctorCloudflare(
       } catch {
         lastStatus = undefined;
       }
-      if (attempt < 9) {
+      if (attempt < 29) {
         await (dependencies.sleep ??
           ((milliseconds) =>
             new Promise((resolve) =>

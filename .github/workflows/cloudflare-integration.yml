@@ -196,15 +196,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          status="$(
-            curl \
-              --silent \
-              --show-error \
-              --output "$RUNNER_TEMP/cloudflare-failure-health.json" \
-              --write-out '%{http_code}' \
-              "$FAILURE_CF_ENDPOINT/healthz"
-          )"
-          test "$status" = "503"
+          failure_http_code=""
+          for attempt_number in $(seq 1 30); do
+            failure_http_code="$(
+              curl \
+                --silent \
+                --show-error \
+                --output "$RUNNER_TEMP/cloudflare-failure-health.json" \
+                --write-out '%{http_code}' \
+                "$FAILURE_CF_ENDPOINT/healthz"
+            )"
+            if [[ "$failure_http_code" = "503" ]]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$failure_http_code" = "503"
 
       - name: Roll back to reviewed version
         shell: bash

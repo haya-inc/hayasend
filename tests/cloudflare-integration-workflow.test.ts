@@ -28,7 +28,10 @@ describe("Cloudflare hosted lifecycle workflow", () => {
       '--allowed-recipient "$CLOUDFLARE_TEST_TO"',
     );
     expect(workflow).toContain('CF_ENDPOINT="$INITIAL_CF_ENDPOINT"');
-    expect(workflow).toContain('test "$status" = "503"');
+    expect(workflow).toContain("for attempt_number in $(seq 1 30)");
+    expect(workflow).toContain(
+      'test "$failure_http_code" = "503"',
+    );
     expect(workflow).toContain(
       '--version-id "$INITIAL_CF_VERSION_ID"',
     );
