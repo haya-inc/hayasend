@@ -721,7 +721,8 @@ describe("plan-first Cloudflare lifecycle", () => {
       const path = new URL(String(input)).pathname;
       const attempt = (attempts.get(path) ?? 0) + 1;
       attempts.set(path, attempt);
-      if (attempt === 1) {
+      const propagationResponses = path === "/healthz" ? 31 : 1;
+      if (attempt <= propagationResponses) {
         return new Response("error code: 1042", { status: 404 });
       }
       if (path === "/healthz") {
@@ -756,7 +757,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       },
     );
 
-    expect(sleep).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(33);
     expect(JSON.parse(logs[0]!)).toMatchObject({
       object: "cloudflare_doctor",
       healthy: true,

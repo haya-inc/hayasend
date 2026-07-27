@@ -19,6 +19,7 @@ import { CLOUDFLARE_WORKER_CAPABILITY } from "./cloudflare-worker-capability.js"
 
 const COMMAND_TIMEOUT_MS = 5 * 60_000;
 const DEPLOY_TIMEOUT_MS = 15 * 60_000;
+const EDGE_PROPAGATION_ATTEMPTS = 120;
 const COMPATIBILITY_DATE = "2026-07-27";
 const PACKAGED_WORKER_ENTRY = fileURLToPath(
   new URL("../src/workers/index.ts", import.meta.url),
@@ -1017,7 +1018,11 @@ export async function doctorCloudflare(
   }> => {
     const transientStatuses = new Set([404, 500, 502, 503, 504]);
     let lastStatus: number | undefined;
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < EDGE_PROPAGATION_ATTEMPTS;
+      attempt += 1
+    ) {
       try {
         const response = await dependencies.fetch(
           new URL(pathname, endpoint),
@@ -1043,7 +1048,7 @@ export async function doctorCloudflare(
       } catch {
         lastStatus = undefined;
       }
-      if (attempt < 29) {
+      if (attempt < EDGE_PROPAGATION_ATTEMPTS - 1) {
         await (dependencies.sleep ??
           ((milliseconds) =>
             new Promise((resolve) =>
