@@ -2,9 +2,8 @@ import { createId, createWebhookSecret, signWebhook } from "../core/crypto.js";
 import { safeFailureMessage } from "../core/error-telemetry.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import {
-  assertPublicWebhookEndpoint,
   assertWebhookEndpointShape,
-  createSafeWebhookFetch,
+  type WebhookEndpointValidator,
   type WebhookHttpClient,
   type WebhookHttpResponse,
 } from "../core/network-safety.js";
@@ -37,8 +36,8 @@ const SUPPORTED_EVENTS = new Set<WebhookEventType>([
 ]);
 
 export interface WebhookServiceOptions {
-  httpFetch?: WebhookHttpClient;
-  validateEndpoint?: (endpoint: URL) => Promise<void>;
+  httpFetch: WebhookHttpClient;
+  validateEndpoint: WebhookEndpointValidator;
   deliveryRetentionDays?: number;
   now?: () => Date;
 }
@@ -68,11 +67,10 @@ export class WebhookService {
   constructor(
     private readonly store: Store,
     private readonly queue: JobQueue,
-    options: WebhookServiceOptions = {},
+    options: WebhookServiceOptions,
   ) {
-    this.httpFetch = options.httpFetch ?? createSafeWebhookFetch();
-    this.validateEndpoint =
-      options.validateEndpoint ?? assertPublicWebhookEndpoint;
+    this.httpFetch = options.httpFetch;
+    this.validateEndpoint = options.validateEndpoint;
     this.deliveryRetentionDays = options.deliveryRetentionDays ?? 7;
     this.now = options.now ?? (() => new Date());
     if (

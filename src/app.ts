@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -223,7 +222,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   const localPreview = options.localPreview === true;
 
   app.use("*", async (context, next) => {
-    const requestId = randomUUID();
+    const requestId = crypto.randomUUID();
     context.set("requestId", requestId);
     context.header("x-request-id", requestId);
     context.header("x-content-type-options", "nosniff");

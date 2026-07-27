@@ -1,6 +1,11 @@
-import { createHash } from "node:crypto";
 import PostalMime from "postal-mime";
 import type { Address, Attachment, Email, Mailbox } from "postal-mime";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  utf8Bytes,
+} from "../core/bytes.js";
+import { sha256 } from "../core/crypto.js";
 import { NotFoundError, ValidationError } from "../core/errors.js";
 import type {
   InboundEmailEvent,
@@ -21,7 +26,7 @@ const MAX_HEADER_VALUE_BYTES = 64 * 1024;
 const PROCESSING_LEASE_SECONDS = 150;
 
 function stableId(prefix: string, value: string) {
-  return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 32)}`;
+  return `${prefix}_${sha256(value).slice(0, 32)}`;
 }
 
 function safeText(value: string, maximum = 998) {
@@ -62,8 +67,8 @@ function unique(values: string[]) {
 function attachmentBytes(attachment: Attachment) {
   if (typeof attachment.content === "string") {
     return attachment.encoding === "base64"
-      ? Uint8Array.from(Buffer.from(attachment.content, "base64"))
-      : new TextEncoder().encode(attachment.content);
+      ? base64ToBytes(attachment.content)
+      : utf8Bytes(attachment.content);
   }
   return attachment.content instanceof ArrayBuffer
     ? new Uint8Array(attachment.content)
@@ -74,12 +79,12 @@ function truncateUtf8(value: string | undefined, limit: number) {
   if (value === undefined) {
     return { value: null, truncated: false };
   }
-  const encoded = Buffer.from(value, "utf8");
+  const encoded = utf8Bytes(value);
   if (encoded.byteLength <= limit) {
     return { value, truncated: false };
   }
   return {
-    value: `${encoded.subarray(0, limit).toString("utf8")}\n[HayaSend: content truncated; use raw.download_url for the complete message]`,
+    value: `${new TextDecoder().decode(encoded.subarray(0, limit))}\n[HayaSend: content truncated; use raw.download_url for the complete message]`,
     truncated: true,
   };
 }
@@ -476,7 +481,7 @@ export class ReceivedEmailService {
       const bytes = await this.storage.readAttachment(attachment.object_key);
       dataUris.set(
         normalizeContentId(attachment.content_id ?? ""),
-        `data:${safeMimeType(attachment.content_type)};base64,${Buffer.from(bytes).toString("base64")}`,
+        `data:${safeMimeType(attachment.content_type)};base64,${bytesToBase64(bytes)}`,
       );
     }
     return {

@@ -28,6 +28,7 @@ jobs:
           npm ci
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - run: npm run check
+      - run: npm run check:workers
       - run: npm run check:conformance
       - run: npm test
       - run: npm run build

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../src/adapters/memory-store.js";
+import {
+  assertPublicWebhookEndpoint,
+  createSafeWebhookFetch,
+} from "../src/adapters/node-network-safety.js";
 import { CapturingJobQueue } from "../src/adapters/sqs-job-queue.js";
 import { signWebhook } from "../src/core/crypto.js";
 import type { EmailRecord } from "../src/core/types.js";
@@ -25,6 +29,10 @@ describe("WebhookService", () => {
     const service = new WebhookService(
       new MemoryStore(),
       new CapturingJobQueue(),
+      {
+        httpFetch: createSafeWebhookFetch(),
+        validateEndpoint: assertPublicWebhookEndpoint,
+      },
     );
     await expect(
       service.create({
@@ -38,7 +46,10 @@ describe("WebhookService", () => {
     const service = new WebhookService(
       new MemoryStore(),
       new CapturingJobQueue(),
-      { validateEndpoint: async () => undefined },
+      {
+        httpFetch: fetch,
+        validateEndpoint: async () => undefined,
+      },
     );
     await expect(
       service.create({
@@ -55,6 +66,7 @@ describe("WebhookService", () => {
       store,
       new CapturingJobQueue(),
       {
+        httpFetch: fetch,
         validateEndpoint: async (endpoint) => {
           validated.push(endpoint.toString());
         },
@@ -227,6 +239,7 @@ describe("WebhookService", () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();
     const service = new WebhookService(store, queue, {
+      httpFetch: fetch,
       validateEndpoint: async () => undefined,
     });
     await service.create({
@@ -262,6 +275,7 @@ describe("WebhookService", () => {
     const store = new MemoryStore();
     const queue = new CapturingJobQueue();
     const service = new WebhookService(store, queue, {
+      httpFetch: fetch,
       validateEndpoint: async () => undefined,
     });
     await service.create({

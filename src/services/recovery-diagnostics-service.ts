@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "../core/crypto.js";
 import type { ProviderCapabilityDocument } from "../core/provider-capabilities.js";
 import type { Store } from "../ports/store.js";
 import type {
@@ -41,9 +41,7 @@ export interface RecoveryDiagnostics {
 }
 
 function documentDigest(document: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(document), "utf8")
-    .digest("hex");
+  return sha256(JSON.stringify(document));
 }
 
 export class RecoveryDiagnosticsService {

@@ -16,6 +16,10 @@ import {
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { MemoryStore } from "./adapters/memory-store.js";
 import {
+  assertPublicWebhookEndpoint,
+  createSafeWebhookFetch,
+} from "./adapters/node-network-safety.js";
+import {
   LocalDomainProvider,
   SesDomainProvider,
 } from "./adapters/ses-domain-provider.js";
@@ -181,6 +185,8 @@ export function createAwsRuntime(
     inboundDeadLetterQueueUrl: config.inboundDeadLetterQueueUrl,
   });
   const webhooks = new WebhookService(store, queue, {
+    httpFetch: createSafeWebhookFetch(),
+    validateEndpoint: assertPublicWebhookEndpoint,
     deliveryRetentionDays: config.webhookDeliveryRetentionDays,
   });
   const receivedEmails = new ReceivedEmailService(

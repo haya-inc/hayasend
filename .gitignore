@@ -6,5 +6,6 @@ __pycache__/
 .env
 .secrets/
 .aws-sam/
+.wrangler/
 *.log
 .DS_Store

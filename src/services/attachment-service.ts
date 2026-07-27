@@ -1,5 +1,14 @@
-import { createHash, randomBytes } from "node:crypto";
-import { createId, secretsEqual, sha256 } from "../core/crypto.js";
+import {
+  base64ToBytes,
+  isCanonicalBase64,
+} from "../core/bytes.js";
+import {
+  createId,
+  createRandomToken,
+  secretsEqual,
+  sha256,
+  sha256Bytes,
+} from "../core/crypto.js";
 import { ValidationError } from "../core/errors.js";
 import type {
   AttachmentUploadRecord,
@@ -45,16 +54,6 @@ function isUploadedAttachment(
   );
 }
 
-function isCanonicalBase64(value: string) {
-  if (value.length === 0 || value.length % 4 !== 0) {
-    return false;
-  }
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
-    return false;
-  }
-  return Buffer.from(value, "base64").toString("base64") === value;
-}
-
 function objectReference(record: AttachmentUploadRecord) {
   return {
     object_key: record.object_key,
@@ -75,7 +74,7 @@ export class AttachmentService {
     now = new Date(),
   ): Promise<CreatedAttachmentUpload> {
     const id = createId("att");
-    const uploadToken = randomBytes(32).toString("base64url");
+    const uploadToken = createRandomToken();
     const uploadExpiresAt = new Date(
       now.getTime() + UPLOAD_URL_TTL_MS,
     ).toISOString();
@@ -153,7 +152,7 @@ export class AttachmentService {
         `Attachment content type must be ${record.content_type}.`,
       );
     }
-    const actualChecksum = createHash("sha256").update(content).digest("hex");
+    const actualChecksum = sha256Bytes(content);
     if (actualChecksum !== record.checksum_sha256) {
       throw new ValidationError("Attachment checksum does not match.");
     }
@@ -179,7 +178,7 @@ export class AttachmentService {
           }
           return {
             ...attachment,
-            size_bytes: Buffer.byteLength(attachment.content, "base64"),
+            size_bytes: base64ToBytes(attachment.content).byteLength,
           };
         }
 
@@ -234,7 +233,7 @@ export class AttachmentService {
 
   async read(attachment: EmailAttachment): Promise<Uint8Array> {
     if (attachment.content) {
-      return Buffer.from(attachment.content, "base64");
+      return base64ToBytes(attachment.content);
     }
     if (
       !attachment.object_key ||

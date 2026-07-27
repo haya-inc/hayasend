@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "WebWorker"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "src/app.ts",
+    "src/core/**/*.ts",
+    "src/ports/**/*.ts",
+    "src/schemas.ts",
+    "src/services/**/*.ts",
+    "src/version.ts",
+    "src/workers/**/*.ts"
+  ]
+}

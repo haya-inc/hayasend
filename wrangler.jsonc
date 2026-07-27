@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hayasend-workers-skeleton",
+  "main": "src/workers/index.ts",
+  "compatibility_date": "2026-07-27",
+  "workers_dev": false
+}

@@ -27,11 +27,13 @@
   "files": [
     "conformance",
     "dist",
+    "!dist/workers",
     "NOTICE",
     "schemas",
     "scripts/clean-dist.mjs",
     "scripts/npm-sam-compat.mjs",
     "src",
+    "!src/workers",
     "template.yaml"
   ],
   "publishConfig": {
@@ -44,11 +46,15 @@
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "fsevents": false
+    "fsevents": false,
+    "workerd@1.20260722.1": true
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
+    "check:workers": "npm run check:workers:types && npm run check:workers:boundary && tsc -p tsconfig.workers.json && wrangler deploy --dry-run --outdir .wrangler/dist",
+    "check:workers:boundary": "node scripts/check-workers-boundary.mjs",
+    "check:workers:types": "wrangler types worker-configuration.d.ts --env-interface CloudflareEnv --check",
     "check:conformance": "tsx scripts/check-conformance.ts",
     "clean": "node scripts/clean-dist.mjs",
     "cli": "tsx src/cli.ts",
@@ -76,6 +82,7 @@
     "@aws-sdk/s3-request-presigner": "3.1095.0",
     "@hono/node-server": "2.0.12",
     "@hono/zod-validator": "0.9.0",
+    "@noble/hashes": "2.2.0",
     "esbuild": "0.28.1",
     "hono": "4.12.32",
     "html-to-text": "10.0.0",
@@ -94,6 +101,7 @@
     "resend": "6.18.0",
     "tsx": "4.23.1",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wrangler": "4.114.0"
   }
 }

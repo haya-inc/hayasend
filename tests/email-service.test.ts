@@ -87,6 +87,7 @@ function fixture() {
   const queue = new CapturingJobQueue();
   const transport = new StubTransport();
   const webhooks = new WebhookService(store, queue, {
+    httpFetch: fetch,
     validateEndpoint: async () => undefined,
   });
   const suppressions = new SuppressionService(store);
