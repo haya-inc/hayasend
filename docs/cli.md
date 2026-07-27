@@ -146,11 +146,91 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" test \
 
 This is a real send when the endpoint is an AWS deployment. Use only addresses
 you are authorized to contact. In local mode no message leaves the process, and
-the result includes a direct URL to the preview.
+the result includes a direct URL to the preview. Both send commands read the
+endpoint and key from the environment and accept `--endpoint` as a non-secret
+override.
 
-The lower-level `send` command accepts `--from`, `--to`, `--subject`, and
-`--text`. Both commands read the endpoint and key from the environment and
-accept `--endpoint` as a non-secret override.
+## Send production-shaped email
+
+`emails send` exposes the API's non-interactive transactional surface:
+
+```bash
+npm run cli -- emails send \
+  --from 'Product <sender@example.com>' \
+  --to first@example.net second@example.net \
+  --cc manager@example.com \
+  --bcc archive@example.com \
+  --reply-to support@example.com \
+  --subject 'Your invoice' \
+  --html-file ./invoice.html \
+  --text-file ./invoice.txt \
+  --attachment ./invoice.pdf \
+  --header X-Correlation-ID=order-123 \
+  --tag category=transactional \
+  --scheduled-at 'in 10 minutes' \
+  --idempotency-key invoice-order-123
+```
+
+`--to`, `--cc`, `--bcc`, `--reply-to`, `--attachment`, `--header`, and
+`--tag` accept one or more values and may be repeated. Direct messages require
+`--from`, `--subject`, at least one `--to`, and at least one HTML or text body.
+Use `--html`/`--text` for inline content or
+`--html-file`/`--text-file` for files; each inline/file pair is mutually
+exclusive, while HTML and text may be supplied together. The root-level
+`hayasend send` spelling remains an alias.
+
+Use `-` for exactly one body on standard input:
+
+```bash
+render-email | npm run cli -- emails send \
+  --from sender@example.com \
+  --to recipient@example.net \
+  --subject 'Rendered email' \
+  --html-file -
+```
+
+Standard input and body files must be non-empty UTF-8. Files are resolved, then
+read from a bounded regular-file descriptor so a pathname cannot be swapped
+between the size check and read. Each body source and the complete serialized
+request are limited to 9 MiB. Prefer files or stdin over inline bodies because
+arguments can be visible in shell history and process listings. Recipient
+addresses, subject, header/tag values, file paths, and the idempotency key are
+also command-line metadata; do not put secrets in them.
+
+Attach up to 20 local regular files with an aggregate decoded size of 25 MiB.
+The CLI reads and hashes every file before contacting HayaSend, declares its
+basename, inferred media type, size, and SHA-256, verifies the returned upload
+contract, uploads each file without the API key, and only then creates the
+email with opaque attachment IDs. It rejects remote paths and stdin
+attachments. If a later upload fails, no email is created; an earlier
+successful but unreferenced upload expires under the normal 24-hour attachment
+TTL. Retrying the complete command with the same idempotency key uploads fresh
+attachment objects, but HayaSend compares their verified content hashes and
+returns the original email ID; those unreferenced retry objects also expire
+after 24 hours.
+
+Scheduling accepts the same ISO 8601 and `in N minutes/hours/days` values as
+the API. The CLI rejects past times and times beyond 30 days before sending,
+then submits canonical UTC. `--idempotency-key` is sent only as the
+`Idempotency-Key` header and is never printed. Custom headers use
+`--header NAME=VALUE`; envelope/MIME headers remain HayaSend-managed. Tags use
+`--tag NAME=VALUE`.
+
+Send a published hosted template without message bodies:
+
+```bash
+npm run cli -- emails send \
+  --to recipient@example.net \
+  --template welcome \
+  --var NAME=Ada \
+  --var ORDER_ID=42
+```
+
+Template sends may still override `--from` and `--subject` and attach files.
+They cannot combine `--template` with HTML or text options. The CLI does not
+execute React Email/TSX; render that through the official SDK, or publish a
+reviewed hosted template. All sends require `emails:send`. Output contains only
+the accepted opaque email ID.
 
 ## Manage and recover webhooks
 

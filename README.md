@@ -23,6 +23,8 @@ implemented provider today. HayaSend never logs message bodies.
 - `POST /emails` with HTML, text, CC, BCC, reply-to, headers, tags, and
   base64 attachments
 - checksum-bound direct S3 attachment uploads up to 25 MiB
+- a non-interactive `emails send` CLI with files, stdin, multiple recipients,
+  scheduling, idempotency, templates, metadata, and automatic direct uploads
 - `POST /emails/batch` for up to 100 messages
 - hosted templates with unique aliases, typed variables, isolated
   draft/published versions, official SDK/React Email support, and
@@ -206,6 +208,22 @@ reconciliation, and real-send behavior. The compiled package exposes local,
 diagnostic, send, and template commands through its `hayasend` executable;
 plan-first AWS deployment runs from the reviewed source embedded in that exact
 package version.
+
+Send a reproducible canary without writing an SDK integration:
+
+```bash
+npm run cli -- emails send \
+  --from 'Product <sender@example.com>' \
+  --to recipient@example.net \
+  --subject 'HayaSend canary' \
+  --html-file ./canary.html \
+  --text-file ./canary.txt \
+  --idempotency-key canary-2026-07-26
+```
+
+Repeat `--to`, `--cc`, `--bcc`, `--reply-to`, `--header`, `--tag`, and
+`--attachment` as needed. Local attachments use the checksum-bound upload API
+automatically. The older root-level `send` command remains an alias.
 
 Operators can inspect delivery state without printing recipient addresses,
 subjects, or bodies, then explicitly cancel or reschedule queued mail:

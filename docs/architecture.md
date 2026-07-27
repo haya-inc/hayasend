@@ -20,7 +20,10 @@ revocation.
    then referenced by opaque attachment ID.
 2. After suppression preflight, DynamoDB atomically stores the email,
    provider-neutral message, unique envelope recipients, optional idempotency
-   claim, deterministic outbox item, and backlog counter.
+   claim, deterministic outbox item, and backlog counter. The idempotency
+   request hash uses verified attachment metadata and content SHA-256 rather
+   than a random upload ID or object key, so retrying the same attachment bytes
+   still resolves to the original accepted email.
 3. A bounded dispatcher conditionally leases due outbox rows and publishes a
    deterministic send job. Immediate SQS and self-deleting EventBridge
    Scheduler resources only wake reconciliation; a failed wake is recovered by

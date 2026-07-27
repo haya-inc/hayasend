@@ -176,6 +176,23 @@ interface PreparedEmail {
   suppressedRecipients: SuppressionRecord[];
 }
 
+function idempotencyAttachments(
+  attachments: EmailRecord["attachments"],
+) {
+  return attachments?.map((attachment) => {
+    if (!attachment.attachment_id) {
+      return attachment;
+    }
+    const {
+      attachment_id: _attachmentId,
+      object_key: _objectKey,
+      content: _content,
+      ...stable
+    } = attachment;
+    return stable;
+  });
+}
+
 export class EmailService {
   constructor(
     private readonly store: Store,
@@ -236,7 +253,15 @@ export class EmailService {
     idempotencyKey: string | undefined,
     now: Date,
   ): Promise<PreparedEmail> {
-    const templateRequestHash = input.template ? requestHash(input) : undefined;
+    const templateRequest = input.template
+      ? (() => {
+          const {
+            attachments: _attachments,
+            ...request
+          } = input;
+          return request;
+        })()
+      : undefined;
     if (input.template) {
       if (!this.templates) {
         throw new ValidationError("Hosted templates are unavailable.");
@@ -274,7 +299,24 @@ export class EmailService {
       ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
       ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
     };
-    const hash = templateRequestHash ?? requestHash(normalized);
+    const stableAttachments = idempotencyAttachments(
+      resolvedAttachments,
+    );
+    const hash = requestHash(
+      templateRequest
+        ? {
+            ...templateRequest,
+            ...(stableAttachments
+              ? { attachments: stableAttachments }
+              : {}),
+          }
+        : {
+            ...normalized,
+            ...(stableAttachments
+              ? { attachments: stableAttachments }
+              : {}),
+          },
+    );
     const timestamp = now.toISOString();
     const record: EmailRecord = {
       ...normalized,

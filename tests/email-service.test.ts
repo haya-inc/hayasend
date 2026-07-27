@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/adapters/memory-store.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
@@ -105,6 +106,7 @@ function fixture() {
     templates,
   );
   return {
+    attachments,
     queue,
     scheduler,
     service,
@@ -396,6 +398,66 @@ describe("EmailService", () => {
 
     expect(replay.replayed).toBe(true);
     expect(queue.jobs).toHaveLength(1);
+  });
+
+  it("keeps direct-upload attachments idempotent across fresh upload IDs", async () => {
+    const { attachments, queue, service, transport } = fixture();
+    const now = new Date();
+    const content = Buffer.from("same attachment bytes");
+    const checksum = createHash("sha256").update(content).digest("hex");
+    const upload = async () => {
+      const created = await attachments.create(
+        {
+          filename: "invoice.txt",
+          content_type: "text/plain",
+          size_bytes: content.byteLength,
+          checksum_sha256: checksum,
+        },
+        "http://localhost:8787",
+        now,
+      );
+      const url = new URL(created.upload_url);
+      const record = await attachments.authorizeProxyUpload(
+        created.id,
+        url.searchParams.get("token") ?? "",
+        content.byteLength,
+        now,
+      );
+      await attachments.upload(record, content, "text/plain");
+      return created.id;
+    };
+    const firstAttachment = await upload();
+    const secondAttachment = await upload();
+
+    const first = await service.create(
+      {
+        ...input,
+        attachments: [{ attachment_id: firstAttachment }],
+      },
+      "attachment-replay",
+      now,
+    );
+    const replay = await service.create(
+      {
+        ...input,
+        attachments: [{ attachment_id: secondAttachment }],
+      },
+      "attachment-replay",
+      now,
+    );
+
+    expect(replay).toMatchObject({
+      replayed: true,
+      record: { id: first.record.id },
+    });
+    expect(queue.jobs).toHaveLength(2);
+    expect(queue.jobs[1]).toEqual(queue.jobs[0]);
+
+    await Promise.all([
+      service.processSend(first.record.id),
+      service.processSend(replay.record.id),
+    ]);
+    expect(transport.sent).toHaveLength(1);
   });
 
   it("sends a queued email once and records the provider id", async () => {

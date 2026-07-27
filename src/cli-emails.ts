@@ -1,9 +1,10 @@
 import { parseScheduledAt } from "./core/schedule.js";
+import {
+  sendEmail,
+  type SendCommandContext,
+} from "./cli-send.js";
 
-interface EmailCommandContext {
-  log(message: string): void;
-  request(path: string, init?: RequestInit): Promise<unknown>;
-}
+interface EmailCommandContext extends SendCommandContext {}
 
 interface ParsedOptions {
   positionals: string[];
@@ -309,6 +310,9 @@ export async function emailCommand(
 ) {
   const command = args[0] ?? "help";
   switch (command) {
+    case "send":
+      await sendEmail(args, context);
+      break;
     case "list": {
       const options = parseOptions(args, {
         values: ["limit", "after", "endpoint"],

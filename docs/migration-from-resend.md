@@ -55,6 +55,23 @@ source list, reconcile counts before sending, and retain no exports longer than
 necessary. See
 [the CLI guide](cli.md#manage-suppressions-safely).
 
+The command shape for a non-interactive canary remains close to Resend:
+
+```bash
+hayasend emails send \
+  --from 'Canary <sender@test.example.com>' \
+  --to controlled-recipient@example.net \
+  --subject 'Migration canary' \
+  --html-file ./canary.html \
+  --text-file ./canary.txt \
+  --idempotency-key migration-canary-001
+```
+
+HayaSend additionally uploads local `--attachment` files through its
+checksum-bound direct-upload extension before creating the email. Use only
+synthetic content and controlled recipients during migration. The command
+requires `emails:send` and prints only the resulting email ID.
+
 During the canary phase, inspect HayaSend without copying customer content into
 logs:
 

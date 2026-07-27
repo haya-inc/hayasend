@@ -1057,6 +1057,10 @@ components:
       name: Idempotency-Key
       in: header
       required: false
+      description: >-
+        Deduplicates the same logical request for 24 hours. Verified direct
+        attachments are compared by presentation metadata, size, and SHA-256,
+        not by their random upload IDs or storage keys.
       schema:
         type: string
         minLength: 1
