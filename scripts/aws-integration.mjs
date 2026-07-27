@@ -54,6 +54,66 @@ async function bestEffort(label, operation) {
   }
 }
 
+function assertQueueDepth(value) {
+  assert.ok(value && typeof value === "object");
+  for (const name of ["visible", "in_flight", "delayed", "total"]) {
+    assert.ok(
+      Number.isSafeInteger(value[name]) && value[name] >= 0,
+      `${name} must be a non-negative safe integer.`,
+    );
+  }
+  assert.equal(
+    value.total,
+    value.visible + value.in_flight + value.delayed,
+  );
+}
+
+function assertPrivateValuesAbsent(value, privateValues) {
+  const serialized = JSON.stringify(value);
+  for (const privateValue of privateValues) {
+    assert.equal(serialized.includes(privateValue), false);
+  }
+  return serialized;
+}
+
+function assertForbiddenFieldsAbsent(value, forbiddenFields) {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      assertForbiddenFieldsAbsent(entry, forbiddenFields);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  for (const [name, entry] of Object.entries(value)) {
+    assert.equal(
+      forbiddenFields.has(name),
+      false,
+      `${name} must not be exported by this endpoint.`,
+    );
+    assertForbiddenFieldsAbsent(entry, forbiddenFields);
+  }
+}
+
+const PRIVATE_DIAGNOSTIC_FIELDS = new Set([
+  "address",
+  "bcc",
+  "cc",
+  "error",
+  "from",
+  "html",
+  "object_key",
+  "provider_id",
+  "provider_message_id",
+  "raw_error",
+  "signing_secret",
+  "subject",
+  "text",
+  "to",
+  "upload_url",
+]);
+
 const created = {
   apiKeyIds: [],
   domainId: undefined,
@@ -74,6 +134,7 @@ try {
     scopes: [
       "emails:send",
       "emails:read",
+      "diagnostics:read",
       "domains:read",
       "domains:write",
       "webhooks:read",
@@ -92,6 +153,13 @@ try {
   });
   created.apiKeyIds.push(sendOnlyKey.id);
   await api("GET", "/emails", sendOnlyKey.token, undefined, 403);
+  await api(
+    "GET",
+    "/diagnostics/recovery",
+    sendOnlyKey.token,
+    undefined,
+    403,
+  );
 
   const attachmentContent = Buffer.from(
     `HayaSend AWS integration attachment ${runId}`,
@@ -120,11 +188,18 @@ try {
     `Attachment PUT returned ${uploadResponse.status}.`,
   );
 
+  const privateRecipients = [
+    `recipient-${runId}-a@example.net`,
+    `recipient-${runId}-b@example.net`,
+  ];
+  const privateSubject = `AWS integration ${runId}`;
+  const privateBody =
+    "This private integration message is canceled before delivery.";
   const scheduled = await api("POST", "/emails", applicationKey, {
     from: "HayaSend Integration <sender@example.com>",
-    to: "recipient@example.net",
-    subject: `AWS integration ${runId}`,
-    html: "<p>This message is canceled by the integration test.</p>",
+    to: privateRecipients,
+    subject: privateSubject,
+    html: `<p>${privateBody}</p>`,
     scheduled_at: "in 20 minutes",
     attachments: [{ attachment_id: upload.id }],
   });
@@ -137,10 +212,7 @@ try {
     applicationKey,
   );
   assert.equal(retrieved.status, "scheduled");
-  assert.match(
-    retrieved.text,
-    /This message is canceled by the integration test\./,
-  );
+  assert.equal(retrieved.text, privateBody);
   assert.deepEqual(retrieved.attachments, [
     {
       attachment_id: upload.id,
@@ -154,6 +226,156 @@ try {
   assert.equal(
     retrievedJson.includes(attachmentContent.toString("base64")),
     false,
+  );
+
+  await api(
+    "GET",
+    `/emails/${created.emailId}/recipients`,
+    sendOnlyKey.token,
+    undefined,
+    403,
+  );
+  const firstRecipientPage = await api(
+    "GET",
+    `/emails/${created.emailId}/recipients?limit=1`,
+    applicationKey,
+  );
+  assert.equal(firstRecipientPage.object, "list");
+  assert.equal(firstRecipientPage.message_id, created.emailId);
+  assert.equal(firstRecipientPage.aggregate_status, "queued");
+  assert.equal(firstRecipientPage.recipient_count, 2);
+  assert.equal(firstRecipientPage.has_more, true);
+  assert.match(firstRecipientPage.next_cursor, /^rcpt_[A-Za-z0-9_-]{22,128}$/);
+  assert.equal(firstRecipientPage.data.length, 1);
+  assert.deepEqual(
+    {
+      id: firstRecipientPage.data[0].id,
+      role: firstRecipientPage.data[0].role,
+      ordinal: firstRecipientPage.data[0].ordinal,
+      status: firstRecipientPage.data[0].status,
+      recovery_state: firstRecipientPage.data[0].recovery_state,
+      requires_operator_attention:
+        firstRecipientPage.data[0].requires_operator_attention,
+      latest_attempt: firstRecipientPage.data[0].latest_attempt,
+    },
+    {
+      id: firstRecipientPage.next_cursor,
+      role: "to",
+      ordinal: 0,
+      status: "queued",
+      recovery_state: "pending",
+      requires_operator_attention: false,
+      latest_attempt: null,
+    },
+  );
+  assertPrivateValuesAbsent(firstRecipientPage, [
+    ...privateRecipients,
+    privateSubject,
+    privateBody,
+    "sender@example.com",
+  ]);
+  assertForbiddenFieldsAbsent(
+    firstRecipientPage,
+    PRIVATE_DIAGNOSTIC_FIELDS,
+  );
+  const secondRecipientPage = await api(
+    "GET",
+    `/emails/${created.emailId}/recipients?limit=1&after=${encodeURIComponent(
+      firstRecipientPage.next_cursor,
+    )}`,
+    applicationKey,
+  );
+  assert.equal(secondRecipientPage.message_id, created.emailId);
+  assert.equal(secondRecipientPage.recipient_count, 2);
+  assert.equal(secondRecipientPage.has_more, false);
+  assert.equal("next_cursor" in secondRecipientPage, false);
+  assert.equal(secondRecipientPage.data.length, 1);
+  assert.match(
+    secondRecipientPage.data[0].id,
+    /^rcpt_[A-Za-z0-9_-]{22,128}$/,
+  );
+  assert.notEqual(
+    secondRecipientPage.data[0].id,
+    firstRecipientPage.data[0].id,
+  );
+  assert.deepEqual(
+    {
+      role: secondRecipientPage.data[0].role,
+      ordinal: secondRecipientPage.data[0].ordinal,
+      status: secondRecipientPage.data[0].status,
+      recovery_state: secondRecipientPage.data[0].recovery_state,
+      requires_operator_attention:
+        secondRecipientPage.data[0].requires_operator_attention,
+      latest_attempt: secondRecipientPage.data[0].latest_attempt,
+    },
+    {
+      role: "to",
+      ordinal: 1,
+      status: "queued",
+      recovery_state: "pending",
+      requires_operator_attention: false,
+      latest_attempt: null,
+    },
+  );
+  assertPrivateValuesAbsent(secondRecipientPage, [
+    ...privateRecipients,
+    privateSubject,
+    privateBody,
+    "sender@example.com",
+  ]);
+  assertForbiddenFieldsAbsent(
+    secondRecipientPage,
+    PRIVATE_DIAGNOSTIC_FIELDS,
+  );
+
+  const recoveryDiagnostics = await api(
+    "GET",
+    "/diagnostics/recovery",
+    applicationKey,
+  );
+  assert.equal(recoveryDiagnostics.object, "recovery_diagnostics");
+  assert.equal(recoveryDiagnostics.queues.provider, "aws-sqs");
+  assertQueueDepth(recoveryDiagnostics.queues.primary);
+  assertQueueDepth(recoveryDiagnostics.queues.dead_letters.delivery);
+  assertQueueDepth(recoveryDiagnostics.queues.dead_letters.scheduler);
+  assert.equal(recoveryDiagnostics.queues.dead_letters.inbound, null);
+  for (const name of [
+    "due",
+    "leased",
+    "stuck_leases",
+    "undispatched",
+    "oldest_due_age_seconds",
+    "publish_failures_total",
+  ]) {
+    assert.ok(
+      Number.isSafeInteger(recoveryDiagnostics.outbox[name]) &&
+        recoveryDiagnostics.outbox[name] >= 0,
+      `${name} must be a non-negative safe integer.`,
+    );
+  }
+  assert.ok(recoveryDiagnostics.outbox.undispatched >= 1);
+  assert.equal(typeof recoveryDiagnostics.outbox.truncated, "boolean");
+  assert.equal(recoveryDiagnostics.provider_events.latest_received_at, null);
+  assert.equal(recoveryDiagnostics.provider_events.lag_seconds, null);
+  assert.equal(recoveryDiagnostics.capability.provider, "aws-ses");
+  assert.equal(
+    recoveryDiagnostics.capability.adapter_version,
+    health.version,
+  );
+  assert.equal(recoveryDiagnostics.capability.capability_version, "1.0.0");
+  assert.match(
+    recoveryDiagnostics.capability.document_sha256,
+    /^[a-f0-9]{64}$/,
+  );
+  assertPrivateValuesAbsent(recoveryDiagnostics, [
+    ...privateRecipients,
+    privateSubject,
+    privateBody,
+    "sender@example.com",
+  ]);
+  assertForbiddenFieldsAbsent(
+    recoveryDiagnostics,
+    PRIVATE_DIAGNOSTIC_FIELDS,
   );
 
   await api(
@@ -258,6 +480,14 @@ try {
         "api_plain_text_fallback",
         "schedule_reschedule_cancel",
         "public_attachment_privacy",
+        "recipient_summary_scope",
+        "recipient_summary_pagination",
+        "recipient_summary_privacy",
+        "recovery_diagnostics_scope",
+        "recovery_diagnostics_outbox",
+        "recovery_diagnostics_sqs_and_dlqs",
+        "recovery_diagnostics_capability_digest",
+        "recovery_diagnostics_privacy",
         "suppression",
         "ses_domain_identity",
         "ses_duplicate_domain_error",
@@ -266,6 +496,27 @@ try {
         "webhook_delivery_history",
         "webhook_secret_privacy",
       ],
+      recipient_summary: {
+        recipient_count: firstRecipientPage.recipient_count,
+        aggregate_status: firstRecipientPage.aggregate_status,
+        opaque_ids: true,
+        private_fields_absent: true,
+      },
+      recovery_diagnostics: {
+        provider: recoveryDiagnostics.capability.provider,
+        queue_provider: recoveryDiagnostics.queues.provider,
+        outbox_undispatched_at_least_one:
+          recoveryDiagnostics.outbox.undispatched >= 1,
+        delivery_dlq_reported:
+          recoveryDiagnostics.queues.dead_letters.delivery !== null,
+        scheduler_dlq_reported:
+          recoveryDiagnostics.queues.dead_letters.scheduler !== null,
+        inbound_dlq_disabled:
+          recoveryDiagnostics.queues.dead_letters.inbound === null,
+        capability_document_sha256:
+          recoveryDiagnostics.capability.document_sha256,
+        private_fields_absent: true,
+      },
     }),
   );
 } finally {
