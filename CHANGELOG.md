@@ -27,6 +27,9 @@ minor releases before v1.0.
   aware cleanup, and a retained two-phase hosted proof that requires a
   correlated terminal `delivered` event instead of treating provider
   acceptance as recipient delivery.
+- Expose privacy-safe recipient summaries from the Cloudflare Worker so hosted
+  delivery proof can distinguish provider acceptance from terminal recipient
+  state.
 
 ## 0.2.0 - 2026-07-27
 

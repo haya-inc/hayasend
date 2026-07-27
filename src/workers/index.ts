@@ -278,6 +278,27 @@ async function route(
       data: page.data.map(publicEmail),
     });
   }
+  const recipientMatch =
+    /^\/emails\/(email_[a-f0-9]{32})\/recipients$/.exec(pathname);
+  if (recipientMatch?.[1] && request.method === "GET") {
+    const parsed = paginationSchema.safeParse({
+      limit: url.searchParams.get("limit") ?? undefined,
+      after: url.searchParams.get("after") ?? undefined,
+    });
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Request validation failed: ${JSON.stringify(parsed.error.issues)}`,
+      );
+    }
+    return json({
+      object: "list",
+      ...(await runtime.emailService.listRecipientSummaries(
+        recipientMatch[1],
+        parsed.data.limit,
+        parsed.data.after,
+      )),
+    });
+  }
   const emailMatch = /^\/emails\/(email_[a-f0-9]{32})$/.exec(pathname);
   if (emailMatch?.[1] && request.method === "GET") {
     return json(

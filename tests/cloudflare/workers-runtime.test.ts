@@ -121,6 +121,35 @@ describe("deployed Cloudflare Worker API boundary", () => {
       to: ["recipient@example.net"],
       message_id: "<cloudflare-provider-test@hayasend.com>",
     });
+
+    const recipients = await worker.fetch(
+      new Request(
+        `https://worker.invalid/emails/${body.id}/recipients?limit=1`,
+        {
+          headers: {
+            authorization: "Bearer re_cloudflare_worker_test",
+          },
+        },
+      ),
+      boundEnv,
+    );
+    expect(recipients.status).toBe(200);
+    await expect(recipients.json()).resolves.toMatchObject({
+      object: "list",
+      message_id: body.id,
+      aggregate_status: "accepted",
+      recipient_count: 1,
+      has_more: false,
+      attempt_summary: { accepted: 1 },
+      data: [
+        {
+          role: "to",
+          ordinal: 0,
+          status: "accepted",
+          recovery_state: "awaiting_event",
+        },
+      ],
+    });
   });
 
   it("fails the controlled health drill without changing capability truth", async () => {
