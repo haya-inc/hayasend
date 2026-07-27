@@ -3,7 +3,8 @@
 HayaSend can deploy a Beta proof runtime to Cloudflare Workers with D1, R2,
 Queues, a dead-letter queue, cron reconciliation, and the Email Sending
 binding. It exposes the unchanged Resend-shaped send, batch, get, and list
-surface. It is not production-ready and must not receive critical traffic.
+surface plus privacy-safe HayaSend recipient summaries. It is not
+production-ready and must not receive critical traffic.
 
 ## Account boundary
 
@@ -201,7 +202,8 @@ recipient mailbox, including spam and trash, before accepting the evidence.
 ## Beta limitations
 
 - Cloudflare Email Sending itself is Beta and account quotas adapt over time.
-- The proof exposes send, batch send, get, and list only.
+- The proof exposes send, batch send, get, list, and privacy-safe recipient
+  summaries only.
 - Hosted templates, uploaded attachment references, domain management,
   webhooks, inbound email, open/click events, and provider-side idempotency are
   unavailable.

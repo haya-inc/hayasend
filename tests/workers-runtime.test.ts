@@ -36,6 +36,7 @@ describe("Cloudflare Workers runtime substrate", () => {
         capabilities: true,
         email_api: true,
         email_send: true,
+        email_recipient_summaries: true,
       },
       adapters: {
         metadata_store: "d1",

@@ -14,6 +14,7 @@ const capabilityBase = {
     email_batch_send: true,
     email_get: true,
     email_list: true,
+    email_recipient_summaries: true,
     templates: false,
     uploaded_attachments: false,
     domains: false,
@@ -34,7 +35,7 @@ const capabilityBase = {
   ),
   limitations: [
     "Cloudflare Email Sending is Beta and this runtime is not production-ready.",
-    "Only send, batch send, retrieve, and list are exposed in the Cloudflare proof.",
+    "Only send, batch send, retrieve, list, and recipient summaries are exposed in the Cloudflare proof.",
     "Uploaded attachment references, hosted templates, domains, webhooks, and inbound email are unavailable.",
     "Open events, click events, and provider-side send idempotency are unsupported.",
     "Inline canonical-base64 attachments are bounded by the Cloudflare 5 MiB message preflight.",
