@@ -159,6 +159,59 @@ describe("HayaSend CLI", () => {
     ).rejects.toThrow("Unknown option: --endpont");
   });
 
+  it("dispatches the Cloudflare Email Sending subscription doctor", async () => {
+    const capture = capturingIo();
+    const runCommand = vi.fn(async (_command: string, _args: string[]) => ({
+      stdout: JSON.stringify([
+        {
+          id: "subscription-1234",
+          name: "HayaSend terminal delivery",
+          enabled: true,
+          source: { type: "email.sending", domain: "hayasend.com" },
+          destination: {
+            type: "queues.queue",
+            queue_id: "queue-1234",
+          },
+          events: [
+            "message.delivered",
+            "message.deferred",
+            "message.bounced",
+            "message.failed",
+            "message.rejected",
+            "message.complained",
+          ],
+        },
+      ]),
+      stderr: "",
+      exitCode: 0,
+    }));
+
+    await runCli(
+      [
+        "doctor",
+        "cloudflare-events",
+        "--account",
+        "a".repeat(32),
+        "--name",
+        "terminal-delivery",
+        "--email-domain",
+        "hayasend.com",
+      ],
+      {
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        io: capture.io,
+        runCommand,
+      },
+    );
+
+    expect(runCommand).toHaveBeenCalledOnce();
+    expect(runCommand.mock.calls[0]?.[1]).toContain("subscription");
+    expect(JSON.parse(capture.logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_email_event_subscription_doctor",
+      healthy: true,
+    });
+  });
+
   it("initializes a pinned, hardened setup without overwriting files", async () => {
     const directory = await temporaryDirectory();
     const capture = capturingIo();
@@ -290,7 +343,11 @@ describe("HayaSend CLI", () => {
 
     for (const response of [
       metadata,
-      { ...metadata, token: `re_hs_${id}.${"A".repeat(43)}`, backup_token: token },
+      {
+        ...metadata,
+        token: `re_hs_${id}.${"A".repeat(43)}`,
+        backup_token: token,
+      },
     ]) {
       const directory = await temporaryDirectory();
       const tokenPath = join(directory, "rejected.token");
@@ -332,14 +389,7 @@ describe("HayaSend CLI", () => {
 
     await expect(
       runCli(
-        [
-          "keys",
-          "create",
-          "--name",
-          "sender",
-          "--scope",
-          "emails:send",
-        ],
+        ["keys", "create", "--name", "sender", "--scope", "emails:send"],
         dependencies,
       ),
     ).rejects.toThrow("requires --token-out");
@@ -722,11 +772,12 @@ describe("HayaSend CLI", () => {
     const sensitive =
       "recipient@example.net private body re_secret_token https://user:pass@example.com";
     const operation = runCli(["doctor"], {
-      fetch: vi.fn<typeof fetch>(async () =>
-        new Response(sensitive, {
-          status: 502,
-          headers: { "content-type": "text/plain" },
-        }),
+      fetch: vi.fn<typeof fetch>(
+        async () =>
+          new Response(sensitive, {
+            status: 502,
+            headers: { "content-type": "text/plain" },
+          }),
       ),
       io: capturingIo().io,
     });
@@ -1105,9 +1156,7 @@ describe("HayaSend CLI", () => {
         expect(new Headers(init?.headers).get("if-match")).toBe(
           '"tmplv_1234567890abcdef1234567890abcdef"',
         );
-        expect(new Headers(init?.headers).get("x-hayasend-source")).toBe(
-          "cli",
-        );
+        expect(new Headers(init?.headers).get("x-hayasend-source")).toBe("cli");
       }
       return jsonResponse(
         init?.method === "POST"
@@ -1220,14 +1269,7 @@ describe("HayaSend CLI", () => {
       io: capture.io,
     });
     await runCli(
-      [
-        "templates",
-        "render-version",
-        "welcome",
-        version,
-        "--var",
-        "NAME=Ada",
-      ],
+      ["templates", "render-version", "welcome", version, "--var", "NAME=Ada"],
       { fetch: fetchMock, io: capture.io },
     );
     await runCli(["templates", "restore-version", "welcome", version], {
@@ -1243,10 +1285,10 @@ describe("HayaSend CLI", () => {
       `POST http://localhost:8787/templates/welcome/versions/${version}/restore`,
     ]);
     await expect(
-      runCli(
-        ["templates", "restore-version", "welcome", "not-a-version"],
-        { fetch: fetchMock, io: capture.io },
-      ),
+      runCli(["templates", "restore-version", "welcome", "not-a-version"], {
+        fetch: fetchMock,
+        io: capture.io,
+      }),
     ).rejects.toThrow("version ID is invalid");
   });
 
@@ -1492,10 +1534,10 @@ describe("HayaSend CLI", () => {
       ],
       { fetch: fetchMock, io: capture.io },
     );
-    await runCli(
-      ["webhooks", "inspect-delivery", "wh/one", "whd/two"],
-      { fetch: fetchMock, io: capture.io },
-    );
+    await runCli(["webhooks", "inspect-delivery", "wh/one", "whd/two"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
     await runCli(["webhooks", "replay", "wh/one", "whd/two", "--yes"], {
       fetch: fetchMock,
       io: capture.io,
@@ -1589,13 +1631,7 @@ describe("HayaSend CLI", () => {
     ).rejects.toThrow("valid webhook ID");
     await expect(
       runCli(
-        [
-          "webhooks",
-          "deliveries",
-          "wh_123",
-          "--after",
-          "not-a-delivery",
-        ],
+        ["webhooks", "deliveries", "wh_123", "--after", "not-a-delivery"],
         dependencies,
       ),
     ).rejects.toThrow("valid delivery ID");
@@ -1606,10 +1642,7 @@ describe("HayaSend CLI", () => {
       runCli(["webhooks", "delete", "wh_123"], dependencies),
     ).rejects.toThrow("requires --yes");
     await expect(
-      runCli(
-        ["webhooks", "replay", "wh_123", "msg_123"],
-        dependencies,
-      ),
+      runCli(["webhooks", "replay", "wh_123", "msg_123"], dependencies),
     ).rejects.toThrow("requires --yes");
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1672,18 +1705,15 @@ describe("HayaSend CLI", () => {
       return jsonResponse({ ok: true });
     });
 
-    await runCli(
-      ["suppressions", "list", "--limit", "10", "--after", cursor],
-      { fetch: fetchMock, io: capture.io },
-    );
-    await runCli(
-      ["suppressions", "get", "--email-file", emailPath],
-      {
-        cwd: directory,
-        fetch: fetchMock,
-        io: capture.io,
-      },
-    );
+    await runCli(["suppressions", "list", "--limit", "10", "--after", cursor], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+    await runCli(["suppressions", "get", "--email-file", emailPath], {
+      cwd: directory,
+      fetch: fetchMock,
+      io: capture.io,
+    });
     await runCli(
       ["suppressions", "delete", "--email-file", emailPath, "--yes"],
       {
@@ -1830,14 +1860,11 @@ describe("HayaSend CLI", () => {
       io: capturingIo().io,
     };
 
+    await expect(runCli(["suppressions", "get"], dependencies)).rejects.toThrow(
+      "argument or --email-file is required",
+    );
     await expect(
-      runCli(["suppressions", "get"], dependencies),
-    ).rejects.toThrow("argument or --email-file is required");
-    await expect(
-      runCli(
-        ["suppressions", "get", "--email-file", directory],
-        dependencies,
-      ),
+      runCli(["suppressions", "get", "--email-file", directory], dependencies),
     ).rejects.toThrow("must be a regular file");
     await expect(
       runCli(
@@ -2082,14 +2109,7 @@ describe("HayaSend CLI", () => {
       io: capture.io,
     });
     await runCli(
-      [
-        "emails",
-        "update",
-        emailId,
-        "--scheduled-at",
-        future,
-        "--yes",
-      ],
+      ["emails", "update", emailId, "--scheduled-at", future, "--yes"],
       { fetch: fetchMock, io: capture.io },
     );
 

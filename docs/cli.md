@@ -537,7 +537,8 @@ confirmation for every mutation:
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy cloudflare \
   --account 0123456789abcdef0123456789abcdef \
-  --name proof
+  --name proof \
+  --email-domain example.com
 ```
 
 After review, set `CLOUDFLARE_API_TOKEN` and a strong
@@ -546,9 +547,13 @@ After review, set `CLOUDFLARE_API_TOKEN` and a strong
 least one repeatable `--allowed-recipient`; the deployed Email Sending binding
 cannot send elsewhere. Every listed recipient must already be verified in the
 Cloudflare account. `upgrade cloudflare` requires the existing D1 database ID
-and the reviewed recipient allowlist. `rollback cloudflare` requires an
-immutable version ID. `cleanup cloudflare` removes only the deterministic
-HayaSend resource set after printing its deletion order.
+and the reviewed recipient allowlist and Email Sending domain. After deploying
+a retained proof, create the documented per-domain Email Sending subscription
+in the Cloudflare Dashboard, then run `doctor cloudflare-events` to require one
+enabled subscription covering all six lifecycle events. `rollback cloudflare`
+requires an immutable version ID. `cleanup cloudflare` first removes any event
+subscription and then removes only the deterministic HayaSend resource set
+after printing its deletion order.
 
 Use only a reusable test account dedicated to disposable integration
 resources, never an account with production or staging workloads. Full
