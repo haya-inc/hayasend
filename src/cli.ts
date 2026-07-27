@@ -2,9 +2,17 @@
 
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  open,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import {
   defaultCommandRunner,
   deployAws,
@@ -18,6 +26,7 @@ import {
   type DesiredTemplate,
   type RemoteTemplate,
 } from "./cli-templates.js";
+import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { startServer } from "./server.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -226,6 +235,233 @@ function idFromResponse(value: unknown) {
     throw new Error("HayaSend did not return a valid identifier.");
   }
   return value.id;
+}
+
+const API_KEY_ID_PATTERN = /^key_[a-f0-9]{32}$/;
+const API_KEY_TOKEN_PATTERN =
+  /^re_hs_key_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
+const createdApiKeySchema = publicApiKeySchema
+  .extend({
+    token: z.string().regex(API_KEY_TOKEN_PATTERN),
+  })
+  .strict();
+const apiKeyListSchema = z
+  .object({
+    object: z.literal("list"),
+    data: z.array(publicApiKeySchema),
+    has_more: z.boolean(),
+    next_cursor: z.string().regex(API_KEY_ID_PATTERN).optional(),
+  })
+  .strict();
+const revokedApiKeySchema = publicApiKeySchema
+  .extend({ revoked: z.literal(true) })
+  .strict();
+
+function apiKeyPath(identifier: string) {
+  if (!API_KEY_ID_PATTERN.test(identifier)) {
+    throw new Error("API key ID is invalid.");
+  }
+  return `/api-keys/${encodeURIComponent(identifier)}`;
+}
+
+function apiKeyPayload(args: string[]) {
+  const name = flag(args, "name");
+  const expiresAt = flag(args, "expires-at");
+  const payload = {
+    name: name ?? "",
+    scopes: [...new Set(flags(args, "scope"))],
+    ...(expiresAt ? { expires_at: expiresAt } : {}),
+  };
+  const parsed = apiKeySchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(
+      `API key input is invalid: ${parsed.error.issues
+        .map((issue) => issue.message)
+        .join("; ")}`,
+    );
+  }
+  if (
+    parsed.data.expires_at &&
+    new Date(parsed.data.expires_at).getTime() <= Date.now()
+  ) {
+    throw new Error("--expires-at must be in the future.");
+  }
+  return parsed.data;
+}
+
+function createdApiKey(value: unknown) {
+  const parsed = createdApiKeySchema.safeParse(value);
+  if (
+    !parsed.success ||
+    !parsed.data.token.startsWith(`re_hs_${parsed.data.id}.`)
+  ) {
+    throw new Error("HayaSend did not return a valid API key and token.");
+  }
+  const { token, ...metadata } = parsed.data;
+  return { metadata, token };
+}
+
+function apiKeyResponse<T>(
+  value: unknown,
+  schema: z.ZodType<T>,
+) {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("HayaSend did not return valid API key metadata.");
+  }
+  return parsed.data;
+}
+
+async function createApiKey(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  const payload = apiKeyPayload(args);
+  const output = flag(args, "token-out");
+  if (!output) {
+    throw new Error("keys create requires --token-out.");
+  }
+  endpoint(args, dependencies.env);
+  const tokenPath = resolve(dependencies.cwd, output);
+  if (tokenPath === parse(tokenPath).root) {
+    throw new Error("Refusing to write an API key token to a filesystem root.");
+  }
+
+  let tokenFile;
+  try {
+    tokenFile = await open(tokenPath, "wx", 0o600);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      throw new Error(`Refusing to overwrite existing file: ${tokenPath}`);
+    }
+    throw error;
+  }
+
+  let metadata: Record<string, unknown> = {};
+  try {
+    const created = createdApiKey(
+      await request("/api-keys", args, dependencies, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    );
+    metadata = created.metadata;
+    await tokenFile.writeFile(created.token, "utf8");
+    await tokenFile.sync();
+    await tokenFile.close();
+  } catch (error) {
+    await tokenFile.close().catch(() => undefined);
+    await unlink(tokenPath).catch(() => undefined);
+    throw error;
+  }
+  dependencies.io.log(
+    JSON.stringify(
+      {
+        ...metadata,
+        token_file: tokenPath,
+        token_written: true,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function apiKeyCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  const command = args[0] ?? "help";
+  switch (command) {
+    case "create":
+      validateOptions(args, {
+        values: ["name", "expires-at", "token-out", "endpoint"],
+        repeatable: ["scope"],
+      });
+      await createApiKey(args, dependencies);
+      break;
+    case "list": {
+      validateOptions(args, {
+        values: ["limit", "after", "endpoint"],
+      });
+      const limit = flag(args, "limit");
+      if (
+        limit &&
+        (!/^\d+$/.test(limit) ||
+          Number(limit) < 1 ||
+          Number(limit) > 100)
+      ) {
+        throw new Error("--limit must be an integer between 1 and 100.");
+      }
+      const parameters = new URLSearchParams();
+      for (const name of ["limit", "after"]) {
+        const value = flag(args, name);
+        if (value) {
+          if (name === "after" && !API_KEY_ID_PATTERN.test(value)) {
+            throw new Error("--after must be a valid API key ID.");
+          }
+          parameters.set(name, value);
+        }
+      }
+      const query = parameters.size > 0 ? `?${parameters}` : "";
+      dependencies.io.log(
+        JSON.stringify(
+          apiKeyResponse(
+            await request(`/api-keys${query}`, args, dependencies),
+            apiKeyListSchema,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    }
+    case "get":
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 1,
+      });
+      dependencies.io.log(
+        JSON.stringify(
+          apiKeyResponse(
+            await request(
+              apiKeyPath(positional(args, 1, "API key ID")),
+              args,
+              dependencies,
+            ),
+            publicApiKeySchema,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    case "revoke":
+      validateOptions(args, {
+        values: ["endpoint"],
+        positionals: 1,
+      });
+      dependencies.io.log(
+        JSON.stringify(
+          apiKeyResponse(
+            await request(
+              apiKeyPath(positional(args, 1, "API key ID")),
+              args,
+              dependencies,
+              { method: "DELETE" },
+            ),
+            revokedApiKeySchema,
+          ),
+          null,
+          2,
+        ),
+      );
+      break;
+    default:
+      throw new Error(
+        `Unknown keys command: ${command}. Run hayasend help.`,
+      );
+  }
 }
 
 function templatePath(identifier: string) {
@@ -1059,6 +1295,13 @@ Commands:
       Inspect immutable publication history, render it without sending, or
       restore one version into a new unpublished draft.
 
+  keys create --name NAME --scope SCOPE --token-out FILE
+  keys list [--limit NUMBER] [--after CURSOR]
+  keys get KEY_ID
+  keys revoke KEY_ID
+      Create, inspect, or revoke least-privilege API keys. Created tokens are
+      written once to a new mode-0600 file and are never printed.
+
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
@@ -1110,6 +1353,9 @@ export async function runCli(
       break;
     case "templates":
       await templateCommand(args.slice(1), dependencies);
+      break;
+    case "keys":
+      await apiKeyCommand(args.slice(1), dependencies);
       break;
     default:
       throw new Error(`Unknown command: ${command}. Run hayasend help.`);

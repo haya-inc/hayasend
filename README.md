@@ -401,21 +401,26 @@ export HAYASEND_BOOTSTRAP_KEY="$(
     --output text
 )"
 
-curl "$HAYASEND_BASE_URL/api-keys" \
-  -H "Authorization: Bearer $HAYASEND_BOOTSTRAP_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "production transactional sender",
-    "scopes": ["emails:send", "emails:read"]
-  }'
+HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
+  npm run --silent cli -- keys create \
+    --name "production transactional sender" \
+    --scope emails:send \
+    --scope emails:read \
+    --token-out ./hayasend-production-sender.token
 ```
 
-The returned application token is shown once. HayaSend stores only its
-SHA-256 hash. Unset the administrator key from your shell after use:
+The application token is written once to a new mode-`0600` file. The CLI never
+prints it and refuses to overwrite a path. HayaSend stores only its SHA-256
+hash. Move the file into the workload's approved secret manager, remove the
+local copy, and unset the administrator key from your shell:
 
 ```bash
 unset HAYASEND_BOOTSTRAP_KEY
 ```
+
+Use `keys list`, `keys get KEY_ID`, and `keys revoke KEY_ID` for lifecycle
+management. These commands return metadata only; tokens cannot be retrieved
+after creation.
 
 The stack intentionally retains its DynamoDB table when deleted. The queue
 uses a dead-letter queue, DynamoDB has point-in-time recovery, and Lambda uses

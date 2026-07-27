@@ -37,6 +37,7 @@ No post-v0.1 draft merges into the frozen release candidate.
 - [x] searchable API reference generated from the versioned OpenAPI contract
 - [ ] first attestable, version-pinned CLI package publication (release
       automation is ready)
+- [x] secret-safe scoped API key lifecycle management
 
 ## Next — Cloudflare and FolioMCP proof
 

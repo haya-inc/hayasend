@@ -38,7 +38,9 @@ as operational metadata rather than posting it publicly.
 1. Subscribe the on-call destination to the `AlarmTopicArn` stack output and
    confirm the SNS subscription.
 2. Open the generated CloudWatch dashboard.
-3. Create a scoped application key with the bootstrap administrator key.
+3. Create a scoped application key with the bootstrap administrator key using
+   the secret-safe [`hayasend keys create`](cli.md#manage-least-privilege-api-keys)
+   workflow.
 4. Store the application token in the workload's secret manager.
 5. Verify an isolated sending subdomain and confirm DKIM.
 6. Send canary messages to controlled recipients.
