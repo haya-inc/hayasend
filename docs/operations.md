@@ -42,7 +42,10 @@ as operational metadata rather than posting it publicly.
    the secret-safe [`hayasend keys create`](cli.md#manage-least-privilege-api-keys)
    workflow.
 4. Store the application token in the workload's secret manager.
-5. Verify an isolated sending subdomain and confirm DKIM.
+5. Complete [sending-domain onboarding](domain-onboarding.md) for an isolated
+   subdomain, apply the returned DKIM records through the authoritative DNS
+   owner, refresh SES state, and confirm both domain and DKIM status are
+   verified. HayaSend never changes DNS.
 6. Send canary messages to controlled recipients.
 7. Confirm `email.sent` and `email.delivered` webhooks.
 8. Confirm that a controlled permanent bounce creates a suppression.

@@ -40,7 +40,8 @@ implemented provider today. HayaSend never logs message bodies.
   recipient correlation, SNS deduplication, sticky safety outcomes, and
   conservative message aggregates
 - email retrieval, listing, cancellation, and rescheduling
-- SES domain creation, DKIM record discovery, refresh, and deletion
+- SES domain creation, DKIM record discovery, refresh, and explicit-deletion
+  CLI with an official Node SDK lifecycle gate
 - signed webhooks with SQS retry, retained delivery history, manual replay,
   and a dead-letter queue
 - SES delivery, delay, bounce, complaint, open, click, and failure events
@@ -124,6 +125,11 @@ await email.emails.send({
 
 See [hosted templates](docs/hosted-templates.md) for React Email, versioning,
 variable safety, limits, and least-privilege scopes.
+
+After deployment, use the [sending-domain onboarding
+guide](docs/domain-onboarding.md) to register an isolated subdomain, apply the
+returned DKIM records through its authoritative DNS owner, and refresh SES
+state before a controlled canary. HayaSend never changes DNS.
 
 ## Run locally
 

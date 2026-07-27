@@ -109,6 +109,30 @@ It never prints the API key. HTTPS is required unless the endpoint is
 `localhost`, `127.0.0.1`, or `[::1]`; endpoint credentials, queries, and
 fragments are rejected.
 
+## Onboard a sending domain
+
+Register an isolated sending subdomain and inspect the returned DNS records:
+
+```bash
+npm run cli -- domains create --name mail.example.com
+npm run cli -- domains list --limit 20
+npm run cli -- domains get dom_0123456789abcdef0123456789abcdef
+npm run cli -- domains verify dom_0123456789abcdef0123456789abcdef
+```
+
+Create, verify, and delete require `domains:write`; list and get require
+`domains:read`. `verify` refreshes SES state once. It does not edit DNS, send
+mail, or poll. Deletion removes the SES identity and requires an explicit
+acknowledgement:
+
+```bash
+npm run cli -- domains delete \
+  dom_0123456789abcdef0123456789abcdef --yes
+```
+
+See [sending-domain onboarding](domain-onboarding.md) for the DKIM workflow,
+DMARC boundary, canary gate, and DNS cleanup guidance.
+
 ## Send an end-to-end test
 
 The `test` command creates a message and retrieves its record:
