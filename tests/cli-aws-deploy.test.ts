@@ -137,6 +137,8 @@ describe("plan-first AWS deployment CLI", () => {
         },
       },
       parameters: {
+        ApiThrottlingRateLimit: "10",
+        ApiThrottlingBurstLimit: "20",
         EnableInbound: "false",
         InboundRecipientSuffixes: "@example.invalid",
         LogRetentionDays: "30",
@@ -154,7 +156,14 @@ describe("plan-first AWS deployment CLI", () => {
     expect(plan.template.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(plan.apply_command).toContain("--apply");
     expect(plan.apply_command).toEqual(
-      expect.arrayContaining(["--log-retention-days", "30"]),
+      expect.arrayContaining([
+        "--api-rate-limit",
+        "10",
+        "--api-burst-limit",
+        "20",
+        "--log-retention-days",
+        "30",
+      ]),
     );
     expect(
       runner.mock.calls.some(
@@ -169,6 +178,36 @@ describe("plan-first AWS deployment CLI", () => {
           args.includes("--parallel"),
       ),
     ).toBe(true);
+  });
+
+  it("accepts independent decimal rate and integer burst overrides", async () => {
+    const capture = capturingIo();
+
+    await runCli(
+      [
+        "deploy",
+        "aws",
+        "--account",
+        "123456789012",
+        "--region",
+        "ap-northeast-1",
+        "--api-rate-limit",
+        "7.5",
+        "--api-burst-limit",
+        "3",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: baseRunner(),
+      },
+    );
+
+    expect(JSON.parse(capture.logs[0] ?? "{}").parameters).toMatchObject({
+      ApiThrottlingRateLimit: "7.5",
+      ApiThrottlingBurstLimit: "3",
+    });
   });
 
   it("fails closed on account mismatch before reading SES or CloudFormation", async () => {
@@ -471,6 +510,14 @@ describe("plan-first AWS deployment CLI", () => {
             {
               StackStatus: "UPDATE_COMPLETE",
               Parameters: [
+                {
+                  ParameterKey: "ApiThrottlingRateLimit",
+                  ParameterValue: "7.5",
+                },
+                {
+                  ParameterKey: "ApiThrottlingBurstLimit",
+                  ParameterValue: "11",
+                },
                 { ParameterKey: "EnableInbound", ParameterValue: "false" },
                 { ParameterKey: "LogRetentionDays", ParameterValue: "90" },
                 {
@@ -592,11 +639,57 @@ describe("plan-first AWS deployment CLI", () => {
     expect(deployCall?.[1]).toContain(
       "WebhookDeliveryRetentionDays=14",
     );
+    expect(deployCall?.[1]).toContain("ApiThrottlingRateLimit=7.5");
+    expect(deployCall?.[1]).toContain("ApiThrottlingBurstLimit=11");
     expect(deployCall?.[1]).toContain("LogRetentionDays=90");
     expect(deployCall?.[1]).toContain("Owner=platform");
     expect(deployCall?.[1]).not.toContain(
       "RemovedLegacyParameter=do-not-replay",
     );
+  });
+
+  it("preserves the previous fixed throttle when upgrading a legacy stack", async () => {
+    const capture = capturingIo();
+    const runner = baseRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        return json({
+          Stacks: [
+            {
+              StackStatus: "UPDATE_COMPLETE",
+              Parameters: [],
+              Outputs: [],
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    await runCli(
+      [
+        "deploy",
+        "aws",
+        "--account",
+        "123456789012",
+        "--region",
+        "ap-northeast-1",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: runner,
+      },
+    );
+
+    expect(JSON.parse(capture.logs[0] ?? "{}").parameters).toMatchObject({
+      ApiThrottlingRateLimit: "50",
+      ApiThrottlingBurstLimit: "100",
+    });
   });
 
   it("reports an empty change set without executing CloudFormation", async () => {
@@ -984,6 +1077,51 @@ describe("plan-first AWS deployment CLI", () => {
       ),
     ).rejects.toThrow("non-.invalid recipient suffixes");
     const callsBeforeTemplateHistoryValidation = runner.mock.calls.length;
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--api-rate-limit",
+          "0",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("--api-rate-limit must be between 1 and 10000");
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--api-rate-limit",
+          "1e2",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("--api-rate-limit must be a plain decimal number");
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--api-burst-limit",
+          "5001",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("--api-burst-limit must be between 1 and 5000");
     await expect(
       runCli(
         [

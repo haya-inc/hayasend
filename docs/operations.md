@@ -54,6 +54,28 @@ If inbound receiving is enabled, complete the separate pre-MX checklist in
 webhook, send a canary to the receiving subdomain, retrieve its raw MIME and
 attachment through the API, and only then move important mail flow.
 
+## API throttling and cost boundary
+
+New stacks target 10 requests per second with a token-bucket burst of 20 across
+all HTTP API routes. Set `--api-rate-limit` and `--api-burst-limit` during a
+reviewed deployment when observed traffic or the SES sending quota requires a
+different boundary. The CLI preserves configured values; its first update of a
+stack created before these parameters existed preserves the earlier fixed
+50/100 behavior.
+
+API Gateway applies these targets on a best-effort basis. They are neither a
+per-key quota nor a guaranteed request or cost ceiling, and account/Region
+quotas can impose a lower limit. A throttled request can receive `429 Too Many
+Requests`. Clients should use exponential backoff with jitter and reuse the
+same idempotency key when retrying a create request.
+
+Create an [AWS Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html)
+with actual-cost notifications before exposing an endpoint. Budget data and
+alerts can lag incurred usage, so combine them with API Gateway and Lambda
+metrics and a separately reviewed edge-control design when stronger abuse
+protection is required. Do not treat raising the API throttle as permission to
+exceed the SES sending quota.
+
 ## Lambda log retention
 
 Every deployed function writes to a stack-owned log group under

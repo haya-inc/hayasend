@@ -327,6 +327,13 @@ from HayaSend infrastructure, shows list price and recurring free allowances
 for 10,000 and 1,000,000 monthly messages in Virginia and Tokyo, and includes
 a CLI for substituting your own traffic assumptions.
 
+New stacks apply a best-effort API Gateway target of 10 requests per second
+with a burst of 20. Review or change it with `--api-rate-limit` and
+`--api-burst-limit`; existing values are preserved by the deployment CLI.
+Throttling can return `429` but is not a hard cost ceiling, so production
+operators should also configure AWS Budget notifications. See the
+[operations runbook](docs/operations.md#api-throttling-and-cost-boundary).
+
 The underlying manual SAM workflow remains supported:
 
 ```bash

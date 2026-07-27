@@ -6,6 +6,9 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Make the public HTTP API throttle configurable with conservative new-stack
+  defaults, legacy-preserving upgrades, exact deploy plans, and cost-boundary
+  guidance.
 - Derive a bounded plain-text body from HTML for direct and batch sends while
   preserving explicit text and supporting `text: ""` as an opt-out.
 - Stop retrying permanent SES request rejections while preserving retries for

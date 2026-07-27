@@ -16,6 +16,8 @@ const LOG_RETENTION_DAYS = new Set([
 
 const TEMPLATE_DEFAULTS: Record<string, string> = {
   BootstrapSecretArn: "",
+  ApiThrottlingRateLimit: "10",
+  ApiThrottlingBurstLimit: "20",
   LogRetentionDays: "30",
   EnableInbound: "false",
   InboundRetentionDays: "7",
@@ -26,6 +28,11 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   TemplateHistoryRetentionDays: "90",
   TemplateHistoryLimit: "50",
   WorkerReservedConcurrency: "10",
+};
+
+const LEGACY_STACK_DEFAULTS: Record<string, string> = {
+  ApiThrottlingRateLimit: "50",
+  ApiThrottlingBurstLimit: "100",
 };
 
 const OUTPUT_KEYS = [
@@ -70,6 +77,8 @@ export interface AwsDeployOptions {
   allowDestructiveChanges: boolean;
   enableInbound?: boolean;
   bootstrapSecretArn?: string;
+  apiRateLimit?: string;
+  apiBurstLimit?: string;
   logRetentionDays?: string;
   inboundRetentionDays?: string;
   inboundMaxMessageBytes?: string;
@@ -197,6 +206,25 @@ function requireInteger(
   return String(number);
 }
 
+function requireNumber(
+  value: string | undefined,
+  label: string,
+  minimum: number,
+  maximum: number,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+    throw new Error(`${label} must be a plain decimal number.`);
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < minimum || number > maximum) {
+    throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
+  }
+  return String(number);
+}
+
 function parseTags(values: string[]) {
   const tags = new Map<string, string>([
     ["Project", "HayaSend"],
@@ -289,6 +317,24 @@ function normalizeOptions(
   const explicitParameters: Record<string, string> = {};
   if (options.bootstrapSecretArn !== undefined) {
     explicitParameters.BootstrapSecretArn = options.bootstrapSecretArn;
+  }
+  const apiRateLimit = requireNumber(
+    options.apiRateLimit,
+    "--api-rate-limit",
+    1,
+    10_000,
+  );
+  if (apiRateLimit) {
+    explicitParameters.ApiThrottlingRateLimit = apiRateLimit;
+  }
+  const apiBurstLimit = requireInteger(
+    options.apiBurstLimit,
+    "--api-burst-limit",
+    1,
+    5_000,
+  );
+  if (apiBurstLimit) {
+    explicitParameters.ApiThrottlingBurstLimit = apiBurstLimit;
   }
   if (options.enableInbound !== undefined) {
     explicitParameters.EnableInbound = String(options.enableInbound);
@@ -609,6 +655,7 @@ function effectiveParameters(
 ) {
   const parameters = {
     ...TEMPLATE_DEFAULTS,
+    ...(stack.exists ? LEGACY_STACK_DEFAULTS : {}),
     ...Object.fromEntries(
       Object.entries(stack.parameters).filter(([key]) =>
         Object.hasOwn(TEMPLATE_DEFAULTS, key),
@@ -667,6 +714,10 @@ function applyCommand(
     options.region,
     "--stack",
     options.stack,
+    "--api-rate-limit",
+    parameters.ApiThrottlingRateLimit ?? "10",
+    "--api-burst-limit",
+    parameters.ApiThrottlingBurstLimit ?? "20",
     ...(options.profile ? ["--profile", options.profile] : []),
     ...(parameters.EnableInbound === "true"
       ? [
