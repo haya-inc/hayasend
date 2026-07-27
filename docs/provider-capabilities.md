@@ -9,6 +9,10 @@ The generated artifacts are:
 
 - [`conformance/providers/aws-ses.v1.json`](../conformance/providers/aws-ses.v1.json)
   — current AWS adapter capabilities;
+- [`conformance/providers/cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
+  — current Beta Cloudflare Email Sending adapter capabilities;
+- [`conformance/reports/cloudflare-email.local.v1.json`](../conformance/reports/cloudflare-email.local.v1.json)
+  — local Cloudflare proof, including the remaining #104 deploy/rollback gap;
 - [`conformance/cases.v1.json`](../conformance/cases.v1.json) — shared fault
   and lifecycle cases;
 - [`schemas/provider-capabilities.v1.schema.json`](../schemas/provider-capabilities.v1.schema.json)
@@ -59,3 +63,31 @@ event ID exists. Provider-side send idempotency remains explicitly unsupported.
 SES open and click events do not identify the interacting recipient for a
 multi-recipient submission, so HayaSend retains that evidence without guessing
 or mutating a recipient.
+
+## Cloudflare Email Sending evidence
+
+The Cloudflare document was checked on 2026-07-27 against the official
+[Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/),
+[Email Service limits](https://developers.cloudflare.com/email-service/platform/limits/),
+and
+[Queues event schemas](https://developers.cloudflare.com/queues/event-subscriptions/events-schemas/).
+
+The effective adapter limits are 50 combined recipients, HayaSend's lower
+20-attachment limit (Cloudflare allows 32), and 5 MiB for the complete
+ordinary outbound message. A conservative 3,800,000
+decoded attachment-byte ceiling leaves room for base64 line wrapping and MIME
+part overhead. HayaSend applies this provider preflight before the atomic
+delivery commit.
+
+The binding's returned `messageId` is indexed against exactly one accepted
+attempt. Each per-domain event contributes its `eventId`, `messageId`, one
+recipient, terminal marker, and privacy-safe diagnostic category to the
+canonical ledger. Subject text, SMTP response text, provider exception text,
+and other unrecognized fields are discarded.
+
+The current subscription publishes delivered, deferred, bounced, failed,
+rejected, and complained events. Open, click, and durable provider-side send
+idempotency are explicitly unsupported. The local report remains failed on the
+required deploy-interruption case until issue #104 supplies real hosted
+deploy, upgrade, rollback, and cleanup evidence; this is intentional and
+prevents a local green test from being presented as production evidence.

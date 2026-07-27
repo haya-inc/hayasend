@@ -1,4 +1,4 @@
-export type CloudflareFaultComponent = "d1" | "r2" | "queue";
+export type CloudflareFaultComponent = "d1" | "r2" | "queue" | "email";
 
 export interface CloudflareFaultPoint {
   component: CloudflareFaultComponent;

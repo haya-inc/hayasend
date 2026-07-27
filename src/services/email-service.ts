@@ -71,6 +71,9 @@ const DEFAULT_PROVIDER: ProviderReference = {
 
 export interface EmailServiceOptions {
   provider?: ProviderReference | undefined;
+  pre_commit_validator?:
+    | ((record: EmailRecord) => void | Promise<void>)
+    | undefined;
 }
 
 export interface NormalizedProviderEvent {
@@ -429,6 +432,7 @@ export class EmailService {
       request_hash: hash,
       attempts: 0,
     };
+    await this.options.pre_commit_validator?.(structuredClone(record));
     const idempotency = idempotencyKey
       ? {
           key_hash: sha256(idempotencyKey),

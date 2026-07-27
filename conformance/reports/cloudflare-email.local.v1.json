@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "cloudflare-email-local-20260727",
+  "provider": "cloudflare-email",
+  "adapter_version": "0.2.0",
+  "capability_document_sha256": "8e782362699b621c708e9b411907a34d9a498a81c50cf523428022c1703d206e",
+  "started_at": "2026-07-27T14:00:00.000Z",
+  "completed_at": "2026-07-27T16:30:00.000Z",
+  "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+  "case_count": 18,
+  "summary": {
+    "passed": 14,
+    "failed": 1,
+    "unsupported": 3
+  },
+  "status": "failed",
+  "results": [
+    {
+      "case_id": "api-plain-text-fallback",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "api-atomic-commit",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "outbox-queue-unavailable",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "outbox-ack-crash",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "send-lease-concurrency",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "provider-permanent-rejection",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "provider-throttle",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "provider-acceptance-ambiguity",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "provider-event-ordering",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "recipient-mixed-outcomes",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "recovery-diagnostics-privacy",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "payload-orphan",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "webhook-duplicate",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "deploy-interruption",
+      "status": "failed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+      "reason": "Production Cloudflare deploy, upgrade, and rollback evidence is intentionally deferred to issue #104."
+    },
+    {
+      "case_id": "telemetry-private-fields",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "provider-send-idempotency",
+      "status": "unsupported",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+      "reason": "Cloudflare does not document a durable provider-side send idempotency key.",
+      "capability_path": "features.provider_idempotency.status"
+    },
+    {
+      "case_id": "provider-open-events",
+      "status": "unsupported",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+      "reason": "Cloudflare Email Sending subscriptions do not publish open events.",
+      "capability_path": "events.opened.status"
+    },
+    {
+      "case_id": "provider-click-events",
+      "status": "unsupported",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+      "reason": "Cloudflare Email Sending subscriptions do not publish click events.",
+      "capability_path": "events.clicked.status"
+    }
+  ]
+}

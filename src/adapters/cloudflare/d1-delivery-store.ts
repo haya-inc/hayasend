@@ -389,6 +389,28 @@ export class D1DeliveryStore
     };
   }
 
+  async findMessageIdByProviderMessageId(
+    providerMessageId: string,
+  ): Promise<string | undefined> {
+    if (
+      providerMessageId.length < 1 ||
+      providerMessageId.length > 512 ||
+      !/^[\x21-\x3F\x41-\x7E]+$/.test(providerMessageId)
+    ) {
+      throw new Error("Provider message ID is not privacy-safe opaque data.");
+    }
+    const row = await this.first<{ message_id: string }>(
+      "read",
+      "provider-message-correlation",
+      this.database
+        .prepare(
+          "SELECT message_id FROM delivery_attempts WHERE provider = ? AND provider_message_id = ? LIMIT 1",
+        )
+        .bind("cloudflare-email", providerMessageId),
+    );
+    return row?.message_id;
+  }
+
   async beginDeliveryAttempt(
     input: DeliveryAttemptRecord,
   ): Promise<DeliveryLedgerMutationResult | undefined> {
@@ -971,12 +993,14 @@ export class D1DeliveryStore
         "attempt-insert",
         this.database
           .prepare(
-            "INSERT INTO delivery_attempts(id, message_id, sequence, entity) VALUES (?, ?, ?, ?)",
+            "INSERT INTO delivery_attempts(id, message_id, sequence, provider, provider_message_id, entity) VALUES (?, ?, ?, ?, ?, ?)",
           )
           .bind(
             addition.put_attempt.id,
             addition.put_attempt.message_id,
             addition.put_attempt.sequence,
+            addition.put_attempt.provider.name,
+            addition.put_attempt.provider_message_id ?? null,
             json(addition.put_attempt),
           ),
       );
@@ -988,9 +1012,11 @@ export class D1DeliveryStore
         "attempt-update",
         this.database
           .prepare(
-            "UPDATE delivery_attempts SET entity = ? WHERE id = ? AND message_id = ?",
+            "UPDATE delivery_attempts SET provider = ?, provider_message_id = ?, entity = ? WHERE id = ? AND message_id = ?",
           )
           .bind(
+            addition.update_attempt.provider.name,
+            addition.update_attempt.provider_message_id ?? null,
             json(addition.update_attempt),
             addition.update_attempt.id,
             addition.update_attempt.message_id,

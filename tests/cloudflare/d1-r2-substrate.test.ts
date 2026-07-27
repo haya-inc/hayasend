@@ -10,6 +10,7 @@ import {
   runDeliverySubstrateContract,
   substrateDelivery,
 } from "../helpers/delivery-substrate-contract.js";
+import type { DeliveryAttemptRecord } from "../../src/core/delivery-model.js";
 
 beforeEach(async () => {
   await applyD1Migrations(env.TEST_DB, env.TEST_MIGRATIONS);
@@ -129,6 +130,47 @@ describe("D1 atomic failure boundaries", () => {
       ),
     ).rejects.toThrow("cannot exceed 50 recipients");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("D1 provider message correlation", () => {
+  it("resolves exactly the accepted attempt indexed by provider message ID", async () => {
+    const store = new D1DeliveryStore(env.TEST_DB);
+    const value = substrateDelivery(
+      "cloudflarecorrelation00000000000001",
+    );
+    const attempt: DeliveryAttemptRecord = {
+      schema_version: "1.0.0",
+      record_type: "attempt",
+      id: "attempt_cloudflarecorrelation00000000001",
+      message_id: value.message.id,
+      recipient_ids: [...value.message.recipient_ids],
+      sequence: 1,
+      provider: value.message.provider,
+      status: "submitting",
+      started_at: "2026-07-27T14:00:01.000Z",
+    };
+    await store.commitDelivery(
+      value,
+      Math.floor(Date.parse(value.email.created_at) / 1_000),
+    );
+    await store.beginDeliveryAttempt(attempt);
+    await store.completeDeliveryAttempt({
+      message_id: value.message.id,
+      attempt_id: attempt.id,
+      status: "accepted",
+      provider_message_id: "cf-provider-correlation-1",
+      completed_at: "2026-07-27T14:00:02.000Z",
+    });
+
+    await expect(
+      store.findMessageIdByProviderMessageId(
+        "cf-provider-correlation-1",
+      ),
+    ).resolves.toBe(value.message.id);
+    await expect(
+      store.findMessageIdByProviderMessageId("cf-provider-unknown"),
+    ).resolves.toBeUndefined();
   });
 });
 

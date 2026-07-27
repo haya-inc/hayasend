@@ -240,7 +240,7 @@ Non-goals:
 ### Gate 2 — Prove the same contract on Cloudflare
 
 Cloudflare facts in this section were checked against official documentation on
-2026-07-26 and must be rechecked when implementation starts:
+2026-07-27 and must be rechecked when implementation starts:
 
 - outbound [Email Sending is Beta and requires Workers Paid](https://developers.cloudflare.com/email-service/);
 - the normal production limits are
@@ -249,7 +249,7 @@ Cloudflare facts in this section were checked against official documentation on
   HayaSend can assume;
 - the Workers binding and REST API return a provider message ID;
 - per-domain
-  [event subscriptions](https://developers.cloudflare.com/email-service/platform/event-subscriptions/)
+  [event subscriptions](https://developers.cloudflare.com/queues/event-subscriptions/events-schemas/)
   currently provide recipient-level delivered, deferred, bounced, failed,
   rejected, and complained events through Queues;
 - [Queues are at least once](https://developers.cloudflare.com/queues/reference/delivery-guarantees/)

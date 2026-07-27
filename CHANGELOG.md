@@ -14,6 +14,12 @@ minor releases before v1.0.
   commits, checksum-bound R2 payloads and orphan recovery, deterministic Queue
   retries and DLQ recovery, privacy-safe diagnostics, and local workerd fault
   tests.
+- Add an unwired Cloudflare Email Sending Beta provider proof with structured
+  binding transport, privacy-safe documented error normalization, indexed
+  provider-message correlation, all six per-domain Queue lifecycle events,
+  bounce/complaint suppression, duplicate and out-of-order convergence,
+  pre-commit 50-recipient/5 MiB enforcement, official Resend SDK coverage, and
+  an honest conformance report that leaves hosted deploy/rollback to #104.
 - Add scope-protected, privacy-safe recipient summaries and recovery
   diagnostics for mixed outcomes, ambiguous attempts, outbox age, stuck
   leases, SQS/DLQ depth, provider-event lag, and capability drift.

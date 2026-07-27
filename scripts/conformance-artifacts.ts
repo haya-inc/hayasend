@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
+import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
+import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import {
   CONFORMANCE_CASES,
   conformanceCaseCatalogSchema,
@@ -28,6 +30,10 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     cases: CONFORMANCE_CASES,
   }),
   "conformance/providers/aws-ses.v1.json": AWS_SES_CAPABILITIES,
+  "conformance/providers/cloudflare-email.v1.json":
+    CLOUDFLARE_EMAIL_CAPABILITIES,
+  "conformance/reports/cloudflare-email.local.v1.json":
+    CLOUDFLARE_EMAIL_CONFORMANCE_REPORT,
   "schemas/conformance-cases.v1.schema.json": jsonSchema(
     conformanceCaseCatalogSchema,
     "https://hayasend.dev/schemas/conformance-cases.v1.schema.json",
