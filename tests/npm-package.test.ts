@@ -58,6 +58,11 @@ describe("npm CLI distribution", () => {
     );
 
     expect(workflow).toContain("environment: npm");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain(
+      "ref: ${{ inputs.release_tag || github.ref }}",
+    );
+    expect(workflow).toContain("if: github.event_name == 'push'");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("package-manager-cache: false");
     expect(workflow).toContain(
@@ -71,6 +76,9 @@ describe("npm CLI distribution", () => {
       'npm view "${package_name}@${VERSION}" dist.integrity',
     );
     expect(workflow).toContain('if [ "$published_integrity" != "$local_integrity" ]');
+    expect(workflow).toContain(
+      'archive="./release/haya-inc-hayasend-${VERSION}.tgz"',
+    );
     expect(workflow).toContain('npm publish "$archive"');
     expect(workflow).toContain("--provenance");
     expect(workflow).toContain('--tag "$npm_tag"');
