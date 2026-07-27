@@ -87,6 +87,7 @@ export interface CloudflareDependencies {
   env: NodeJS.ProcessEnv;
   log(message: string): void;
   runCommand: CommandRunner;
+  sleep?: ((milliseconds: number) => Promise<void>) | undefined;
 }
 
 interface WranglerEvent {
@@ -649,27 +650,48 @@ export async function deployCloudflare(
         DEPLOY_TIMEOUT_MS,
       );
       uploaded = uploadedVersion(await wranglerEvents(outputPath));
-      await wrangler(
-        dependencies,
-        options.account,
-        [
-          "versions",
-          "deploy",
-          "--name",
-          names.worker,
-          "--version-id",
-          uploaded.versionId,
-          "--percentage",
-          "100",
-          "--message",
-          `HayaSend ${deploymentId}`,
-          "--config",
-          configPath,
-          "--yes",
-        ],
-        outputPath,
-        DEPLOY_TIMEOUT_MS,
-      );
+      const deployArguments = [
+        "versions",
+        "deploy",
+        "--name",
+        names.worker,
+        "--version-id",
+        uploaded.versionId,
+        "--percentage",
+        "100",
+        "--message",
+        `HayaSend ${deploymentId}`,
+        "--config",
+        configPath,
+        "--yes",
+      ];
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          await wrangler(
+            dependencies,
+            options.account,
+            deployArguments,
+            outputPath,
+            DEPLOY_TIMEOUT_MS,
+          );
+          break;
+        } catch (error) {
+          const versionStillPropagating =
+            error instanceof Error &&
+            error.message.includes("[code: 10013]");
+          if (!versionStillPropagating || attempt === 9) {
+            throw error;
+          }
+          dependencies.log(
+            `Cloudflare version ${uploaded.versionId} is still propagating; retrying deployment.`,
+          );
+          await (dependencies.sleep ??
+            ((milliseconds) =>
+              new Promise((resolve) =>
+                setTimeout(resolve, milliseconds),
+              )))(1_000);
+        }
+      }
       const deployedEvents = await wranglerEvents(outputPath);
       deployed = deployedVersion(deployedEvents, names.worker);
     }

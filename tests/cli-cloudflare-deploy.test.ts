@@ -274,6 +274,79 @@ describe("plan-first Cloudflare lifecycle", () => {
     });
   });
 
+  it("retries an uploaded version while Cloudflare propagates it", async () => {
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const sleep = vi.fn(async () => undefined);
+    let deployAttempts = 0;
+    const runner: CommandRunner = async (_command, args, options) => {
+      calls.push(args);
+      const outputPath = options.env?.WRANGLER_OUTPUT_FILE_PATH;
+      if (args.slice(2, 4).join(" ") === "versions upload" && outputPath) {
+        await writeFile(
+          outputPath,
+          `${JSON.stringify({
+            type: "version-upload",
+            worker_name: "hayasend-proof",
+            version_id: VERSION_ID,
+          })}\n`,
+        );
+      }
+      if (args.slice(2, 4).join(" ") === "versions deploy") {
+        deployAttempts += 1;
+        if (deployAttempts === 1) {
+          return result("", "Version not found [code: 10013]", 1);
+        }
+        if (outputPath) {
+          await writeFile(
+            outputPath,
+            `${JSON.stringify({
+              type: "version-deploy",
+              worker_name: "hayasend-proof",
+              deployment_id: "cloudflare-deployment-id",
+              version_traffic: { [VERSION_ID]: 100 },
+            })}\n`,
+          );
+        }
+      }
+      return result();
+    };
+
+    await deployCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        deploymentId: "integration-upgrade",
+        databaseId: DATABASE_ID,
+        allowedRecipients: ["recipient@example.net"],
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: {
+          CLOUDFLARE_API_TOKEN: "private-token",
+          HAYASEND_CLOUDFLARE_API_KEY:
+            "re_cloudflare_integration_secret",
+        },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+        sleep,
+      },
+    );
+
+    expect(calls.filter((args) =>
+      args.slice(2, 4).join(" ") === "versions upload"
+    )).toHaveLength(1);
+    expect(calls.filter((args) =>
+      args.slice(2, 4).join(" ") === "versions deploy"
+    )).toHaveLength(2);
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(1_000);
+    expect(logs).toContain(
+      `Cloudflare version ${VERSION_ID} is still propagating; retrying deployment.`,
+    );
+  });
+
   it("builds the provider switch and all runtime bindings from configuration", () => {
     const config = buildCloudflareWranglerConfig({
       names: cloudflareResourceNames("proof"),
