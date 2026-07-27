@@ -28,7 +28,9 @@ function runtimeEnv(
     PRIMARY_QUEUE: queue as unknown as Queue<CloudflareJobEnvelope>,
     EMAIL: {
       async send() {
-        return { messageId: "cloudflare-provider-test" };
+        return {
+          messageId: "<cloudflare-provider-test@hayasend.com>",
+        };
       },
     },
     HAYASEND_API_KEY: "re_cloudflare_worker_test",
@@ -117,7 +119,7 @@ describe("deployed Cloudflare Worker API boundary", () => {
       id: body.id,
       status: "sent",
       to: ["recipient@example.net"],
-      message_id: "cloudflare-provider-test",
+      message_id: "<cloudflare-provider-test@hayasend.com>",
     });
   });
 

@@ -29,7 +29,9 @@ describe("Cloudflare Email Sending transport", () => {
     const transport = new CloudflareEmailSendingTransport({
       async send(message) {
         sent.push(structuredClone(message));
-        return { messageId: "cf-provider-message-1" };
+        return {
+          messageId: "<cf-provider-message-1@hayasend.com>",
+        };
       },
     });
 
@@ -51,7 +53,9 @@ describe("Cloudflare Email Sending transport", () => {
           ],
         }),
       ),
-    ).resolves.toEqual({ provider_id: "cf-provider-message-1" });
+    ).resolves.toEqual({
+      provider_id: "<cf-provider-message-1@hayasend.com>",
+    });
     expect(sent).toEqual([
       expect.objectContaining({
         from: "sender@example.com",

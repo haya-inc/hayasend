@@ -769,9 +769,11 @@ export class D1DeliveryStore
     if (
       providerMessageId.length < 1 ||
       providerMessageId.length > 512 ||
-      !/^[\x21-\x3F\x41-\x7E]+$/.test(providerMessageId)
+      !/^[\x21-\x7E]+$/.test(providerMessageId)
     ) {
-      throw new Error("Provider message ID is not privacy-safe opaque data.");
+      throw new Error(
+        "Provider message ID must contain only visible ASCII characters.",
+      );
     }
     const row = await this.first<{ message_id: string }>(
       "read",
