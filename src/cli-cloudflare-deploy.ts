@@ -773,6 +773,7 @@ async function bestEffortWrangler(
   account: string,
   args: string[],
   acceptableMissingCodes: number[] = [],
+  acceptableMissingPatterns: RegExp[] = [],
 ): Promise<{ ok: boolean; diagnostic?: string }> {
   try {
     await wrangler(dependencies, account, args);
@@ -782,10 +783,16 @@ async function bestEffortWrangler(
     const acceptedCode = acceptableMissingCodes.find((code) =>
       diagnostic.includes(`[code: ${code}]`),
     );
-    if (acceptedCode !== undefined) {
+    const acceptedPattern = acceptableMissingPatterns.find((pattern) =>
+      pattern.test(diagnostic),
+    );
+    if (acceptedCode !== undefined || acceptedPattern !== undefined) {
       return {
         ok: true,
-        diagnostic: `Resource was already absent (Cloudflare code ${acceptedCode}).`,
+        diagnostic:
+          acceptedCode !== undefined
+            ? `Resource was already absent (Cloudflare code ${acceptedCode}).`
+            : "Resource or binding was already absent.",
       };
     }
     return {
@@ -808,6 +815,7 @@ export async function cleanupCloudflare(
         account,
         resources: names,
         order: [
+          "remove Queue consumers",
           "delete Worker",
           "read D1 payload references",
           "delete HayaSend R2 payload objects",
@@ -830,13 +838,32 @@ export async function cleanupCloudflare(
     ok: boolean;
     diagnostic?: string;
   }> = [];
+  for (const queue of [
+    names.email_events_queue,
+    names.primary_queue,
+    names.dead_letter_queue,
+  ]) {
+    results.push({
+      resource: `${queue} consumer ${names.worker}`,
+      ...(await bestEffortWrangler(
+        dependencies,
+        account,
+        ["queues", "consumer", "remove", queue, names.worker],
+        [],
+        [
+          /Queue "[^"]+" does not exist/iu,
+          /No worker consumer '[^']+' exists for queue/iu,
+        ],
+      )),
+    });
+  }
   results.push({
     resource: names.worker,
     ...(await bestEffortWrangler(
       dependencies,
       account,
-      ["delete", names.worker, "--force"],
-      [10090],
+      ["delete", names.worker],
+      [10007, 10090],
     )),
   });
   let payloadKeys: string[] = [];
@@ -870,12 +897,12 @@ export async function cleanupCloudflare(
   }
   results.push({
     resource: names.bucket,
-    ...(await bestEffortWrangler(dependencies, account, [
-      "r2",
-      "bucket",
-      "delete",
-      names.bucket,
-    ])),
+    ...(await bestEffortWrangler(
+      dependencies,
+      account,
+      ["r2", "bucket", "delete", names.bucket],
+      [10006],
+    )),
   });
   for (const queue of [
     names.email_events_queue,
@@ -884,21 +911,29 @@ export async function cleanupCloudflare(
   ]) {
     results.push({
       resource: queue,
-      ...(await bestEffortWrangler(dependencies, account, [
-        "queues",
-        "delete",
-        queue,
-      ])),
+      ...(await bestEffortWrangler(
+        dependencies,
+        account,
+        ["queues", "delete", queue],
+        [],
+        [/Queue "[^"]+" does not exist/iu],
+      )),
     });
   }
   results.push({
     resource: names.database,
-    ...(await bestEffortWrangler(dependencies, account, [
-      "d1",
-      "delete",
-      names.database,
-      "--skip-confirmation",
-    ])),
+    ...(await bestEffortWrangler(
+      dependencies,
+      account,
+      [
+        "d1",
+        "delete",
+        names.database,
+        "--skip-confirmation",
+      ],
+      [],
+      [/Couldn't find a D1 DB with name or binding/iu],
+    )),
   });
   const failed = results.filter((result) => !result.ok);
   dependencies.log(

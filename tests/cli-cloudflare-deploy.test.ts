@@ -365,16 +365,36 @@ describe("plan-first Cloudflare lifecycle", () => {
 
     const operations = calls.map((args) => args.slice(2));
     expect(operations[0]).toEqual([
+      "queues",
+      "consumer",
+      "remove",
+      "hayasend-proof-email-events",
+      "hayasend-proof",
+    ]);
+    expect(operations[1]).toEqual([
+      "queues",
+      "consumer",
+      "remove",
+      "hayasend-proof-jobs",
+      "hayasend-proof",
+    ]);
+    expect(operations[2]).toEqual([
+      "queues",
+      "consumer",
+      "remove",
+      "hayasend-proof-jobs-dlq",
+      "hayasend-proof",
+    ]);
+    expect(operations[3]).toEqual([
       "delete",
       "hayasend-proof",
-      "--force",
     ]);
-    expect(operations[1]?.slice(0, 3)).toEqual([
+    expect(operations[4]?.slice(0, 3)).toEqual([
       "d1",
       "execute",
       "hayasend-proof-d1",
     ]);
-    expect(operations[2]).toEqual([
+    expect(operations[5]).toEqual([
       "r2",
       "object",
       "delete",
@@ -433,10 +453,98 @@ describe("plan-first Cloudflare lifecycle", () => {
       complete: true,
     });
     expect(cleanup.results[0]).toMatchObject({
+      resource:
+        "hayasend-proof-email-events consumer hayasend-proof",
+      ok: true,
+    });
+    expect(cleanup.results[3]).toMatchObject({
       resource: "hayasend-proof",
       ok: true,
       diagnostic:
         "Resource was already absent (Cloudflare code 10090).",
+    });
+  });
+
+  it("makes a partially completed cleanup fully idempotent", async () => {
+    const logs: string[] = [];
+    const runner: CommandRunner = async (_command, args) => {
+      const operation = args.slice(2);
+      if (
+        operation[0] === "queues" &&
+        operation[1] === "consumer"
+      ) {
+        return result(
+          "",
+          `Queue "${operation[3]}" does not exist. To create it, run: wrangler queues create ${operation[3]}`,
+          1,
+        );
+      }
+      if (operation[0] === "delete") {
+        return result(
+          "",
+          "This Worker does not exist on your account. [code: 10007]",
+          1,
+        );
+      }
+      if (
+        operation[0] === "d1" &&
+        operation[1] === "execute"
+      ) {
+        return result(
+          "",
+          "Couldn't find a D1 DB with name or binding 'hayasend-proof-d1'",
+          1,
+        );
+      }
+      if (operation[0] === "r2") {
+        return result(
+          "",
+          "The specified bucket does not exist. [code: 10006]",
+          1,
+        );
+      }
+      if (
+        operation[0] === "queues" &&
+        operation[1] === "delete"
+      ) {
+        return result(
+          "",
+          `Queue "${operation[2]}" does not exist. To create it, run: wrangler queues create ${operation[2]}`,
+          1,
+        );
+      }
+      if (
+        operation[0] === "d1" &&
+        operation[1] === "delete"
+      ) {
+        return result(
+          "",
+          "Couldn't find a D1 DB with name or binding 'hayasend-proof-d1'",
+          1,
+        );
+      }
+      return result();
+    };
+
+    await cleanupCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+      },
+    );
+
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_cleanup_result",
+      complete: true,
+      deleted_payload_objects: 0,
     });
   });
 
