@@ -7,22 +7,21 @@ import type {
 } from "../src/cli-aws-deploy.js";
 import {
   buildCloudflareWranglerConfig,
+  CLOUDFLARE_EMAIL_SENDING_EVENTS,
   cleanupCloudflare,
   cloudflareResourceNames,
   deployCloudflare,
   doctorCloudflare,
+  doctorCloudflareEmailEvents,
   rollbackCloudflare,
 } from "../src/cli-cloudflare-deploy.js";
 
 const ACCOUNT = "a".repeat(32);
 const DATABASE_ID = "11111111-2222-3333-4444-555555555555";
 const VERSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const EMAIL_DOMAIN = "example.com";
 
-function result(
-  stdout = "",
-  stderr = "",
-  exitCode = 0,
-): CommandResult {
+function result(stdout = "", stderr = "", exitCode = 0): CommandResult {
   return { stdout, stderr, exitCode };
 }
 
@@ -36,9 +35,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       dead_letter_queue: "hayasend-proof-jobs-dlq",
       email_events_queue: "hayasend-proof-email-events",
     });
-    expect(() => cloudflareResourceNames("Production")).toThrow(
-      "lowercase",
-    );
+    expect(() => cloudflareResourceNames("Production")).toThrow("lowercase");
   });
 
   it("keeps deploy plan-only by default and records pinned truth", async () => {
@@ -84,8 +81,7 @@ describe("plan-first Cloudflare lifecycle", () => {
           cwd: process.cwd(),
           env: {
             CLOUDFLARE_API_TOKEN: "private-token",
-            HAYASEND_CLOUDFLARE_API_KEY:
-              "re_cloudflare_integration_secret",
+            HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
           },
           log: () => undefined,
           runCommand: vi.fn<CommandRunner>(),
@@ -101,6 +97,7 @@ describe("plan-first Cloudflare lifecycle", () => {
         {
           account: ACCOUNT,
           name: "proof",
+          emailDomain: EMAIL_DOMAIN,
           apply: true,
           confirmAccount: ACCOUNT,
         },
@@ -108,8 +105,7 @@ describe("plan-first Cloudflare lifecycle", () => {
           cwd: process.cwd(),
           env: {
             CLOUDFLARE_API_TOKEN: "private-token",
-            HAYASEND_CLOUDFLARE_API_KEY:
-              "re_cloudflare_integration_secret",
+            HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
           },
           log: () => undefined,
           runCommand: runner,
@@ -136,18 +132,21 @@ describe("plan-first Cloudflare lifecycle", () => {
             type: "deploy",
             worker_name: "hayasend-proof",
             version_id: VERSION_ID,
-            targets: [
-              "https://hayasend-proof.example.workers.dev",
-            ],
+            targets: ["https://hayasend-proof.example.workers.dev"],
           })}\n`,
         );
       }
-      if (args.includes("list") && args.includes("--json")) {
+      if (args[2] === "d1" && args.includes("list")) {
         return result(
-          JSON.stringify([
-            { name: "hayasend-proof-d1", uuid: DATABASE_ID },
-          ]),
+          JSON.stringify([{ name: "hayasend-proof-d1", uuid: DATABASE_ID }]),
         );
+      }
+      if (
+        args[2] === "queues" &&
+        args[3] === "subscription" &&
+        args[4] === "list"
+      ) {
+        return result("[]");
       }
       return result();
     };
@@ -156,6 +155,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       {
         account: ACCOUNT,
         name: "proof",
+        emailDomain: EMAIL_DOMAIN,
         deploymentId: "integration-1234",
         allowedRecipients: ["recipient@example.net"],
         apply: true,
@@ -165,8 +165,7 @@ describe("plan-first Cloudflare lifecycle", () => {
         cwd: process.cwd(),
         env: {
           CLOUDFLARE_API_TOKEN: "private-token",
-          HAYASEND_CLOUDFLARE_API_KEY:
-            "re_cloudflare_integration_secret",
+          HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
         },
         log: (message) => logs.push(message),
         runCommand: runner,
@@ -177,21 +176,28 @@ describe("plan-first Cloudflare lifecycle", () => {
     expect(commands).toContain("d1 create hayasend-proof-d1");
     expect(commands).toContain("r2 bucket create");
     expect(calls.some(({ args }) => args[2] === "deploy")).toBe(true);
-    expect(calls.some(({ args }) =>
-      args.slice(2, 4).join(" ") === "versions upload"
-    )).toBe(false);
-    expect(calls.some(({ args }) =>
-      args.slice(2, 4).join(" ") === "versions deploy"
-    )).toBe(false);
-    expect(calls.every(({ options }) =>
-      options.env?.CLOUDFLARE_ACCOUNT_ID === ACCOUNT
-    )).toBe(true);
-    expect(calls.every(({ options }) =>
-      options.env?.HAYASEND_CLOUDFLARE_API_KEY === undefined
-    )).toBe(true);
+    expect(
+      calls.some(
+        ({ args }) => args.slice(2, 4).join(" ") === "versions upload",
+      ),
+    ).toBe(false);
+    expect(
+      calls.some(
+        ({ args }) => args.slice(2, 4).join(" ") === "versions deploy",
+      ),
+    ).toBe(false);
+    expect(
+      calls.every(
+        ({ options }) => options.env?.CLOUDFLARE_ACCOUNT_ID === ACCOUNT,
+      ),
+    ).toBe(true);
+    expect(
+      calls.every(
+        ({ options }) => options.env?.HAYASEND_CLOUDFLARE_API_KEY === undefined,
+      ),
+    ).toBe(true);
     const deploy = calls.find(({ args }) => args[2] === "deploy");
-    const secretPath =
-      deploy?.args[deploy.args.indexOf("--secrets-file") + 1];
+    const secretPath = deploy?.args[deploy.args.indexOf("--secrets-file") + 1];
     expect(secretPath).toBeDefined();
     await expect(readFile(secretPath!, "utf8")).rejects.toThrow();
     expect(JSON.stringify(logs)).not.toContain("private-token");
@@ -203,6 +209,12 @@ describe("plan-first Cloudflare lifecycle", () => {
       deployment_id: "integration-1234",
       version_id: VERSION_ID,
       database_id: DATABASE_ID,
+      event_subscription: {
+        source: "email.sending",
+        domain: EMAIL_DOMAIN,
+        events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+        status: "manual_configuration_required",
+      },
       production_ready: false,
     });
   });
@@ -241,6 +253,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       {
         account: ACCOUNT,
         name: "proof",
+        emailDomain: EMAIL_DOMAIN,
         deploymentId: "integration-upgrade",
         databaseId: DATABASE_ID,
         allowedRecipients: ["recipient@example.net"],
@@ -251,22 +264,22 @@ describe("plan-first Cloudflare lifecycle", () => {
         cwd: process.cwd(),
         env: {
           CLOUDFLARE_API_TOKEN: "private-token",
-          HAYASEND_CLOUDFLARE_API_KEY:
-            "re_cloudflare_integration_secret",
+          HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
         },
         log: (message) => logs.push(message),
         runCommand: runner,
       },
     );
 
-    expect(calls.some((args) =>
-      args.slice(2, 4).join(" ") === "versions upload"
-    )).toBe(true);
-    expect(calls.some((args) =>
-      args.slice(2, 4).join(" ") === "versions deploy"
-    )).toBe(true);
-    expect(calls.some((args) => args[2] === "d1" && args[3] === "create"))
-      .toBe(false);
+    expect(
+      calls.some((args) => args.slice(2, 4).join(" ") === "versions upload"),
+    ).toBe(true);
+    expect(
+      calls.some((args) => args.slice(2, 4).join(" ") === "versions deploy"),
+    ).toBe(true);
+    expect(calls.some((args) => args[2] === "d1" && args[3] === "create")).toBe(
+      false,
+    );
     expect(JSON.parse(logs.at(-1)!)).toMatchObject({
       object: "cloudflare_deployment_result",
       version_id: VERSION_ID,
@@ -316,6 +329,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       {
         account: ACCOUNT,
         name: "proof",
+        emailDomain: EMAIL_DOMAIN,
         deploymentId: "integration-upgrade",
         databaseId: DATABASE_ID,
         allowedRecipients: ["recipient@example.net"],
@@ -326,8 +340,7 @@ describe("plan-first Cloudflare lifecycle", () => {
         cwd: process.cwd(),
         env: {
           CLOUDFLARE_API_TOKEN: "private-token",
-          HAYASEND_CLOUDFLARE_API_KEY:
-            "re_cloudflare_integration_secret",
+          HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
         },
         log: (message) => logs.push(message),
         runCommand: runner,
@@ -335,12 +348,12 @@ describe("plan-first Cloudflare lifecycle", () => {
       },
     );
 
-    expect(calls.filter((args) =>
-      args.slice(2, 4).join(" ") === "versions upload"
-    )).toHaveLength(1);
-    expect(calls.filter((args) =>
-      args.slice(2, 4).join(" ") === "versions deploy"
-    )).toHaveLength(2);
+    expect(
+      calls.filter((args) => args.slice(2, 4).join(" ") === "versions upload"),
+    ).toHaveLength(1);
+    expect(
+      calls.filter((args) => args.slice(2, 4).join(" ") === "versions deploy"),
+    ).toHaveLength(2);
     expect(sleep).toHaveBeenCalledExactlyOnceWith(1_000);
     expect(logs).toContain(
       `Cloudflare version ${VERSION_ID} is still propagating; retrying deployment.`,
@@ -406,13 +419,176 @@ describe("plan-first Cloudflare lifecycle", () => {
     ]);
   });
 
+  it("fails closed unless one exact Email Sending subscription is enabled", async () => {
+    const logs: string[] = [];
+    const subscription = {
+      id: "subscription-1234",
+      name: "HayaSend terminal delivery",
+      enabled: true,
+      source: {
+        type: "email.sending",
+        domain: EMAIL_DOMAIN,
+      },
+      destination: {
+        type: "queues.queue",
+        queue_id: "queue-1234",
+      },
+      events: [...CLOUDFLARE_EMAIL_SENDING_EVENTS],
+    };
+    const runner: CommandRunner = async () =>
+      result(JSON.stringify([subscription]));
+    await doctorCloudflareEmailEvents(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        emailDomain: EMAIL_DOMAIN,
+      },
+      {
+        cwd: process.cwd(),
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+      },
+    );
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_email_event_subscription_doctor",
+      subscriptions_found: 1,
+      healthy: true,
+      matching_subscriptions: [
+        {
+          id: subscription.id,
+          domain: EMAIL_DOMAIN,
+          enabled: true,
+        },
+      ],
+    });
+
+    await expect(
+      doctorCloudflareEmailEvents(
+        {
+          account: ACCOUNT,
+          name: "proof",
+          emailDomain: "other.example",
+        },
+        {
+          cwd: process.cwd(),
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          log: () => undefined,
+          runCommand: runner,
+        },
+      ),
+    ).rejects.toThrow("exactly one subscription");
+
+    await expect(
+      doctorCloudflareEmailEvents(
+        {
+          account: ACCOUNT,
+          name: "proof",
+          emailDomain: EMAIL_DOMAIN,
+        },
+        {
+          cwd: process.cwd(),
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          log: () => undefined,
+          runCommand: async () =>
+            result(
+              JSON.stringify([
+                subscription,
+                {
+                  ...subscription,
+                  id: "subscription-unexpected",
+                  enabled: false,
+                },
+              ]),
+            ),
+        },
+      ),
+    ).rejects.toThrow("exactly one subscription");
+  });
+
+  it("deletes Queue event subscriptions before consumers and resources", async () => {
+    const calls: string[][] = [];
+    const subscription = {
+      id: "subscription-1234",
+      name: "HayaSend terminal delivery",
+      enabled: true,
+      source: {
+        type: "email.sending",
+        domain: EMAIL_DOMAIN,
+      },
+      destination: {
+        type: "queues.queue",
+        queue_id: "queue-1234",
+      },
+      events: [...CLOUDFLARE_EMAIL_SENDING_EVENTS],
+    };
+    const runner: CommandRunner = async (_command, args) => {
+      calls.push(args.slice(2));
+      if (
+        args[2] === "queues" &&
+        args[3] === "subscription" &&
+        args[4] === "list"
+      ) {
+        return result(JSON.stringify([subscription]));
+      }
+      return result();
+    };
+    await cleanupCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        log: () => undefined,
+        runCommand: runner,
+      },
+    );
+    expect(calls.slice(0, 3)).toEqual([
+      [
+        "queues",
+        "subscription",
+        "list",
+        "hayasend-proof-email-events",
+        "--per-page",
+        "100",
+        "--json",
+      ],
+      [
+        "queues",
+        "subscription",
+        "delete",
+        "hayasend-proof-email-events",
+        "--id",
+        subscription.id,
+        "--force",
+      ],
+      [
+        "queues",
+        "consumer",
+        "remove",
+        "hayasend-proof-email-events",
+        "hayasend-proof",
+      ],
+    ]);
+  });
+
   it("deletes the deterministic resource set and referenced payloads in order", async () => {
     const calls: string[][] = [];
     const logs: string[] = [];
-    const objectKey =
-      `emails/email_${"a".repeat(32)}/11111111-2222-3333-4444-555555555555.json`;
+    const objectKey = `emails/email_${"a".repeat(32)}/11111111-2222-3333-4444-555555555555.json`;
     const runner: CommandRunner = async (_command, args) => {
       calls.push(args);
+      if (
+        args[2] === "queues" &&
+        args[3] === "subscription" &&
+        args[4] === "list"
+      ) {
+        return result("[]");
+      }
       if (args.includes("execute")) {
         return result(
           JSON.stringify([{ results: [{ object_key: objectKey }] }]),
@@ -439,35 +615,41 @@ describe("plan-first Cloudflare lifecycle", () => {
     const operations = calls.map((args) => args.slice(2));
     expect(operations[0]).toEqual([
       "queues",
-      "consumer",
-      "remove",
+      "subscription",
+      "list",
       "hayasend-proof-email-events",
-      "hayasend-proof",
+      "--per-page",
+      "100",
+      "--json",
     ]);
     expect(operations[1]).toEqual([
       "queues",
       "consumer",
       "remove",
-      "hayasend-proof-jobs",
+      "hayasend-proof-email-events",
       "hayasend-proof",
     ]);
     expect(operations[2]).toEqual([
       "queues",
       "consumer",
       "remove",
-      "hayasend-proof-jobs-dlq",
+      "hayasend-proof-jobs",
       "hayasend-proof",
     ]);
     expect(operations[3]).toEqual([
-      "delete",
+      "queues",
+      "consumer",
+      "remove",
+      "hayasend-proof-jobs-dlq",
       "hayasend-proof",
     ]);
-    expect(operations[4]?.slice(0, 3)).toEqual([
+    expect(operations[4]).toEqual(["delete", "hayasend-proof"]);
+    expect(operations[5]?.slice(0, 3)).toEqual([
       "d1",
       "execute",
       "hayasend-proof-d1",
     ]);
-    expect(operations[5]).toEqual([
+    expect(operations[6]).toEqual([
       "r2",
       "object",
       "delete",
@@ -491,6 +673,13 @@ describe("plan-first Cloudflare lifecycle", () => {
   it("treats an already absent Worker as an idempotent cleanup success", async () => {
     const logs: string[] = [];
     const runner: CommandRunner = async (_command, args) => {
+      if (
+        args[2] === "queues" &&
+        args[3] === "subscription" &&
+        args[4] === "list"
+      ) {
+        return result("[]");
+      }
       if (args[2] === "delete") {
         return result(
           "",
@@ -526,15 +715,13 @@ describe("plan-first Cloudflare lifecycle", () => {
       complete: true,
     });
     expect(cleanup.results[0]).toMatchObject({
-      resource:
-        "hayasend-proof-email-events consumer hayasend-proof",
+      resource: "hayasend-proof-email-events consumer hayasend-proof",
       ok: true,
     });
     expect(cleanup.results[3]).toMatchObject({
       resource: "hayasend-proof",
       ok: true,
-      diagnostic:
-        "Resource was already absent (Cloudflare code 10090).",
+      diagnostic: "Resource was already absent (Cloudflare code 10090).",
     });
   });
 
@@ -542,6 +729,13 @@ describe("plan-first Cloudflare lifecycle", () => {
     const logs: string[] = [];
     const runner: CommandRunner = async (_command, args) => {
       const operation = args.slice(2);
+      if (
+        operation[0] === "queues" &&
+        operation[1] === "subscription" &&
+        operation[2] === "list"
+      ) {
+        return result("[]");
+      }
       if (operation[0] === "delete") {
         return result(
           "",
@@ -549,10 +743,7 @@ describe("plan-first Cloudflare lifecycle", () => {
           1,
         );
       }
-      if (
-        operation[0] === "versions" &&
-        operation[1] === "list"
-      ) {
+      if (operation[0] === "versions" && operation[1] === "list") {
         return result(
           "",
           "This Worker does not exist on your account. [code: 10007]",
@@ -596,8 +787,12 @@ describe("plan-first Cloudflare lifecycle", () => {
       const operation = args.slice(2);
       if (
         operation[0] === "queues" &&
-        operation[1] === "consumer"
+        operation[1] === "subscription" &&
+        operation[2] === "list"
       ) {
+        return result("", `Queue "${operation[3]}" does not exist.`, 1);
+      }
+      if (operation[0] === "queues" && operation[1] === "consumer") {
         return result(
           "",
           `Queue "${operation[3]}" does not exist. To create it, run: wrangler queues create ${operation[3]}`,
@@ -611,10 +806,7 @@ describe("plan-first Cloudflare lifecycle", () => {
           1,
         );
       }
-      if (
-        operation[0] === "d1" &&
-        operation[1] === "execute"
-      ) {
+      if (operation[0] === "d1" && operation[1] === "execute") {
         return result(
           "",
           "Couldn't find a D1 DB with name or binding 'hayasend-proof-d1'",
@@ -628,20 +820,14 @@ describe("plan-first Cloudflare lifecycle", () => {
           1,
         );
       }
-      if (
-        operation[0] === "queues" &&
-        operation[1] === "delete"
-      ) {
+      if (operation[0] === "queues" && operation[1] === "delete") {
         return result(
           "",
           `Queue "${operation[2]}" does not exist. To create it, run: wrangler queues create ${operation[2]}`,
           1,
         );
       }
-      if (
-        operation[0] === "d1" &&
-        operation[1] === "delete"
-      ) {
+      if (operation[0] === "d1" && operation[1] === "delete") {
         return result(
           "",
           "Couldn't find a D1 DB with name or binding 'hayasend-proof-d1'",
@@ -698,8 +884,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       },
       {
         env: {
-          HAYASEND_CLOUDFLARE_API_KEY:
-            "re_cloudflare_integration_secret",
+          HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
         },
         fetch: fetchMock,
         log: (message) => logs.push(message),
@@ -748,8 +933,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       },
       {
         env: {
-          HAYASEND_CLOUDFLARE_API_KEY:
-            "re_cloudflare_integration_secret",
+          HAYASEND_CLOUDFLARE_API_KEY: "re_cloudflare_integration_secret",
         },
         fetch: fetchMock,
         sleep,

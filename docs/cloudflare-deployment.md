@@ -36,11 +36,13 @@ Pin an exact released HayaSend version in automation:
 HAYASEND_VERSION=X.Y.Z
 ACCOUNT_ID=0123456789abcdef0123456789abcdef
 DEPLOYMENT_NAME=proof
+EMAIL_DOMAIN=example.com
 
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" \
   deploy cloudflare \
   --account "$ACCOUNT_ID" \
-  --name "$DEPLOYMENT_NAME"
+  --name "$DEPLOYMENT_NAME" \
+  --email-domain "$EMAIL_DOMAIN"
 ```
 
 The default is a read-only JSON plan. It records the exact HayaSend, Node, npm,
@@ -59,6 +61,7 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" \
   deploy cloudflare \
   --account "$ACCOUNT_ID" \
   --name "$DEPLOYMENT_NAME" \
+  --email-domain "$EMAIL_DOMAIN" \
   --deployment-id reviewed-proof-1 \
   --allowed-recipient controlled-recipient@example.net \
   --confirm-account "$ACCOUNT_ID" \
@@ -68,6 +71,8 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" \
 Apply requires one or more Cloudflare-verified `--allowed-recipient` values and
 writes them to the Email Sending binding's
 `allowed_destination_addresses`; the proof cannot send to any other address.
+It also requires the exact enabled Email Sending `--email-domain`. The deploy
+result records the supported Cloudflare Dashboard handoff for that domain.
 It creates one D1 database, one private R2 bucket, three Queues, and one Worker.
 It applies additive D1 migrations with Cloudflare's pre-migration backup,
 uploads a tagged Worker version, and routes 100% of traffic to that explicit
@@ -95,6 +100,7 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" \
   upgrade cloudflare \
   --account "$ACCOUNT_ID" \
   --name "$DEPLOYMENT_NAME" \
+  --email-domain "$EMAIL_DOMAIN" \
   --database-id "$DATABASE_ID" \
   --deployment-id reviewed-proof-2 \
   --allowed-recipient controlled-recipient@example.net \
@@ -141,6 +147,7 @@ The manual `Cloudflare integration` GitHub Actions workflow uses the protected
 | Variable | `CLOUDFLARE_TEST_ACCOUNT_ID`        | Exact approved test account ID    |
 | Variable | `CLOUDFLARE_TEST_ACCOUNT_KIND`      | Literal `general-purpose-test`    |
 | Variable | `CLOUDFLARE_TEST_WORKERS_SUBDOMAIN` | Account Workers subdomain         |
+| Variable | `CLOUDFLARE_TEST_EMAIL_DOMAIN`      | Enabled Email Sending domain      |
 | Variable | `CLOUDFLARE_TEST_FROM`              | Controlled enabled sender         |
 | Variable | `CLOUDFLARE_TEST_TO`                | Controlled, verified recipient    |
 | Secret   | `CLOUDFLARE_API_TOKEN`              | Account-scoped lifecycle token    |
@@ -158,17 +165,38 @@ official Resend SDK send/retrieval, controlled health failure, explicit
 rollback, cost estimate, cleanup, and fail-closed absence checks as a retained
 artifact.
 
-## Current event-subscription limitation
+## Email Sending event subscription and terminal proof
 
 Cloudflare documents six per-domain Email Sending events—delivered, deferred,
 bounced, failed, rejected, and complained—and the HayaSend consumer supports
-their current schema. As of 2026-07-27, Wrangler 4.114.0 and the published
-event-subscription API schema do not expose the Email Sending domain selector,
-even though the Email Service documentation describes the source. The hosted
-lifecycle workflow therefore does not fabricate or guess that control-plane
-request. The consumer remains covered by current-workerd schema, duplicate,
-ordering, and correlation tests until Cloudflare exposes a supported creation
-surface.
+their current schema. Wrangler 4.114.0 can list, inspect, and delete these
+subscriptions, but its creation command does not expose the Email Sending
+domain selector. Create the subscription through Cloudflare's documented
+Dashboard surface after the retained deployment creates its Queue:
+
+1. Open **Queues**, select `hayasend-<name>-email-events`, and open
+   **Subscriptions**.
+2. Choose **Subscribe to events**, source **Email Sending**, the exact reviewed
+   domain, and all six events.
+3. Verify the control plane before sending:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" \
+  doctor cloudflare-events \
+  --account "$ACCOUNT_ID" \
+  --name "$DEPLOYMENT_NAME" \
+  --email-domain "$EMAIL_DOMAIN"
+```
+
+The manual `Cloudflare terminal delivery` workflow implements this two-phase
+boundary. Its `deploy` phase retains an isolated namespace for the Dashboard
+handoff. After the subscription exists, `verify-and-cleanup` sends a uniquely
+identified message with the official Resend SDK, requires the aggregate and
+recipient records to reach `delivered`, requires exactly one correlated
+terminal `delivered` provider event in D1, and then removes the subscription
+and every retained resource. Provider acceptance or a HayaSend `sent` status
+alone is not delivery proof. Confirm the unique subject in the controlled
+recipient mailbox, including spam and trash, before accepting the evidence.
 
 ## Beta limitations
 

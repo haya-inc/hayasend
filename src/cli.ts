@@ -22,6 +22,7 @@ import {
   cleanupCloudflare,
   deployCloudflare,
   doctorCloudflare,
+  doctorCloudflareEmailEvents,
   rollbackCloudflare,
 } from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
@@ -179,10 +180,7 @@ function redactHttpErrorBody(value: unknown): unknown {
         normalized.includes("apikey") ||
         normalized.includes("idempotencykey") ||
         normalized.includes("authorization");
-      return [
-        key,
-        sensitive ? "[REDACTED]" : redactHttpErrorBody(entry),
-      ];
+      return [key, sensitive ? "[REDACTED]" : redactHttpErrorBody(entry)];
     }),
   );
 }
@@ -276,8 +274,7 @@ function idFromResponse(value: unknown) {
 }
 
 const API_KEY_ID_PATTERN = /^key_[a-f0-9]{32}$/;
-const API_KEY_TOKEN_PATTERN =
-  /^re_hs_key_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
+const API_KEY_TOKEN_PATTERN = /^re_hs_key_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
 const createdApiKeySchema = publicApiKeySchema
   .extend({
     token: z.string().regex(API_KEY_TOKEN_PATTERN),
@@ -339,10 +336,7 @@ function createdApiKey(value: unknown) {
   return { metadata, token };
 }
 
-function apiKeyResponse<T>(
-  value: unknown,
-  schema: z.ZodType<T>,
-) {
+function apiKeyResponse<T>(value: unknown, schema: z.ZodType<T>) {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new Error("HayaSend did not return valid API key metadata.");
@@ -350,10 +344,7 @@ function apiKeyResponse<T>(
   return parsed.data;
 }
 
-async function createApiKey(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function createApiKey(args: string[], dependencies: CliDependencies) {
   const payload = apiKeyPayload(args);
   const output = flag(args, "token-out");
   if (!output) {
@@ -405,10 +396,7 @@ async function createApiKey(
   );
 }
 
-async function apiKeyCommand(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function apiKeyCommand(args: string[], dependencies: CliDependencies) {
   const command = args[0] ?? "help";
   switch (command) {
     case "create":
@@ -425,9 +413,7 @@ async function apiKeyCommand(
       const limit = flag(args, "limit");
       if (
         limit &&
-        (!/^\d+$/.test(limit) ||
-          Number(limit) < 1 ||
-          Number(limit) > 100)
+        (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100)
       ) {
         throw new Error("--limit must be an integer between 1 and 100.");
       }
@@ -496,9 +482,7 @@ async function apiKeyCommand(
       );
       break;
     default:
-      throw new Error(
-        `Unknown keys command: ${command}. Run hayasend help.`,
-      );
+      throw new Error(`Unknown keys command: ${command}. Run hayasend help.`);
   }
 }
 
@@ -943,7 +927,10 @@ const recoveryDiagnosticsSchema = z.object({
     provider: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
     adapter_version: z.string(),
     capability_version: z.string(),
-    checked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    checked_at: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
     document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
 });
@@ -983,9 +970,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
   let recoveryCheck: "pass" | "not_authorized" | "not_supported";
   let recovery:
     | (z.infer<typeof recoveryDiagnosticsSchema> & {
-        capability: z.infer<
-          typeof recoveryDiagnosticsSchema
-        >["capability"] & {
+        capability: z.infer<typeof recoveryDiagnosticsSchema>["capability"] & {
           drift: boolean | null;
         };
       })
@@ -999,9 +984,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
       await readJsonResponse(recoveryResponse),
     );
     if (!parsed.success) {
-      throw new Error(
-        "HayaSend returned invalid recovery diagnostics.",
-      );
+      throw new Error("HayaSend returned invalid recovery diagnostics.");
     }
     const expectedAwsDigest = createHash("sha256")
       .update(JSON.stringify(AWS_SES_CAPABILITIES), "utf8")
@@ -1012,10 +995,8 @@ async function doctor(args: string[], dependencies: CliDependencies) {
       capability: {
         ...parsed.data.capability,
         drift:
-          parsed.data.capability.provider ===
-          AWS_SES_CAPABILITIES.provider
-            ? parsed.data.capability.document_sha256 !==
-              expectedAwsDigest
+          parsed.data.capability.provider === AWS_SES_CAPABILITIES.provider
+            ? parsed.data.capability.document_sha256 !== expectedAwsDigest
             : null,
       },
     };
@@ -1248,16 +1229,14 @@ async function testSend(args: string[], dependencies: CliDependencies) {
   );
 }
 
-async function deployCommand(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function deployCommand(args: string[], dependencies: CliDependencies) {
   const target = args[0] ?? "";
   if (target === "cloudflare") {
     validateOptions(args, {
       values: [
         "account",
         "name",
+        "email-domain",
         "deployment-id",
         "confirm-account",
         "health-mode",
@@ -1269,9 +1248,7 @@ async function deployCommand(
     const name = flag(args, "name");
     const healthMode = flag(args, "health-mode");
     if (!account || !name) {
-      throw new Error(
-        "deploy cloudflare requires --account and --name.",
-      );
+      throw new Error("deploy cloudflare requires --account and --name.");
     }
     if (
       healthMode !== undefined &&
@@ -1284,6 +1261,9 @@ async function deployCommand(
       {
         account,
         name,
+        ...(flag(args, "email-domain")
+          ? { emailDomain: flag(args, "email-domain") }
+          : {}),
         apply: hasFlag(args, "apply"),
         ...(flag(args, "deployment-id")
           ? { deploymentId: flag(args, "deployment-id") }
@@ -1355,10 +1335,7 @@ async function deployCommand(
   const logRetentionDays = flag(args, "log-retention-days");
   const inboundRetentionDays = flag(args, "inbound-retention-days");
   const inboundMaxMessageBytes = flag(args, "inbound-max-message-bytes");
-  const inboundRecipientSuffixes = flag(
-    args,
-    "inbound-recipient-suffixes",
-  );
+  const inboundRecipientSuffixes = flag(args, "inbound-recipient-suffixes");
   const inboundTlsPolicy = flag(args, "inbound-tls-policy");
   const webhookRetentionDays = flag(args, "webhook-retention-days");
   const templateHistoryRetentionDays = flag(
@@ -1366,10 +1343,7 @@ async function deployCommand(
     "template-history-retention-days",
   );
   const templateHistoryLimit = flag(args, "template-history-limit");
-  const workerReservedConcurrency = flag(
-    args,
-    "worker-reserved-concurrency",
-  );
+  const workerReservedConcurrency = flag(args, "worker-reserved-concurrency");
   await deployAws(
     {
       account,
@@ -1392,9 +1366,7 @@ async function deployCommand(
       ...(inboundRecipientSuffixes ? { inboundRecipientSuffixes } : {}),
       ...(inboundTlsPolicy ? { inboundTlsPolicy } : {}),
       ...(webhookRetentionDays ? { webhookRetentionDays } : {}),
-      ...(templateHistoryRetentionDays
-        ? { templateHistoryRetentionDays }
-        : {}),
+      ...(templateHistoryRetentionDays ? { templateHistoryRetentionDays } : {}),
       ...(templateHistoryLimit ? { templateHistoryLimit } : {}),
       ...(workerReservedConcurrency !== undefined
         ? { workerReservedConcurrency }
@@ -1423,6 +1395,7 @@ async function upgradeCloudflareCommand(
     values: [
       "account",
       "name",
+      "email-domain",
       "database-id",
       "deployment-id",
       "confirm-account",
@@ -1451,6 +1424,9 @@ async function upgradeCloudflareCommand(
     {
       account,
       name,
+      ...(flag(args, "email-domain")
+        ? { emailDomain: flag(args, "email-domain") }
+        : {}),
       databaseId,
       apply: hasFlag(args, "apply"),
       ...(flag(args, "deployment-id")
@@ -1481,12 +1457,7 @@ async function rollbackCloudflareCommand(
     );
   }
   validateOptions(args, {
-    values: [
-      "account",
-      "name",
-      "version-id",
-      "confirm-account",
-    ],
+    values: ["account", "name", "version-id", "confirm-account"],
     booleans: ["apply"],
   });
   const account = flag(args, "account");
@@ -1532,9 +1503,7 @@ async function cleanupCloudflareCommand(
   const account = flag(args, "account");
   const name = flag(args, "name");
   if (!account || !name) {
-    throw new Error(
-      "cleanup cloudflare requires --account and --name.",
-    );
+    throw new Error("cleanup cloudflare requires --account and --name.");
   }
   await cleanupCloudflare(
     {
@@ -1580,6 +1549,32 @@ async function doctorCloudflareCommand(
   );
 }
 
+async function doctorCloudflareEventsCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  validateOptions(args, {
+    values: ["account", "name", "email-domain"],
+  });
+  const account = flag(args, "account");
+  const name = flag(args, "name");
+  const emailDomain = flag(args, "email-domain");
+  if (!account || !name || !emailDomain) {
+    throw new Error(
+      "doctor cloudflare-events requires --account, --name, and --email-domain.",
+    );
+  }
+  await doctorCloudflareEmailEvents(
+    { account, name, emailDomain },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -1596,7 +1591,7 @@ Commands:
       an exact CloudFormation change set. Destructive changes require the
       additional --allow-destructive-changes acknowledgement.
 
-  deploy cloudflare --account ACCOUNT_ID --name NAME
+  deploy cloudflare --account ACCOUNT_ID --name NAME --email-domain DOMAIN
       Print a pinned, plan-first disposable Cloudflare deployment. Add --apply
       and the exact --confirm-account value to create D1, R2, Queues, apply
       migrations, and deploy one version. Requires CLOUDFLARE_API_TOKEN and
@@ -1604,7 +1599,7 @@ Commands:
       Repeat --allowed-recipient to constrain the Email Sending binding; at
       least one controlled, Cloudflare-verified address is required for apply.
 
-  upgrade cloudflare --account ACCOUNT_ID --name NAME --database-id ID
+  upgrade cloudflare --account ACCOUNT_ID --name NAME --database-id ID --email-domain DOMAIN
       Apply additive migrations and deploy a new tagged Worker version without
       recreating durable resources. Plan-only unless --apply and the exact
       --confirm-account value are provided.
@@ -1620,6 +1615,10 @@ Commands:
   doctor cloudflare --endpoint URL [--deployment-id ID]
       Verify health, capability digests, Beta truth, deployment identity, and
       the authenticated email API when HAYASEND_CLOUDFLARE_API_KEY is set.
+
+  doctor cloudflare-events --account ACCOUNT_ID --name NAME --email-domain DOMAIN
+      Fail unless exactly one enabled per-domain Email Sending subscription
+      covers all six documented terminal/deferred lifecycle events.
 
   doctor [--endpoint URL]
       Check HayaSend identity, health, authentication, and preview availability.
@@ -1756,6 +1755,8 @@ export async function runCli(
     case "doctor":
       if (args[1] === "cloudflare") {
         await doctorCloudflareCommand(args.slice(1), dependencies);
+      } else if (args[1] === "cloudflare-events") {
+        await doctorCloudflareEventsCommand(args.slice(1), dependencies);
       } else {
         validateOptions(args, { values: ["endpoint"] });
         await doctor(args, dependencies);

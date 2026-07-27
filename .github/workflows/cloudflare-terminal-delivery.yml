@@ -1,0 +1,282 @@
+name: Cloudflare terminal delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_account:
+        description: Exact approved general-purpose test Cloudflare account ID
+        type: string
+        required: true
+      phase:
+        description: Retained proof phase
+        type: choice
+        required: true
+        options:
+          - deploy
+          - verify-and-cleanup
+      deployment_name:
+        description: Stable isolated deployment name used by both phases
+        type: string
+        required: true
+        default: terminal-delivery
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-cloudflare-terminal-delivery
+  cancel-in-progress: false
+
+jobs:
+  retained-terminal-proof:
+    name: ${{ inputs.phase }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: cloudflare-integration
+    env:
+      CLOUDFLARE_TEST_ACCOUNT_ID: ${{ vars.CLOUDFLARE_TEST_ACCOUNT_ID }}
+      CLOUDFLARE_TEST_ACCOUNT_KIND: ${{ vars.CLOUDFLARE_TEST_ACCOUNT_KIND }}
+      CLOUDFLARE_TEST_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_TEST_WORKERS_SUBDOMAIN }}
+      CLOUDFLARE_TEST_EMAIL_DOMAIN: ${{ vars.CLOUDFLARE_TEST_EMAIL_DOMAIN }}
+      CLOUDFLARE_TEST_FROM: ${{ vars.CLOUDFLARE_TEST_FROM }}
+      CLOUDFLARE_TEST_TO: ${{ vars.CLOUDFLARE_TEST_TO }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      HAYASEND_CLOUDFLARE_API_KEY: ${{ secrets.HAYASEND_CLOUDFLARE_API_KEY }}
+      DEPLOYMENT_NAME: ${{ inputs.deployment_name }}
+      DEPLOYMENT_ID: terminal-${{ inputs.deployment_name }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate retained-proof boundary
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$CLOUDFLARE_TEST_ACCOUNT_KIND" = "general-purpose-test"
+          test "${{ inputs.confirm_account }}" = "$CLOUDFLARE_TEST_ACCOUNT_ID"
+          test "$CLOUDFLARE_TEST_ACCOUNT_ID" != ""
+          test "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN" != ""
+          test "$CLOUDFLARE_TEST_EMAIL_DOMAIN" != ""
+          test "$CLOUDFLARE_TEST_FROM" != ""
+          test "$CLOUDFLARE_TEST_TO" != ""
+          test "$CLOUDFLARE_API_TOKEN" != ""
+          test "$HAYASEND_CLOUDFLARE_API_KEY" != ""
+          if [[ ! "$CLOUDFLARE_TEST_ACCOUNT_ID" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_TEST_ACCOUNT_ID is invalid."
+            exit 1
+          fi
+          if [[ ! "$DEPLOYMENT_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$ ]]; then
+            echo "::error::deployment_name must be 1-30 lowercase letters, digits, or internal hyphens."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.5.0
+          cache: npm
+
+      - name: Install current pinned toolchain
+        run: |
+          npm install --global --ignore-scripts npm@12.0.1
+          npm ci
+          {
+            node --version
+            npm --version
+            npx --yes wrangler@4.114.0 --version
+          } | tee "$RUNNER_TEMP/cloudflare-terminal-tool-versions.txt"
+
+      - name: Verify retained namespace is unused
+        if: inputs.phase == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="hayasend-$DEPLOYMENT_NAME"
+          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          # shellcheck disable=SC2016
+          if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
+            echo "::error::The retained D1 name already exists."
+            exit 1
+          fi
+          if npx --yes wrangler@4.114.0 r2 bucket list | grep -F "$prefix-payloads"; then
+            echo "::error::The retained R2 name already exists."
+            exit 1
+          fi
+          if npx --yes wrangler@4.114.0 queues list | grep -F "$prefix-"; then
+            echo "::error::A retained Queue name already exists."
+            exit 1
+          fi
+          set +e
+          worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$prefix" \
+              --json 2>&1
+          )"
+          worker_status="$?"
+          set -e
+          if [[ "$worker_status" -eq 0 ]] || ! grep -Fq "code: 10007" <<< "$worker_check"; then
+            echo "::error::Worker absence could not be verified."
+            exit 1
+          fi
+
+      - name: Deploy retained terminal-proof namespace
+        if: inputs.phase == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent cli -- deploy cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            --allowed-recipient "$CLOUDFLARE_TEST_TO" \
+            > "$RUNNER_TEMP/cloudflare-terminal-plan.json"
+          npm run --silent cli -- deploy cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            --allowed-recipient "$CLOUDFLARE_TEST_TO" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-deploy.txt"
+          endpoint="https://hayasend-$DEPLOYMENT_NAME.$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN.workers.dev"
+          npm run --silent cli -- doctor cloudflare \
+            --endpoint "$endpoint" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-doctor.json"
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const value = {
+              object: "cloudflare_terminal_subscription_handoff",
+              queue: `hayasend-${process.env.DEPLOYMENT_NAME}-email-events`,
+              source: "Email Sending",
+              domain: process.env.CLOUDFLARE_TEST_EMAIL_DOMAIN,
+              events: [
+                "message.delivered",
+                "message.deferred",
+                "message.bounced",
+                "message.failed",
+                "message.rejected",
+                "message.complained",
+              ],
+              next_phase: "verify-and-cleanup",
+            };
+            writeFileSync(
+              `${process.env.RUNNER_TEMP}/cloudflare-terminal-handoff.json`,
+              `${JSON.stringify(value, null, 2)}\n`,
+              { mode: 0o600 },
+            );
+          '
+
+      - name: Verify subscription and recipient delivery
+        if: inputs.phase == 'verify-and-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://hayasend-$DEPLOYMENT_NAME.$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN.workers.dev"
+          npm run --silent cli -- doctor cloudflare \
+            --endpoint "$endpoint" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-doctor.json"
+          npm run --silent cli -- doctor cloudflare-events \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-subscription.json"
+          CF_ENDPOINT="$endpoint" \
+            node scripts/cloudflare-terminal-delivery.mjs \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-delivery.json"
+          email_id="$(
+            node -e 'const fs=require("node:fs");const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(x.email_id)' \
+              "$RUNNER_TEMP/cloudflare-terminal-delivery.json"
+          )"
+          if [[ ! "$email_id" =~ ^email_[a-f0-9]{32}$ ]]; then
+            echo "::error::The terminal proof returned an invalid HayaSend email ID."
+            exit 1
+          fi
+          npx --yes wrangler@4.114.0 d1 execute \
+            "hayasend-$DEPLOYMENT_NAME-d1" \
+            --remote \
+            --json \
+            --yes \
+            --command \
+            "SELECT json_extract(entity, '$.id') AS event_id, json_extract(entity, '$.provider_message_id') AS provider_message_id, json_extract(entity, '$.type') AS provider_type, json_extract(entity, '$.terminal') AS terminal FROM provider_events WHERE message_id = '$email_id' ORDER BY received_at, id" \
+            > "$RUNNER_TEMP/cloudflare-terminal-ledger.json"
+          node -e '
+            const fs = require("node:fs");
+            const rows = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+              .flatMap((page) => page.results ?? []);
+            if (rows.length !== 1 || rows[0].provider_type !== "delivered" || rows[0].terminal !== 1) {
+              throw new Error("Expected exactly one terminal delivered provider event.");
+            }
+          ' "$RUNNER_TEMP/cloudflare-terminal-ledger.json"
+
+      - name: Cleanup after a failed deploy phase
+        if: failure() && inputs.phase == 'deploy' && steps.guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          npm run --silent cli -- cleanup cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-cleanup.json"
+
+      - name: Cleanup verified retained namespace
+        if: always() && inputs.phase == 'verify-and-cleanup' && steps.guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          npm run --silent cli -- cleanup cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-cleanup.json"
+
+      - name: Verify cleanup residue
+        if: always() && inputs.phase == 'verify-and-cleanup' && steps.guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="hayasend-$DEPLOYMENT_NAME"
+          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          # shellcheck disable=SC2016
+          if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
+            echo "::error::D1 database remains after cleanup."
+            exit 1
+          fi
+          if npx --yes wrangler@4.114.0 r2 bucket list | grep -F "$prefix-payloads"; then
+            echo "::error::R2 bucket remains after cleanup."
+            exit 1
+          fi
+          if npx --yes wrangler@4.114.0 queues list | grep -F "$prefix-"; then
+            echo "::error::Queue remains after cleanup."
+            exit 1
+          fi
+          set +e
+          worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$prefix" \
+              --json 2>&1
+          )"
+          worker_status="$?"
+          set -e
+          if [[ "$worker_status" -eq 0 ]] || ! grep -Fq "code: 10007" <<< "$worker_check"; then
+            echo "::error::Worker absence could not be verified after cleanup."
+            exit 1
+          fi
+
+      - name: Upload terminal-delivery evidence
+        if: always() && steps.guard.outputs.validated == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-terminal-${{ inputs.phase }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloudflare-terminal-*.json
+            ${{ runner.temp }}/cloudflare-terminal-*.txt
+          if-no-files-found: error
+          retention-days: 30

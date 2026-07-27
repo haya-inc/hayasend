@@ -1,20 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import {
-  chmod,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import type {
-  CommandResult,
-  CommandRunner,
-} from "./cli-aws-deploy.js";
+import type { CommandResult, CommandRunner } from "./cli-aws-deploy.js";
 import { CLOUDFLARE_WORKER_CAPABILITY } from "./cloudflare-worker-capability.js";
 
 const COMMAND_TIMEOUT_MS = 5 * 60_000;
@@ -60,6 +51,7 @@ export interface CloudflareResourceNames {
 export interface CloudflareDeployOptions {
   account: string;
   name: string;
+  emailDomain?: string | undefined;
   deploymentId?: string | undefined;
   databaseId?: string | undefined;
   apply: boolean;
@@ -107,7 +99,51 @@ interface D1DatabaseDescription {
   id?: unknown;
 }
 
+interface CloudflareEventSubscription {
+  id: string;
+  name: string;
+  enabled: boolean;
+  source: {
+    type: string;
+    domain?: string | undefined;
+  };
+  destination: {
+    type: string;
+    queue_id: string;
+  };
+  events: string[];
+}
+
+export const CLOUDFLARE_EMAIL_SENDING_EVENTS = [
+  "message.delivered",
+  "message.deferred",
+  "message.bounced",
+  "message.failed",
+  "message.rejected",
+  "message.complained",
+] as const;
+
 const allowedRecipientSchema = z.email().max(320);
+const eventSubscriptionSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    name: z.string().min(1).max(256),
+    enabled: z.boolean(),
+    source: z
+      .object({
+        type: z.string().min(1).max(128),
+        domain: z.string().min(1).max(253).optional(),
+      })
+      .passthrough(),
+    destination: z
+      .object({
+        type: z.string().min(1).max(128),
+        queue_id: z.string().min(1).max(128),
+      })
+      .passthrough(),
+    events: z.array(z.string().min(1).max(256)).max(256),
+  })
+  .passthrough();
 
 function validateAccount(account: string): string {
   if (!/^[a-f0-9]{32}$/.test(account)) {
@@ -131,6 +167,22 @@ function validateName(name: string): string {
   return name;
 }
 
+function validateEmailDomain(domain: string | undefined): string {
+  const normalized = domain?.trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized.length > 253 ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/u.test(
+      normalized,
+    )
+  ) {
+    throw new Error(
+      "Cloudflare Email Sending domain must be a lowercase ASCII DNS name.",
+    );
+  }
+  return normalized;
+}
+
 function validateVersionId(versionId: string): string {
   if (!/^[a-f0-9-]{16,128}$/.test(versionId)) {
     throw new Error("Cloudflare Worker version ID is invalid.");
@@ -138,9 +190,7 @@ function validateVersionId(versionId: string): string {
   return versionId;
 }
 
-function validateAllowedRecipients(
-  values: string[] | undefined,
-): string[] {
+function validateAllowedRecipients(values: string[] | undefined): string[] {
   const recipients = [...new Set(values ?? [])];
   if (recipients.length > 50) {
     throw new Error(
@@ -155,9 +205,7 @@ function validateAllowedRecipients(
   return recipients;
 }
 
-export function cloudflareResourceNames(
-  name: string,
-): CloudflareResourceNames {
+export function cloudflareResourceNames(name: string): CloudflareResourceNames {
   const prefix = `hayasend-${validateName(name)}`;
   return {
     worker: prefix,
@@ -182,8 +230,7 @@ function cloudflarePlan(
     schema_version: "1.0.0",
     mode,
     account: validateAccount(options.account),
-    deployment_id:
-      options.deploymentId ?? "generated-only-when-applied",
+    deployment_id: options.deploymentId ?? "generated-only-when-applied",
     toolchain: {
       node: process.version,
       npm: process.env.npm_config_user_agent?.split(" ")[0] ?? null,
@@ -191,12 +238,19 @@ function cloudflarePlan(
       compatibility_date: COMPATIBILITY_DATE,
       hayasend: HAYASEND_VERSION,
     },
-    capability_digest:
-      CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
+    capability_digest: CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
     provider_capability_digest:
       CLOUDFLARE_WORKER_CAPABILITY.provider_capability_digest,
     production_ready: false,
     provider_maturity: "beta",
+    event_subscription: {
+      creation_surface: "cloudflare-dashboard",
+      source: "email.sending",
+      domain: options.emailDomain ?? "required-only-when-applied",
+      events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+      queue: names.email_events_queue,
+      status: "manual_configuration_required_after_deploy",
+    },
     recipient_policy: {
       mode: "allowlist",
       count: allowedRecipients.length,
@@ -223,6 +277,7 @@ function cloudflarePlan(
     apply_requires: [
       "--apply",
       `--confirm-account ${options.account}`,
+      "--email-domain DOMAIN",
       "at least one --allowed-recipient",
       "an approved non-production account and an isolated disposable namespace",
     ],
@@ -236,9 +291,7 @@ export function buildCloudflareWranglerConfig(input: {
   healthMode: "ready" | "fail";
   allowedRecipients: string[];
 }) {
-  const allowedRecipients = validateAllowedRecipients(
-    input.allowedRecipients,
-  );
+  const allowedRecipients = validateAllowedRecipients(input.allowedRecipients);
   if (allowedRecipients.length === 0) {
     throw new Error(
       "Cloudflare deployment requires at least one allowed recipient.",
@@ -343,10 +396,8 @@ async function wrangler(
   if (outputPath) {
     await writeFile(outputPath, "", { mode: 0o600 });
   }
-  const {
-    HAYASEND_CLOUDFLARE_API_KEY: _runtimeApiKey,
-    ...commandEnvironment
-  } = dependencies.env;
+  const { HAYASEND_CLOUDFLARE_API_KEY: _runtimeApiKey, ...commandEnvironment } =
+    dependencies.env;
   const result = await dependencies.runCommand(
     "npx",
     ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args],
@@ -360,9 +411,7 @@ async function wrangler(
         WRANGLER_SEND_METRICS: "false",
         CLOUDFLARE_ACCOUNT_ID: account,
         CLOUDFLARE_API_TOKEN: token,
-        ...(outputPath
-          ? { WRANGLER_OUTPUT_FILE_PATH: outputPath }
-          : {}),
+        ...(outputPath ? { WRANGLER_OUTPUT_FILE_PATH: outputPath } : {}),
       },
     },
   );
@@ -382,6 +431,33 @@ async function wranglerEvents(path: string): Promise<WranglerEvent[]> {
     .map((line) => JSON.parse(line) as WranglerEvent);
 }
 
+function parseEventSubscriptions(value: string): CloudflareEventSubscription[] {
+  const parsed = z
+    .array(eventSubscriptionSchema)
+    .safeParse(JSON.parse(value) as unknown);
+  if (!parsed.success) {
+    throw new Error("Wrangler returned an invalid event-subscription list.");
+  }
+  return parsed.data;
+}
+
+async function listEventSubscriptions(
+  dependencies: CloudflareDependencies,
+  account: string,
+  queue: string,
+): Promise<CloudflareEventSubscription[]> {
+  const result = await wrangler(dependencies, account, [
+    "queues",
+    "subscription",
+    "list",
+    queue,
+    "--per-page",
+    "100",
+    "--json",
+  ]);
+  return parseEventSubscriptions(result.stdout);
+}
+
 function uploadedVersion(events: WranglerEvent[]): {
   versionId: string;
   targets: string[];
@@ -390,9 +466,7 @@ function uploadedVersion(events: WranglerEvent[]): {
     .reverse()
     .find((candidate) => candidate.type === "version-upload");
   if (typeof event?.version_id !== "string") {
-    throw new Error(
-      "Wrangler did not record the uploaded Worker version ID.",
-    );
+    throw new Error("Wrangler did not record the uploaded Worker version ID.");
   }
   return {
     versionId: event.version_id,
@@ -419,9 +493,7 @@ function initialDeployment(
     event.worker_name !== expectedWorker ||
     typeof event.version_id !== "string"
   ) {
-    throw new Error(
-      "Wrangler did not record the initial Worker deployment.",
-    );
+    throw new Error("Wrangler did not record the initial Worker deployment.");
   }
   return {
     versionId: event.version_id,
@@ -441,9 +513,7 @@ function deployedVersion(
     .reverse()
     .find((candidate) => candidate.type === "version-deploy");
   if (!event || event.worker_name !== expectedWorker) {
-    throw new Error(
-      "Wrangler did not record the Worker version deployment.",
-    );
+    throw new Error("Wrangler did not record the Worker version deployment.");
   }
   return {
     ...(typeof event.deployment_id === "string"
@@ -454,19 +524,12 @@ function deployedVersion(
 
 function d1DatabaseId(stdout: string, databaseName: string): string {
   const parsed = JSON.parse(stdout) as D1DatabaseDescription[];
-  const matches = parsed.filter(
-    (database) => database.name === databaseName,
-  );
+  const matches = parsed.filter((database) => database.name === databaseName);
   if (matches.length !== 1) {
-    throw new Error(
-      `Expected exactly one D1 database named ${databaseName}.`,
-    );
+    throw new Error(`Expected exactly one D1 database named ${databaseName}.`);
   }
   const value = matches[0]?.uuid ?? matches[0]?.id;
-  if (
-    typeof value !== "string" ||
-    !/^[a-f0-9-]{16,128}$/.test(value)
-  ) {
+  if (typeof value !== "string" || !/^[a-f0-9-]{16,128}$/.test(value)) {
     throw new Error("Wrangler returned an invalid D1 database ID.");
   }
   return value;
@@ -494,6 +557,7 @@ export async function deployCloudflare(
     return;
   }
   requireMutationConfirmation(options.account, options.confirmAccount);
+  const emailDomain = validateEmailDomain(options.emailDomain);
   const allowedRecipients = validateAllowedRecipients(
     options.allowedRecipients,
   );
@@ -509,16 +573,13 @@ export async function deployCloudflare(
     );
   }
   const names = cloudflareResourceNames(options.name);
-  const deploymentId =
-    options.deploymentId ?? `cf-${randomUUID()}`;
+  const deploymentId = options.deploymentId ?? `cf-${randomUUID()}`;
   if (!/^[A-Za-z0-9:_-]{8,128}$/.test(deploymentId)) {
     throw new Error(
       "Cloudflare deployment ID must be an opaque 8-128 character identifier.",
     );
   }
-  const temporary = await mkdtemp(
-    join(tmpdir(), "hayasend-cloudflare-"),
-  );
+  const temporary = await mkdtemp(join(tmpdir(), "hayasend-cloudflare-"));
   try {
     let databaseId = options.databaseId;
     if (!databaseId) {
@@ -555,6 +616,16 @@ export async function deployCloudflare(
           "--message-retention-period-secs",
           "86400",
         ]);
+      }
+      const subscriptions = await listEventSubscriptions(
+        dependencies,
+        options.account,
+        names.email_events_queue,
+      );
+      if (subscriptions.length > 0) {
+        throw new Error(
+          "A new Cloudflare Email-events Queue unexpectedly already has an event subscription.",
+        );
       }
     }
     if (!/^[a-f0-9-]{16,128}$/.test(databaseId)) {
@@ -678,19 +749,18 @@ export async function deployCloudflare(
           break;
         } catch (error) {
           const versionStillPropagating =
-            error instanceof Error &&
-            error.message.includes("[code: 10013]");
+            error instanceof Error && error.message.includes("[code: 10013]");
           if (!versionStillPropagating || attempt === 9) {
             throw error;
           }
           dependencies.log(
             `Cloudflare version ${uploaded.versionId} is still propagating; retrying deployment.`,
           );
-          await (dependencies.sleep ??
+          await (
+            dependencies.sleep ??
             ((milliseconds) =>
-              new Promise((resolve) =>
-                setTimeout(resolve, milliseconds),
-              )))(1_000);
+              new Promise((resolve) => setTimeout(resolve, milliseconds)))
+          )(1_000);
         }
       }
       const deployedEvents = await wranglerEvents(outputPath);
@@ -706,14 +776,20 @@ export async function deployCloudflare(
           targets: uploaded.targets,
           ...(deployed.deploymentId
             ? {
-                cloudflare_deployment_id:
-                  deployed.deploymentId,
+                cloudflare_deployment_id: deployed.deploymentId,
               }
             : {}),
           database_id: databaseId,
           resources: names,
-          capability_digest:
-            CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
+          event_subscription: {
+            creation_surface: "cloudflare-dashboard",
+            source: "email.sending",
+            domain: emailDomain,
+            events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+            queue: names.email_events_queue,
+            status: "manual_configuration_required",
+          },
+          capability_digest: CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
           production_ready: false,
           provider_maturity: "beta",
         },
@@ -785,9 +861,7 @@ function payloadKeysFromD1(stdout: string): string[] {
     .filter(
       (key): key is string =>
         typeof key === "string" &&
-        /^emails\/email_[a-f0-9]{32}\/[a-f0-9-]{16,128}\.json$/.test(
-          key,
-        ),
+        /^emails\/email_[a-f0-9]{32}\/[a-f0-9-]{16,128}\.json$/.test(key),
     );
 }
 
@@ -838,6 +912,7 @@ export async function cleanupCloudflare(
         account,
         resources: names,
         order: [
+          "delete Queue event subscriptions",
           "remove Queue consumers",
           "delete Worker",
           "read D1 payload references",
@@ -861,6 +936,42 @@ export async function cleanupCloudflare(
     ok: boolean;
     diagnostic?: string;
   }> = [];
+  try {
+    const subscriptions = await listEventSubscriptions(
+      dependencies,
+      account,
+      names.email_events_queue,
+    );
+    for (const subscription of subscriptions) {
+      results.push({
+        resource: `${names.email_events_queue} subscription ${subscription.id}`,
+        ...(await bestEffortWrangler(
+          dependencies,
+          account,
+          [
+            "queues",
+            "subscription",
+            "delete",
+            names.email_events_queue,
+            "--id",
+            subscription.id,
+            "--force",
+          ],
+          [],
+          [/does not exist/iu],
+        )),
+      });
+    }
+  } catch (error) {
+    const diagnostic = redactCloudflareDiagnostics(String(error));
+    if (!/Queue "[^"]+" does not exist/iu.test(diagnostic)) {
+      results.push({
+        resource: `${names.email_events_queue} subscriptions`,
+        ok: false,
+        diagnostic,
+      });
+    }
+  }
   for (const queue of [
     names.email_events_queue,
     names.primary_queue,
@@ -964,12 +1075,7 @@ export async function cleanupCloudflare(
     ...(await bestEffortWrangler(
       dependencies,
       account,
-      [
-        "d1",
-        "delete",
-        names.database,
-        "--skip-confirmation",
-      ],
+      ["d1", "delete", names.database, "--skip-confirmation"],
       [],
       [/Couldn't find a D1 DB with name or binding/iu],
     )),
@@ -991,6 +1097,66 @@ export async function cleanupCloudflare(
   if (failed.length > 0) {
     throw new Error(
       `Cloudflare cleanup left ${failed.length} resource operation(s) unresolved.`,
+    );
+  }
+}
+
+export async function doctorCloudflareEmailEvents(
+  input: {
+    account: string;
+    name: string;
+    emailDomain: string;
+  },
+  dependencies: CloudflareDependencies,
+): Promise<void> {
+  const account = validateAccount(input.account);
+  const emailDomain = validateEmailDomain(input.emailDomain);
+  const names = cloudflareResourceNames(input.name);
+  const subscriptions = await listEventSubscriptions(
+    dependencies,
+    account,
+    names.email_events_queue,
+  );
+  const matching = subscriptions.filter(
+    (subscription) =>
+      subscription.enabled &&
+      subscription.source.type === "email.sending" &&
+      subscription.source.domain?.toLowerCase() === emailDomain &&
+      subscription.destination.type === "queues.queue" &&
+      CLOUDFLARE_EMAIL_SENDING_EVENTS.every((event) =>
+        subscription.events.includes(event),
+      ),
+  );
+  const healthy = subscriptions.length === 1 && matching.length === 1;
+  dependencies.log(
+    JSON.stringify(
+      {
+        object: "cloudflare_email_event_subscription_doctor",
+        account,
+        queue: names.email_events_queue,
+        expected: {
+          source: "email.sending",
+          domain: emailDomain,
+          events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+        },
+        subscriptions_found: subscriptions.length,
+        matching_subscriptions: matching.map((subscription) => ({
+          id: subscription.id,
+          name: subscription.name,
+          enabled: subscription.enabled,
+          source: subscription.source.type,
+          domain: subscription.source.domain,
+          events: subscription.events,
+        })),
+        healthy,
+      },
+      null,
+      2,
+    ),
+  );
+  if (!healthy) {
+    throw new Error(
+      "Cloudflare requires exactly one subscription: an enabled Email Sending subscription for the reviewed domain and six lifecycle events.",
     );
   }
 }
@@ -1018,19 +1184,12 @@ export async function doctorCloudflare(
   }> => {
     const transientStatuses = new Set([404, 500, 502, 503, 504]);
     let lastStatus: number | undefined;
-    for (
-      let attempt = 0;
-      attempt < EDGE_PROPAGATION_ATTEMPTS;
-      attempt += 1
-    ) {
+    for (let attempt = 0; attempt < EDGE_PROPAGATION_ATTEMPTS; attempt += 1) {
       try {
-        const response = await dependencies.fetch(
-          new URL(pathname, endpoint),
-          {
-            ...init,
-            signal: AbortSignal.timeout(5_000),
-          },
-        );
+        const response = await dependencies.fetch(new URL(pathname, endpoint), {
+          ...init,
+          signal: AbortSignal.timeout(5_000),
+        });
         lastStatus = response.status;
         if (!response.ok && !transientStatuses.has(response.status)) {
           return { response, body: {} };
@@ -1049,11 +1208,11 @@ export async function doctorCloudflare(
         lastStatus = undefined;
       }
       if (attempt < EDGE_PROPAGATION_ATTEMPTS - 1) {
-        await (dependencies.sleep ??
+        await (
+          dependencies.sleep ??
           ((milliseconds) =>
-            new Promise((resolve) =>
-              setTimeout(resolve, milliseconds),
-            )))(1_000);
+            new Promise((resolve) => setTimeout(resolve, milliseconds)))
+        )(1_000);
       }
     }
     throw new Error(
@@ -1062,14 +1221,10 @@ export async function doctorCloudflare(
       }.`,
     );
   };
-  const {
-    response: healthResponse,
-    body: health,
-  } = await fetchJson("/healthz");
-  const {
-    response: capabilityResponse,
-    body: capability,
-  } = await fetchJson("/capabilities");
+  const { response: healthResponse, body: health } =
+    await fetchJson("/healthz");
+  const { response: capabilityResponse, body: capability } =
+    await fetchJson("/capabilities");
   const checks = {
     health_status: healthResponse.status === 200,
     runtime: health.runtime === "cloudflare-workers",
@@ -1094,8 +1249,7 @@ export async function doctorCloudflare(
     authenticatedApi = api.status === 200;
   }
   const healthy =
-    Object.values(checks).every(Boolean) &&
-    authenticatedApi !== false;
+    Object.values(checks).every(Boolean) && authenticatedApi !== false;
   dependencies.log(
     JSON.stringify(
       {
@@ -1105,8 +1259,7 @@ export async function doctorCloudflare(
         checks,
         authenticated_api:
           authenticatedApi === null ? "not_checked" : authenticatedApi,
-        capability_digest:
-          CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
+        capability_digest: CLOUDFLARE_WORKER_CAPABILITY.capability_digest,
         production_ready: false,
         provider_maturity: "beta",
       },

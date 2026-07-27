@@ -23,6 +23,10 @@ minor releases before v1.0.
 - Add scope-protected, privacy-safe recipient summaries and recovery
   diagnostics for mixed outcomes, ambiguous attempts, outbox age, stuck
   leases, SQS/DLQ depth, provider-event lag, and capability drift.
+- Add a fail-closed Cloudflare Email Sending subscription doctor, subscription-
+  aware cleanup, and a retained two-phase hosted proof that requires a
+  correlated terminal `delivered` event instead of treating provider
+  acceptance as recipient delivery.
 
 ## 0.2.0 - 2026-07-27
 
