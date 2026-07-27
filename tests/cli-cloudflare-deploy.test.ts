@@ -119,7 +119,7 @@ describe("plan-first Cloudflare lifecycle", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it("creates, migrates, uploads, and deploys with secrets only in protected inputs", async () => {
+  it("creates and initially deploys with secrets only in protected inputs", async () => {
     const logs: string[] = [];
     const calls: Array<{
       command: string;
@@ -129,26 +129,16 @@ describe("plan-first Cloudflare lifecycle", () => {
     const runner: CommandRunner = async (command, args, options) => {
       calls.push({ command, args, options });
       const outputPath = options.env?.WRANGLER_OUTPUT_FILE_PATH;
-      if (args.includes("upload") && outputPath) {
+      if (args[2] === "deploy" && outputPath) {
         await writeFile(
           outputPath,
           `${JSON.stringify({
-            type: "version-upload",
+            type: "deploy",
             worker_name: "hayasend-proof",
             version_id: VERSION_ID,
-            preview_url:
-              "https://version-hayasend-proof.example.workers.dev",
-          })}\n`,
-        );
-      }
-      if (args.includes("deploy") && outputPath) {
-        await writeFile(
-          outputPath,
-          `${JSON.stringify({
-            type: "version-deploy",
-            worker_name: "hayasend-proof",
-            deployment_id: "cloudflare-deployment-id",
-            version_traffic: { [VERSION_ID]: 100 },
+            targets: [
+              "https://hayasend-proof.example.workers.dev",
+            ],
           })}\n`,
         );
       }
@@ -186,19 +176,22 @@ describe("plan-first Cloudflare lifecycle", () => {
     const commands = calls.map(({ args }) => args.slice(2, 5).join(" "));
     expect(commands).toContain("d1 create hayasend-proof-d1");
     expect(commands).toContain("r2 bucket create");
-    expect(commands.some((command) =>
-      command.startsWith("versions upload "),
-    )).toBe(true);
-    expect(commands).toContain("versions deploy --name");
+    expect(calls.some(({ args }) => args[2] === "deploy")).toBe(true);
+    expect(calls.some(({ args }) =>
+      args.slice(2, 4).join(" ") === "versions upload"
+    )).toBe(false);
+    expect(calls.some(({ args }) =>
+      args.slice(2, 4).join(" ") === "versions deploy"
+    )).toBe(false);
     expect(calls.every(({ options }) =>
       options.env?.CLOUDFLARE_ACCOUNT_ID === ACCOUNT
     )).toBe(true);
     expect(calls.every(({ options }) =>
       options.env?.HAYASEND_CLOUDFLARE_API_KEY === undefined
     )).toBe(true);
-    const upload = calls.find(({ args }) => args.includes("upload"));
+    const deploy = calls.find(({ args }) => args[2] === "deploy");
     const secretPath =
-      upload?.args[upload.args.indexOf("--secrets-file") + 1];
+      deploy?.args[deploy.args.indexOf("--secrets-file") + 1];
     expect(secretPath).toBeDefined();
     await expect(readFile(secretPath!, "utf8")).rejects.toThrow();
     expect(JSON.stringify(logs)).not.toContain("private-token");
@@ -210,8 +203,74 @@ describe("plan-first Cloudflare lifecycle", () => {
       deployment_id: "integration-1234",
       version_id: VERSION_ID,
       database_id: DATABASE_ID,
-      cloudflare_deployment_id: "cloudflare-deployment-id",
       production_ready: false,
+    });
+  });
+
+  it("uploads and deploys an immutable version for upgrades", async () => {
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const runner: CommandRunner = async (_command, args, options) => {
+      calls.push(args);
+      const outputPath = options.env?.WRANGLER_OUTPUT_FILE_PATH;
+      if (args.slice(2, 4).join(" ") === "versions upload" && outputPath) {
+        await writeFile(
+          outputPath,
+          `${JSON.stringify({
+            type: "version-upload",
+            worker_name: "hayasend-proof",
+            version_id: VERSION_ID,
+          })}\n`,
+        );
+      }
+      if (args.slice(2, 4).join(" ") === "versions deploy" && outputPath) {
+        await writeFile(
+          outputPath,
+          `${JSON.stringify({
+            type: "version-deploy",
+            worker_name: "hayasend-proof",
+            deployment_id: "cloudflare-deployment-id",
+            version_traffic: { [VERSION_ID]: 100 },
+          })}\n`,
+        );
+      }
+      return result();
+    };
+
+    await deployCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        deploymentId: "integration-upgrade",
+        databaseId: DATABASE_ID,
+        allowedRecipients: ["recipient@example.net"],
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: {
+          CLOUDFLARE_API_TOKEN: "private-token",
+          HAYASEND_CLOUDFLARE_API_KEY:
+            "re_cloudflare_integration_secret",
+        },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+      },
+    );
+
+    expect(calls.some((args) =>
+      args.slice(2, 4).join(" ") === "versions upload"
+    )).toBe(true);
+    expect(calls.some((args) =>
+      args.slice(2, 4).join(" ") === "versions deploy"
+    )).toBe(true);
+    expect(calls.some((args) => args[2] === "d1" && args[3] === "create"))
+      .toBe(false);
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_deployment_result",
+      version_id: VERSION_ID,
+      cloudflare_deployment_id: "cloudflare-deployment-id",
     });
   });
 
@@ -333,6 +392,51 @@ describe("plan-first Cloudflare lifecycle", () => {
       object: "cloudflare_cleanup_result",
       complete: true,
       deleted_payload_objects: 1,
+    });
+  });
+
+  it("treats an already absent Worker as an idempotent cleanup success", async () => {
+    const logs: string[] = [];
+    const runner: CommandRunner = async (_command, args) => {
+      if (args[2] === "delete") {
+        return result(
+          "",
+          "This Worker does not exist on this account. [code: 10090]",
+          1,
+        );
+      }
+      return result();
+    };
+
+    await cleanupCloudflare(
+      {
+        account: ACCOUNT,
+        name: "proof",
+        apply: true,
+        confirmAccount: ACCOUNT,
+      },
+      {
+        cwd: process.cwd(),
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        log: (message) => logs.push(message),
+        runCommand: runner,
+      },
+    );
+
+    const cleanup = JSON.parse(logs.at(-1)!) as {
+      object: string;
+      complete: boolean;
+      results: Array<Record<string, unknown>>;
+    };
+    expect(cleanup).toMatchObject({
+      object: "cloudflare_cleanup_result",
+      complete: true,
+    });
+    expect(cleanup.results[0]).toMatchObject({
+      resource: "hayasend-proof",
+      ok: true,
+      diagnostic:
+        "Resource was already absent (Cloudflare code 10090).",
     });
   });
 

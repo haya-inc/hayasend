@@ -402,6 +402,35 @@ function uploadedVersion(events: WranglerEvent[]): {
   };
 }
 
+function initialDeployment(
+  events: WranglerEvent[],
+  expectedWorker: string,
+): {
+  versionId: string;
+  targets: string[];
+} {
+  const event = [...events]
+    .reverse()
+    .find((candidate) => candidate.type === "deploy");
+  if (
+    !event ||
+    event.worker_name !== expectedWorker ||
+    typeof event.version_id !== "string"
+  ) {
+    throw new Error(
+      "Wrangler did not record the initial Worker deployment.",
+    );
+  }
+  return {
+    versionId: event.version_id,
+    targets: Array.isArray(event.targets)
+      ? event.targets.filter(
+          (target): target is string => typeof target === "string",
+        )
+      : [],
+  };
+}
+
 function deployedVersion(
   events: WranglerEvent[],
   expectedWorker: string,
@@ -568,52 +597,82 @@ export async function deployCloudflare(
       undefined,
       DEPLOY_TIMEOUT_MS,
     );
-    await wrangler(
-      dependencies,
-      options.account,
-      [
-        "versions",
-        "upload",
-        PACKAGED_WORKER_ENTRY,
-        "--config",
-        configPath,
-        "--tag",
-        deploymentId,
-        "--message",
-        `HayaSend ${HAYASEND_VERSION} ${deploymentId}`,
-        "--secrets-file",
-        secretPath,
-        "--strict",
-        "--minify",
-        "--upload-source-maps",
-      ],
-      outputPath,
-      DEPLOY_TIMEOUT_MS,
-    );
-    const uploaded = uploadedVersion(await wranglerEvents(outputPath));
-    await wrangler(
-      dependencies,
-      options.account,
-      [
-        "versions",
-        "deploy",
-        "--name",
+    let uploaded: { versionId: string; targets: string[] };
+    let deployed: { deploymentId?: string | undefined } = {};
+    if (mode === "deploy") {
+      await wrangler(
+        dependencies,
+        options.account,
+        [
+          "deploy",
+          PACKAGED_WORKER_ENTRY,
+          "--config",
+          configPath,
+          "--tag",
+          deploymentId,
+          "--message",
+          `HayaSend ${HAYASEND_VERSION} ${deploymentId}`,
+          "--secrets-file",
+          secretPath,
+          "--strict",
+          "--minify",
+          "--upload-source-maps",
+        ],
+        outputPath,
+        DEPLOY_TIMEOUT_MS,
+      );
+      uploaded = initialDeployment(
+        await wranglerEvents(outputPath),
         names.worker,
-        "--version-id",
-        uploaded.versionId,
-        "--percentage",
-        "100",
-        "--message",
-        `HayaSend ${deploymentId}`,
-        "--config",
-        configPath,
-        "--yes",
-      ],
-      outputPath,
-      DEPLOY_TIMEOUT_MS,
-    );
-    const deployedEvents = await wranglerEvents(outputPath);
-    const deployed = deployedVersion(deployedEvents, names.worker);
+      );
+    } else {
+      await wrangler(
+        dependencies,
+        options.account,
+        [
+          "versions",
+          "upload",
+          PACKAGED_WORKER_ENTRY,
+          "--config",
+          configPath,
+          "--tag",
+          deploymentId,
+          "--message",
+          `HayaSend ${HAYASEND_VERSION} ${deploymentId}`,
+          "--secrets-file",
+          secretPath,
+          "--strict",
+          "--minify",
+          "--upload-source-maps",
+        ],
+        outputPath,
+        DEPLOY_TIMEOUT_MS,
+      );
+      uploaded = uploadedVersion(await wranglerEvents(outputPath));
+      await wrangler(
+        dependencies,
+        options.account,
+        [
+          "versions",
+          "deploy",
+          "--name",
+          names.worker,
+          "--version-id",
+          uploaded.versionId,
+          "--percentage",
+          "100",
+          "--message",
+          `HayaSend ${deploymentId}`,
+          "--config",
+          configPath,
+          "--yes",
+        ],
+        outputPath,
+        DEPLOY_TIMEOUT_MS,
+      );
+      const deployedEvents = await wranglerEvents(outputPath);
+      deployed = deployedVersion(deployedEvents, names.worker);
+    }
     dependencies.log(
       JSON.stringify(
         {
@@ -713,14 +772,25 @@ async function bestEffortWrangler(
   dependencies: CloudflareDependencies,
   account: string,
   args: string[],
+  acceptableMissingCodes: number[] = [],
 ): Promise<{ ok: boolean; diagnostic?: string }> {
   try {
     await wrangler(dependencies, account, args);
     return { ok: true };
   } catch (error) {
+    const diagnostic = redactCloudflareDiagnostics(String(error));
+    const acceptedCode = acceptableMissingCodes.find((code) =>
+      diagnostic.includes(`[code: ${code}]`),
+    );
+    if (acceptedCode !== undefined) {
+      return {
+        ok: true,
+        diagnostic: `Resource was already absent (Cloudflare code ${acceptedCode}).`,
+      };
+    }
     return {
       ok: false,
-      diagnostic: redactCloudflareDiagnostics(String(error)),
+      diagnostic,
     };
   }
 }
@@ -762,11 +832,12 @@ export async function cleanupCloudflare(
   }> = [];
   results.push({
     resource: names.worker,
-    ...(await bestEffortWrangler(dependencies, account, [
-      "delete",
-      names.worker,
-      "--force",
-    ])),
+    ...(await bestEffortWrangler(
+      dependencies,
+      account,
+      ["delete", names.worker, "--force"],
+      [10090],
+    )),
   });
   let payloadKeys: string[] = [];
   try {
