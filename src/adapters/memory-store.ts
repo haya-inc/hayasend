@@ -1,4 +1,3 @@
-import { ConflictError } from "../core/errors.js";
 import { validateDeliveryCommit } from "../core/delivery-commit.js";
 import {
   deliveryAttemptRecordSchema,
@@ -21,6 +20,7 @@ import {
   type AttemptCompletion,
   type DeliveryLedgerPlan,
 } from "../core/recipient-ledger.js";
+import { ConflictError, ValidationError } from "../core/errors.js";
 import type {
   ApiKeyRecord,
   AttachmentUploadRecord,
@@ -81,26 +81,31 @@ export interface MemoryStoreOptions {
     | undefined;
 }
 
-function pageFromMap<T extends { created_at: string }>(
+function pageFromMap<T extends { id: string; created_at: string }>(
   values: Iterable<T>,
   limit: number,
   cursor?: string,
 ): Page<T> {
-  const offset = cursor
-    ? Number(Buffer.from(cursor, "base64url").toString("utf8"))
-    : 0;
-  const sorted = [...values].sort((left, right) =>
-    right.created_at.localeCompare(left.created_at),
+  const sorted = [...values].sort(
+    (left, right) =>
+      right.created_at.localeCompare(left.created_at) ||
+      right.id.localeCompare(left.id),
   );
+  const cursorIndex = cursor
+    ? sorted.findIndex((record) => record.id === cursor)
+    : -1;
+  if (cursor && cursorIndex < 0) {
+    throw new ValidationError("The pagination cursor is invalid.");
+  }
+  const offset = cursorIndex + 1;
   const data = sorted
     .slice(offset, offset + limit)
     .map((item) => structuredClone(item));
-  const nextOffset = offset + data.length;
-  if (nextOffset < sorted.length) {
+  if (offset + data.length < sorted.length && data.length > 0) {
     return {
       data,
       has_more: true,
-      next_cursor: Buffer.from(String(nextOffset)).toString("base64url"),
+      next_cursor: data.at(-1)?.id,
     };
   }
   return { data, has_more: false };
@@ -557,7 +562,14 @@ export class MemoryStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<ReceivedEmailRecord>> {
-    return pageFromMap(this.receivedEmails.values(), limit, cursor);
+    const now = Date.now();
+    return pageFromMap(
+      [...this.receivedEmails.values()].filter(
+        (record) => Date.parse(record.expires_at) > now,
+      ),
+      limit,
+      cursor,
+    );
   }
 
   async createDomain(record: DomainRecord): Promise<void> {

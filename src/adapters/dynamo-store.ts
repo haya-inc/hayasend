@@ -31,7 +31,7 @@ import {
   type ProviderEventRecord,
   type RecipientRecord,
 } from "../core/delivery-model.js";
-import { ConflictError } from "../core/errors.js";
+import { ConflictError, ValidationError } from "../core/errors.js";
 import {
   planAttemptCompletion,
   planAttemptStart,
@@ -278,22 +278,6 @@ function storedEntity(kind: IndexedEntityKind, record: Entity): StoredEntity {
     GSI1SK: `${record.created_at}#${record.id}`,
     entity: record,
   };
-}
-
-function encodeCursor(value: Record<string, unknown> | undefined) {
-  return value
-    ? Buffer.from(JSON.stringify(value)).toString("base64url")
-    : undefined;
-}
-
-function decodeCursor(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<
-    string,
-    unknown
-  >;
 }
 
 export class DynamoStore implements Store, DeliveryOutboxStore {
@@ -1324,7 +1308,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
   }
 
   async listEmails(limit: number, cursor?: string): Promise<Page<EmailRecord>> {
-    return this.listEntities<EmailRecord>("EMAILS", limit, cursor);
+    return this.listEntities<EmailRecord>("EMAIL", limit, cursor);
   }
 
   async createTemplate(record: TemplateRecord): Promise<void> {
@@ -1884,9 +1868,10 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     cursor?: string,
   ): Promise<Page<ReceivedEmailRecord>> {
     return this.listEntities<ReceivedEmailRecord>(
-      "RECEIVED_EMAILS",
+      "RECEIVED",
       limit,
       cursor,
+      true,
     );
   }
 
@@ -1913,7 +1898,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<DomainRecord>> {
-    return this.listEntities<DomainRecord>("DOMAINS", limit, cursor);
+    return this.listEntities<DomainRecord>("DOMAIN", limit, cursor);
   }
 
   async createWebhook(record: WebhookEndpoint): Promise<void> {
@@ -1974,7 +1959,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<WebhookEndpoint>> {
-    return this.listEntities<WebhookEndpoint>("WEBHOOKS", limit, cursor);
+    return this.listEntities<WebhookEndpoint>("WEBHOOK", limit, cursor);
   }
 
   async createWebhookDelivery(record: WebhookDeliveryRecord): Promise<boolean> {
@@ -2096,33 +2081,56 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<WebhookDeliveryRecord>> {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: "GSI1",
-        KeyConditionExpression: "GSI1PK = :partition",
-        FilterExpression: "#ttl > :now",
-        ExpressionAttributeNames: {
-          "#ttl": "ttl",
-        },
-        ExpressionAttributeValues: {
-          ":partition": `WEBHOOK_DELIVERIES#${webhookId}`,
-          ":now": Math.floor(Date.now() / 1_000),
-        },
-        ExclusiveStartKey: decodeCursor(cursor),
-        ScanIndexForward: false,
-        Limit: limit,
-      }),
-    );
-    const data = (result.Items ?? []).map(
-      (item) => (item as StoredEntity).entity as WebhookDeliveryRecord,
-    );
-    const nextCursor = encodeCursor(
-      result.LastEvaluatedKey as Record<string, unknown> | undefined,
-    );
-    return nextCursor
-      ? { data, has_more: true, next_cursor: nextCursor }
-      : { data, has_more: false };
+    const anchor = cursor ? await this.getWebhookDelivery(cursor) : undefined;
+    if (cursor && (!anchor || anchor.webhook_id !== webhookId)) {
+      throw new ValidationError("The pagination cursor is invalid.");
+    }
+    let exclusiveStartKey: Record<string, unknown> | undefined = anchor
+      ? {
+          ...entityKey("WEBHOOK_DELIVERY", anchor.id),
+          GSI1PK: `WEBHOOK_DELIVERIES#${anchor.webhook_id}`,
+          GSI1SK: `${anchor.created_at}#${anchor.id}`,
+        }
+      : undefined;
+    const data: WebhookDeliveryRecord[] = [];
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :partition",
+          FilterExpression: "#ttl > :now",
+          ExpressionAttributeNames: {
+            "#ttl": "ttl",
+          },
+          ExpressionAttributeValues: {
+            ":partition": `WEBHOOK_DELIVERIES#${webhookId}`,
+            ":now": Math.floor(Date.now() / 1_000),
+          },
+          ...(exclusiveStartKey
+            ? { ExclusiveStartKey: exclusiveStartKey }
+            : {}),
+          ScanIndexForward: false,
+          Limit: Math.min(100, limit + 1 - data.length),
+        }),
+      );
+      data.push(
+        ...(result.Items ?? []).map(
+          (item) => (item as StoredEntity).entity as WebhookDeliveryRecord,
+        ),
+      );
+      exclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (exclusiveStartKey && data.length <= limit);
+    const page = data.slice(0, limit);
+    return data.length > limit && page.length > 0
+      ? {
+          data: page,
+          has_more: true,
+          next_cursor: page.at(-1)?.id,
+        }
+      : { data: page, has_more: false };
   }
 
   async createApiKey(record: ApiKeyRecord): Promise<void> {
@@ -2144,7 +2152,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<ApiKeyRecord>> {
-    return this.listEntities<ApiKeyRecord>("API_KEYS", limit, cursor);
+    return this.listEntities<ApiKeyRecord>("APIKEY", limit, cursor);
   }
 
   async putSuppression(record: SuppressionRecord): Promise<void> {
@@ -2170,7 +2178,7 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
     limit: number,
     cursor?: string,
   ): Promise<Page<SuppressionRecord>> {
-    return this.listEntities<SuppressionRecord>("SUPPRESSIONS", limit, cursor);
+    return this.listEntities<SuppressionRecord>("SUPPRESSION", limit, cursor);
   }
 
   private async getStoredDeliveryState(
@@ -2583,30 +2591,71 @@ export class DynamoStore implements Store, DeliveryOutboxStore {
   }
 
   private async listEntities<T extends Entity>(
-    indexPartition: IndexPartition,
+    kind: IndexedEntityKind,
     limit: number,
     cursor?: string,
+    onlyUnexpired = false,
   ): Promise<Page<T>> {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: "GSI1",
-        KeyConditionExpression: "GSI1PK = :partition",
-        ExpressionAttributeValues: { ":partition": indexPartition },
-        ExclusiveStartKey: decodeCursor(cursor),
-        ScanIndexForward: false,
-        Limit: limit,
-      }),
-    );
-    const data = (result.Items ?? []).map(
-      (item) => (item as StoredEntity).entity as T,
-    );
-    const nextCursor = encodeCursor(
-      result.LastEvaluatedKey as Record<string, unknown> | undefined,
-    );
-    return nextCursor
-      ? { data, has_more: true, next_cursor: nextCursor }
-      : { data, has_more: false };
+    const anchor = cursor ? await this.getEntity<T>(kind, cursor) : undefined;
+    if (
+      cursor &&
+      (!anchor ||
+        (onlyUnexpired &&
+          "expires_at" in anchor &&
+          Date.parse(String(anchor.expires_at)) <= Date.now()))
+    ) {
+      throw new ValidationError("The pagination cursor is invalid.");
+    }
+    let exclusiveStartKey: Record<string, unknown> | undefined = anchor
+      ? {
+          ...entityKey(kind, anchor.id),
+          GSI1PK: INDEX_PARTITION[kind],
+          GSI1SK: `${anchor.created_at}#${anchor.id}`,
+        }
+      : undefined;
+    const data: T[] = [];
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: "GSI1",
+          KeyConditionExpression: "GSI1PK = :partition",
+          ...(onlyUnexpired
+            ? {
+                FilterExpression: "#ttl > :now",
+                ExpressionAttributeNames: { "#ttl": "ttl" },
+              }
+            : {}),
+          ExpressionAttributeValues: {
+            ":partition": INDEX_PARTITION[kind],
+            ...(onlyUnexpired
+              ? { ":now": Math.floor(Date.now() / 1_000) }
+              : {}),
+          },
+          ...(exclusiveStartKey
+            ? { ExclusiveStartKey: exclusiveStartKey }
+            : {}),
+          ScanIndexForward: false,
+          Limit: Math.min(100, limit + 1 - data.length),
+        }),
+      );
+      data.push(
+        ...(result.Items ?? []).map(
+          (item) => (item as StoredEntity).entity as T,
+        ),
+      );
+      exclusiveStartKey = result.LastEvaluatedKey as
+        | Record<string, unknown>
+        | undefined;
+    } while (exclusiveStartKey && data.length <= limit);
+    const page = data.slice(0, limit);
+    return data.length > limit && page.length > 0
+      ? {
+          data: page,
+          has_more: true,
+          next_cursor: page.at(-1)?.id,
+        }
+      : { data: page, has_more: false };
   }
 
   private async queryOutboxPartition(

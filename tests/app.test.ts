@@ -518,6 +518,18 @@ describe("HTTP API", () => {
     });
   });
 
+  it("returns a stable validation error for an unknown list cursor", async () => {
+    const { request } = fixture();
+    const response = await request("/emails?after=email_missing");
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      statusCode: 422,
+      name: "validation_error",
+      message: "The pagination cursor is invalid.",
+    });
+  });
+
   it("lists and retrieves received emails before the generic email route", async () => {
     const { inboundStorage, receivedEmailService, request } = fixture();
     inboundStorage.seedRaw(
