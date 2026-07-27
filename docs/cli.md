@@ -19,10 +19,10 @@ Contributors can run the same CLI from a source checkout:
 npm run cli -- help
 ```
 
-The package supports `init`, `dev`, `doctor`, `test`, `send`, and `templates`
-without a source checkout. `deploy aws` currently requires a checkout because
-SAM builds the checked-in TypeScript entry points; the CLI refuses a working
-directory without `template.yaml`.
+Every command, including `deploy aws`, runs without a source checkout. AWS
+deployment uses only the reviewed SAM template and Lambda source shipped in
+that exact package version; it never discovers infrastructure code from the
+caller's working directory.
 
 ## Initialize local development
 
@@ -203,11 +203,11 @@ publishes the restored content. Review with `templates render`, then use
 
 ## Plan and deploy to AWS
 
-Run the AWS workflow from a HayaSend checkout so SAM can build the reviewed
-source tree. The first invocation is a non-mutating plan:
+Run the exact released CLI version from any working directory. The first
+invocation is a non-mutating plan:
 
 ```bash
-npm run cli -- deploy aws \
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
   --account 123456789012 \
   --region ap-northeast-1 \
   --stack hayasend
@@ -220,13 +220,15 @@ account differs. `--region` can instead come from `AWS_REGION` or
 
 The plan:
 
-1. verifies the AWS and SAM CLIs;
+1. verifies the AWS, SAM, and npm CLIs;
 2. reads caller identity, SES production/sending state and quota, and the
    existing CloudFormation stack;
 3. refuses a stack that is not in a stable terminal state;
 4. runs `sam validate --lint` and `sam build` in a temporary directory using an
    empty SAM configuration, so repository or user defaults cannot silently
-   change the plan;
+   change the plan. A package-owned compatibility adapter removes only SAM's
+   obsolete `--unsafe-perm` npm argument; all other arguments still reach the
+   installed npm CLI unchanged, including npm 12's script allowlist checks;
 5. prints the template SHA-256, effective parameters, tags, current stack
    state, and exact apply command as newline-delimited JSON. Plan mode emits
    one JSON object; apply mode emits one object per review or result event.
@@ -239,7 +241,7 @@ identifiers; do not paste plan output into a public issue.
 Apply only after reviewing the plan:
 
 ```bash
-npm run cli -- deploy aws \
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
   --account 123456789012 \
   --region ap-northeast-1 \
   --stack hayasend \
@@ -331,7 +333,7 @@ optional overrides of the published defaults.
 ## Scope
 
 The alpha CLI deliberately does not install dependencies or modify application
-source. AWS deployment reuses the checked-in SAM template and ordinary
+source. AWS deployment reuses the package's reviewed SAM template and ordinary
 CloudFormation change sets; the reviewed manual SAM commands in the main
 README remain a supported fallback. Migration automation remains on the
 roadmap.

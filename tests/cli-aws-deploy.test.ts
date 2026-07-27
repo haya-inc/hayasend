@@ -1,3 +1,6 @@
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   redactAwsDiagnostics,
@@ -53,6 +56,16 @@ function baseRunner(
     }
     if (command === "sam" && args[0] === "--version") {
       return result("SAM CLI, version 1.164.0");
+    }
+    if (command === "npm" && args[0] === "--version") {
+      return result("12.0.1");
+    }
+    if (
+      command === "npm" &&
+      args[0] === "root" &&
+      args[1] === "--global"
+    ) {
+      return result(join(tmpdir(), "hayasend-test-npm-root"));
     }
     if (command === "aws" && args[0] === "sts") {
       return json({
@@ -119,6 +132,11 @@ describe("plan-first AWS deployment CLI", () => {
       ok: true,
       mutating: false,
       mode: "plan",
+      tools: {
+        aws_cli: "aws-cli/2.35.24 Python/3.13",
+        sam_cli: "SAM CLI, version 1.164.0",
+        npm_cli: "12.0.1",
+      },
       identity: {
         account: "123456789012",
         principal_arn:
@@ -153,8 +171,18 @@ describe("plan-first AWS deployment CLI", () => {
       },
       dns_changes: "never",
     });
+    expect(plan.template).toMatchObject({
+      source: "package:template.yaml",
+      validation: "pass",
+      build: "pass",
+    });
     expect(plan.template.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(plan.apply_command).toContain("--apply");
+    expect(plan.apply_command.slice(0, 2)).toEqual(["npx", "--yes"]);
+    expect(plan.apply_command[2]).toMatch(
+      /^@haya-inc\/hayasend@\d+\.\d+\.\d+/,
+    );
+    expect(plan.apply_command.slice(3, 5)).toEqual(["deploy", "aws"]);
     expect(plan.apply_command).toEqual(
       expect.arrayContaining([
         "--api-rate-limit",
@@ -178,6 +206,13 @@ describe("plan-first AWS deployment CLI", () => {
           args.includes("--parallel"),
       ),
     ).toBe(true);
+    const buildCall = runner.mock.calls.find(
+      ([command, args]) => command === "sam" && args[0] === "build",
+    );
+    expect(buildCall?.[2].env?.HAYASEND_REAL_NPM_CLI).toMatch(
+      /npm[/\\]bin[/\\]npm-cli\.js$/,
+    );
+    expect(buildCall?.[2].env?.PATH).toContain("npm-sam-compat");
   });
 
   it("accepts independent decimal rate and integer burst overrides", async () => {
@@ -208,6 +243,48 @@ describe("plan-first AWS deployment CLI", () => {
       ApiThrottlingRateLimit: "7.5",
       ApiThrottlingBurstLimit: "3",
     });
+  });
+
+  it("builds only the packaged application outside a source checkout", async () => {
+    const unrelatedWorkingDirectory = join(
+      tmpdir(),
+      "unrelated-hayasend-consumer",
+    );
+    const runner = baseRunner();
+
+    await runCli(
+      [
+        "deploy",
+        "aws",
+        "--account",
+        "123456789012",
+        "--region",
+        "ap-northeast-1",
+      ],
+      {
+        cwd: unrelatedWorkingDirectory,
+        env: {},
+        io: capturingIo().io,
+        runCommand: runner,
+      },
+    );
+
+    const packagedTemplate = fileURLToPath(
+      new URL("../template.yaml", import.meta.url),
+    );
+    const buildCall = runner.mock.calls.find(
+      ([command, args]) => command === "sam" && args[0] === "build",
+    );
+    expect(buildCall).toBeDefined();
+    const buildArgs = buildCall?.[1] ?? [];
+    expect(buildArgs).toContain(packagedTemplate);
+    expect(buildArgs).not.toContain(
+      join(unrelatedWorkingDirectory, "template.yaml"),
+    );
+    expect(buildArgs.at(buildArgs.indexOf("--base-dir") + 1)).toBe(
+      dirname(packagedTemplate),
+    );
+    expect(buildCall?.[2].cwd).toBe(unrelatedWorkingDirectory);
   });
 
   it("fails closed on account mismatch before reading SES or CloudFormation", async () => {

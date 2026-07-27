@@ -226,7 +226,7 @@ jobs:
 
   npm-package:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -235,6 +235,9 @@ jobs:
           package-manager-cache: false
       - name: Install npm
         run: npm install --global --ignore-scripts npm@12.0.1
+      - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
+        with:
+          version: 1.164.0
       - run: npm ci
       - name: Build and exercise the distributable CLI
         run: |
@@ -266,15 +269,19 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount < 200 and
+            .entryCount < 260 and
+            .size < 400000 and
+            .unpackedSize < 2000000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
+            ([.files[].path] | index("src/aws/api.ts") != null) and
+            ([.files[].path] | index("template.yaml") != null) and
             ([.files[].path] |
               index("dist/stale-cross-branch-artifact.txt") == null)
           ' "$RUNNER_TEMP/npm-pack-metadata.json" > /dev/null
           if tar --list --gzip --file "$RUNNER_TEMP/$archive" |
             grep --extended-regexp --invert-match --quiet \
-              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|dist/.*|schemas/.*|scripts/clean-dist\.mjs)$'; then
+              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|dist/.*|schemas/.*|scripts/(clean-dist|npm-sam-compat)\.mjs|src/.*|template\.yaml)$'; then
             echo "The npm package contains an unexpected path."
             tar --list --gzip --file "$RUNNER_TEMP/$archive"
             exit 1
@@ -293,10 +300,28 @@ jobs:
           grep --quiet "HayaSend CLI" "$RUNNER_TEMP/hayasend-help.txt"
           npm exec \
             --yes \
+            --ignore-scripts \
             --package="$RUNNER_TEMP/$archive" \
             -- hayasend help \
             > "$RUNNER_TEMP/hayasend-npx-help.txt"
           grep --quiet "HayaSend CLI" "$RUNNER_TEMP/hayasend-npx-help.txt"
+          package_root="$consumer/node_modules/@haya-inc/hayasend"
+          test -x "$consumer/node_modules/.bin/esbuild"
+          npm_root="$(npm root --global)"
+          npm_compat="$RUNNER_TEMP/npm-sam-compat"
+          mkdir "$npm_compat"
+          cp "$package_root/scripts/npm-sam-compat.mjs" "$npm_compat/npm"
+          chmod 700 "$npm_compat/npm"
+          sam validate \
+            --lint \
+            --template-file "$package_root/template.yaml"
+          HAYASEND_REAL_NPM_CLI="$npm_root/npm/bin/npm-cli.js" \
+            PATH="$npm_compat:$consumer/node_modules/.bin:$PATH" sam build \
+            --parallel \
+            --template-file "$package_root/template.yaml" \
+            --base-dir "$package_root" \
+            --build-dir "$RUNNER_TEMP/hayasend-sam-build"
+          test -f "$RUNNER_TEMP/hayasend-sam-build/template.yaml"
           mkdir "$project"
           (
             cd "$project"
