@@ -4,12 +4,14 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { normalizeEndpoint, runCli } from "../src/cli.js";
+import { isMainModule, normalizeEndpoint, runCli } from "../src/cli.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -111,6 +113,18 @@ function capturingIo() {
 }
 
 describe("HayaSend CLI", () => {
+  it("recognizes an npm-style symlink as the executable module", async () => {
+    const directory = await temporaryDirectory();
+    const modulePath = join(directory, "cli.js");
+    const executablePath = join(directory, "hayasend");
+    await writeFile(modulePath, "#!/usr/bin/env node\n");
+    await symlink(modulePath, executablePath);
+
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(isMainModule(executablePath, moduleUrl)).toBe(true);
+    expect(isMainModule(undefined, moduleUrl)).toBe(false);
+  });
+
   it("protects API keys from unsafe endpoint URLs", () => {
     expect(normalizeEndpoint("http://localhost:8787/")).toBe(
       "http://localhost:8787",

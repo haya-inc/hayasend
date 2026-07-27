@@ -2,19 +2,33 @@
 
 The HayaSend CLI provides non-interactive building blocks for local setup,
 connectivity checks, hosted-template delivery, and end-to-end send
-verification. During the alpha it runs from a source checkout:
+verification. Run released commands with an exact version:
+
+```bash
+HAYASEND_VERSION=X.Y.Z
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" help
+```
+
+Pin the version in scripts and CI. Do not depend on the mutable `latest`
+dist-tag for infrastructure operations. The CLI package is also attached to
+the corresponding GitHub release, covered by its checksums and attestation.
+
+Contributors can run the same CLI from a source checkout:
 
 ```bash
 npm run cli -- help
 ```
 
-The compiled package also exposes a `hayasend` executable so the same interface
-can be distributed independently later without changing scripts.
+The package supports `init`, `dev`, `doctor`, `test`, `send`, and `templates`
+without a source checkout. `deploy aws` currently requires a checkout because
+SAM builds the checked-in TypeScript entry points; the CLI refuses a working
+directory without `template.yaml`.
 
 ## Initialize local development
 
 ```bash
-npm run cli -- init --dir ../my-application
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" init \
+  --dir ../my-application
 ```
 
 `init` creates exactly two files:
@@ -42,7 +56,7 @@ Keep API keys out of shell history and process listings:
 ```bash
 export HAYASEND_BASE_URL=http://localhost:8787
 export HAYASEND_API_KEY=re_hayasend_dev
-npm run cli -- doctor
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 ```
 
 `doctor` has a five-second timeout and checks:
@@ -60,7 +74,7 @@ fragments are rejected.
 The `test` command creates a message and retrieves its record:
 
 ```bash
-npm run cli -- test \
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" test \
   --from 'Product <sender@example.com>' \
   --to recipient@example.net \
   --subject 'HayaSend integration test'
@@ -189,8 +203,8 @@ publishes the restored content. Review with `templates render`, then use
 
 ## Plan and deploy to AWS
 
-Run the AWS workflow from a HayaSend checkout. The first invocation is a
-non-mutating plan:
+Run the AWS workflow from a HayaSend checkout so SAM can build the reviewed
+source tree. The first invocation is a non-mutating plan:
 
 ```bash
 npm run cli -- deploy aws \

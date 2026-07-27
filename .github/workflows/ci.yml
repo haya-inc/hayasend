@@ -223,3 +223,92 @@ jobs:
             --max-failures 20 \
             --request-timeout 2 \
             --no-color
+
+  npm-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
+      - run: npm ci
+      - name: Build and exercise the distributable CLI
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          printf 'must not ship\n' > dist/stale-cross-branch-artifact.txt
+          npm pack --json --pack-destination "$RUNNER_TEMP" \
+            > "$RUNNER_TEMP/npm-pack.json"
+          jq '
+            if type == "array" then
+              .[0]
+            else
+              .["@haya-inc/hayasend"]
+            end
+          ' "$RUNNER_TEMP/npm-pack.json" \
+            > "$RUNNER_TEMP/npm-pack-metadata.json"
+
+          version="$(node --print "require('./package.json').version")"
+          expected_archive="haya-inc-hayasend-${version}.tgz"
+          archive="$(jq --raw-output '.filename' \
+            "$RUNNER_TEMP/npm-pack-metadata.json")"
+          test "$archive" = "$expected_archive"
+          test -f "$RUNNER_TEMP/$archive"
+          test "$(
+            node scripts/npm-package-integrity.mjs < "$RUNNER_TEMP/$archive"
+          )" = "$(
+            jq --raw-output '.integrity' \
+              "$RUNNER_TEMP/npm-pack-metadata.json"
+          )"
+          jq --exit-status '
+            .entryCount < 200 and
+            ([.files[].path] | index("dist/cli.js") != null) and
+            ([.files[].path] | index("NOTICE") != null) and
+            ([.files[].path] |
+              index("dist/stale-cross-branch-artifact.txt") == null)
+          ' "$RUNNER_TEMP/npm-pack-metadata.json" > /dev/null
+          if tar --list --gzip --file "$RUNNER_TEMP/$archive" |
+            grep --extended-regexp --invert-match --quiet \
+              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|dist/.*|schemas/.*|scripts/clean-dist\.mjs)$'; then
+            echo "The npm package contains an unexpected path."
+            tar --list --gzip --file "$RUNNER_TEMP/$archive"
+            exit 1
+          fi
+
+          consumer="$RUNNER_TEMP/hayasend-consumer"
+          project="$RUNNER_TEMP/hayasend-project"
+          npm install \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund \
+            --prefix "$consumer" \
+            "$RUNNER_TEMP/$archive"
+          "$consumer/node_modules/.bin/hayasend" help \
+            > "$RUNNER_TEMP/hayasend-help.txt"
+          grep --quiet "HayaSend CLI" "$RUNNER_TEMP/hayasend-help.txt"
+          npm exec \
+            --yes \
+            --package="$RUNNER_TEMP/$archive" \
+            -- hayasend help \
+            > "$RUNNER_TEMP/hayasend-npx-help.txt"
+          grep --quiet "HayaSend CLI" "$RUNNER_TEMP/hayasend-npx-help.txt"
+          mkdir "$project"
+          (
+            cd "$project"
+            "$consumer/node_modules/.bin/hayasend" init > init.json
+          )
+          jq --exit-status '
+            .ok == true and
+            .created == [
+              "compose.hayasend.yaml",
+              ".env.hayasend.example"
+            ]
+          ' "$project/init.json" > /dev/null
+           grep --fixed-strings --quiet \
+             "image: ghcr.io/haya-inc/hayasend:${version}" \
+             "$project/compose.hayasend.yaml"
