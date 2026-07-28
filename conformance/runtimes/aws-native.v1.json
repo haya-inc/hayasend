@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0.0",
+  "runtime": "aws-native",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "service_maturity": "beta",
+  "runtime_class": "native-cloud",
+  "required_plan": "A customer-owned AWS account with CloudFormation, Lambda, API Gateway, DynamoDB, S3, SQS, EventBridge Scheduler, Secrets Manager, SNS, and CloudWatch access.",
+  "limits": {
+    "max_payload_bytes": 40894464,
+    "max_schedule_delay_seconds": 2592000,
+    "reconciliation_interval_seconds": 60
+  },
+  "authority": {
+    "durable_store": "metadata-ledger-outbox",
+    "atomic_message_outbox_commit": true,
+    "queue_is_source_of_truth": false,
+    "scheduler_is_source_of_truth": false,
+    "due_row_reconciliation": true
+  },
+  "components": {
+    "atomic_store": {
+      "status": "supported",
+      "notes": "DynamoDB transactions atomically commit message, recipient ledger, idempotency claim, outbox item, and backlog counter."
+    },
+    "recipient_ledger": {
+      "status": "supported",
+      "notes": "DynamoDB stores provider-neutral message, recipient, attempt, immutable provider event, and outbox records."
+    },
+    "payload_store": {
+      "status": "supported",
+      "notes": "Private encrypted S3 stores bodies and attachments outside the DynamoDB item-size boundary."
+    },
+    "queue_wakeup": {
+      "status": "supported",
+      "notes": "SQS publishes deterministic at-least-once jobs; duplicate delivery is absorbed by leases and final-state checks."
+    },
+    "scheduler_wakeup": {
+      "status": "supported",
+      "notes": "SQS handles short delays and EventBridge Scheduler creates self-deleting one-time wakes for later sends."
+    },
+    "periodic_reconciliation": {
+      "status": "supported",
+      "notes": "A one-minute dispatcher sweep recovers committed due rows after queue or scheduler wake-up loss."
+    },
+    "secret_injection": {
+      "status": "supported",
+      "notes": "Secrets Manager supplies the bootstrap secret only to the API runtime that requires it."
+    },
+    "provider_event_ingress": {
+      "status": "supported",
+      "notes": "SES configuration-set events enter through SNS and are normalized before ledger mutation."
+    },
+    "webhook_egress": {
+      "status": "supported",
+      "notes": "SQS-backed webhook jobs use stable event IDs and privacy-safe bounded retries."
+    },
+    "backup_restore": {
+      "status": "conditional",
+      "notes": "DynamoDB point-in-time recovery protects metadata; payload retention and a complete restore drill remain deployment-policy responsibilities."
+    }
+  },
+  "lifecycle": {
+    "safe_deploy": {
+      "status": "supported",
+      "notes": "The CLI creates a reviewed CloudFormation changeset and refuses an unexpected account or unsafe integration target."
+    },
+    "doctor": {
+      "status": "supported",
+      "notes": "Doctor verifies identity, runtime health, queue recovery, capability metadata, and authenticated API behavior."
+    },
+    "upgrade": {
+      "status": "supported",
+      "notes": "CloudFormation changesets update the stack while retaining provider-neutral records."
+    },
+    "rollback": {
+      "status": "conditional",
+      "notes": "CloudFormation rollback is supported; operators must validate data migrations and recovery procedures for the exact release."
+    },
+    "cleanup": {
+      "status": "supported",
+      "notes": "The disposable integration workflow deletes the stack and verifies the run-scoped resource set is absent."
+    }
+  },
+  "privacy": {
+    "content_stored_in_customer_account": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_operational_errors_retained": false
+  },
+  "sources": [
+    {
+      "title": "DynamoDB transactions",
+      "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis.html",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Amazon SQS at-least-once delivery",
+      "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Amazon EventBridge Scheduler",
+      "url": "https://docs.aws.amazon.com/scheduler/latest/UserGuide/what-is-scheduler.html",
+      "checked_at": "2026-07-28"
+    }
+  ],
+  "limitations": [
+    "Production readiness remains false until the exact-main SES terminal-delivery and controlled-receipt proof in issue #126 passes.",
+    "A complete backup and restore drill must cover both DynamoDB metadata and retained S3 payloads.",
+    "The customer remains responsible for AWS account, Region, quota, budget, and retention policy."
+  ]
+}

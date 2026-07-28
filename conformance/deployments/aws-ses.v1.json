@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "deployment": "aws-ses",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "runtime": {
+    "profile": "aws-native",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/runtimes/aws-native.v1.json"
+  },
+  "transport": {
+    "provider": "aws-ses",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/providers/aws-ses.v1.json"
+  },
+  "maturity": {
+    "runtime": "beta",
+    "transport": "beta",
+    "combination": "beta"
+  },
+  "production_ready": false,
+  "effective_limits": {
+    "max_serialized_request_bytes": 9437184,
+    "max_mime_message_bytes": 40894464,
+    "max_combined_recipients": 50,
+    "max_attachments": 20,
+    "max_decoded_attachment_bytes": 26214400,
+    "max_batch_messages": 100,
+    "max_schedule_delay_seconds": 2592000
+  },
+  "evidence": {
+    "conformance": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/126",
+      "notes": "Exact-main hosted conformance and provider terminal proof are tracked in issue #126."
+    },
+    "lifecycle": {
+      "status": "passed",
+      "url": "https://github.com/haya-inc/hayasend/issues/22",
+      "notes": "The v0.1 release gate proved protected deployment, rollback behavior, and release verification."
+    },
+    "terminal_delivery": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/126",
+      "notes": "SES acceptance, SNS terminal correlation, and recipient convergence have not yet passed on exact main."
+    },
+    "controlled_receipt": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/126",
+      "notes": "Controlled mailbox receipt remains part of the terminal-delivery proof."
+    },
+    "cleanup": {
+      "status": "passed",
+      "url": "https://github.com/haya-inc/hayasend/issues/22",
+      "notes": "The reusable dedicated test-account integration verified stack cleanup with retain_stack=false."
+    }
+  },
+  "privacy": {
+    "customer_owned_data_plane": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_provider_errors_retained": false
+  },
+  "limitations": [
+    "Production readiness is false while issue #126 remains incomplete.",
+    "Amazon SES has no verified provider-side send idempotency key.",
+    "AWS account quotas, sending access, and Region configuration remain customer responsibilities."
+  ]
+}

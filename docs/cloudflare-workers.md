@@ -92,9 +92,10 @@ The machine-readable
 [`cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
 keeps the provider maturity at Beta. The local
 [`conformance report`](../conformance/reports/cloudflare-email.local.v1.json)
-intentionally remains failed only on production deploy/rollback evidence,
-which is owned by issue #104, and records the three capability differences as
-unsupported.
+passes the required shared cases using the exact-main hosted deploy/rollback
+evidence from issue #104 and records the three capability differences as
+unsupported. The combined deployment remains non-production until issue #122
+proves terminal event convergence and controlled mailbox receipt.
 
 ## Privacy boundary
 

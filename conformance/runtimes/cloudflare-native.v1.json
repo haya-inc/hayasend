@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0.0",
+  "runtime": "cloudflare-native",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "service_maturity": "beta",
+  "runtime_class": "native-cloud",
+  "required_plan": "A customer-owned Cloudflare account with Workers Paid, D1, R2, Queues, Cron Triggers, and the required Email Service access.",
+  "limits": {
+    "max_payload_bytes": 5242880,
+    "max_schedule_delay_seconds": 2592000,
+    "reconciliation_interval_seconds": 60
+  },
+  "authority": {
+    "durable_store": "metadata-ledger-outbox",
+    "atomic_message_outbox_commit": true,
+    "queue_is_source_of_truth": false,
+    "scheduler_is_source_of_truth": false,
+    "due_row_reconciliation": true
+  },
+  "components": {
+    "atomic_store": {
+      "status": "supported",
+      "notes": "D1 transactions atomically persist provider-neutral delivery state and the deterministic outbox."
+    },
+    "recipient_ledger": {
+      "status": "supported",
+      "notes": "D1 stores canonical messages, recipients, attempts, provider events, suppressions, and outbox items."
+    },
+    "payload_store": {
+      "status": "supported",
+      "notes": "Private R2 stores payload objects referenced by the D1 delivery authority."
+    },
+    "queue_wakeup": {
+      "status": "supported",
+      "notes": "Cloudflare Queues delivers deterministic at-least-once jobs to the Worker and a dedicated dead-letter queue."
+    },
+    "scheduler_wakeup": {
+      "status": "conditional",
+      "notes": "Queue delay accelerates due work while D1 due times and Cron reconciliation retain the 30-day HayaSend contract."
+    },
+    "periodic_reconciliation": {
+      "status": "supported",
+      "notes": "A one-minute Cron trigger leases and republishes due D1 outbox rows after a lost queue wake-up."
+    },
+    "secret_injection": {
+      "status": "supported",
+      "notes": "Wrangler writes the API secret to the customer-owned Worker without retaining it in deployment evidence."
+    },
+    "provider_event_ingress": {
+      "status": "conditional",
+      "notes": "The Worker consumes Email Sending Queue events after the operator creates the documented per-domain event subscription."
+    },
+    "webhook_egress": {
+      "status": "unsupported",
+      "notes": "The current Cloudflare proof runtime does not expose the full webhook surface."
+    },
+    "backup_restore": {
+      "status": "conditional",
+      "notes": "Deployment creates a D1 pre-migration backup; a complete D1 and R2 restore drill is not yet published."
+    }
+  },
+  "lifecycle": {
+    "safe_deploy": {
+      "status": "supported",
+      "notes": "Plan-first deployment binds deterministic D1, R2, Queue, and Worker resources to an explicitly confirmed account."
+    },
+    "doctor": {
+      "status": "supported",
+      "notes": "Doctor verifies deployment identity, health, capability digests, authenticated API behavior, and event-subscription truth."
+    },
+    "upgrade": {
+      "status": "supported",
+      "notes": "Additive D1 migrations and immutable Worker versions support reviewed upgrades."
+    },
+    "rollback": {
+      "status": "supported",
+      "notes": "Rollback targets a reviewed immutable Worker version while preserving D1 and R2 state."
+    },
+    "cleanup": {
+      "status": "supported",
+      "notes": "Cleanup removes the event subscription and deterministic Worker, R2, Queue, and D1 resources with fail-closed absence checks."
+    }
+  },
+  "privacy": {
+    "content_stored_in_customer_account": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_operational_errors_retained": false
+  },
+  "sources": [
+    {
+      "title": "Cloudflare D1",
+      "url": "https://developers.cloudflare.com/d1/",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Cloudflare Queues delivery guarantees",
+      "url": "https://developers.cloudflare.com/queues/reference/delivery-guarantees/",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Cloudflare Workers Cron Triggers",
+      "url": "https://developers.cloudflare.com/workers/configuration/cron-triggers/",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Cloudflare R2",
+      "url": "https://developers.cloudflare.com/r2/",
+      "checked_at": "2026-07-28"
+    }
+  ],
+  "limitations": [
+    "Production readiness remains false until issue #122 proves a terminal provider event and controlled mailbox receipt.",
+    "Webhook delivery, hosted templates, domain management, and inbound email are outside the current proof runtime.",
+    "A complete D1 and R2 backup/restore drill is not yet published."
+  ]
+}

@@ -1,10 +1,27 @@
 # Architecture
 
+## Runtime and transport boundary
+
+HayaSend's Resend-shaped API and provider-neutral delivery semantics sit above
+two independently replaceable axes: a customer-owned runtime substrate and a
+mail transport adapter. The runtime owns the durable metadata/recipient
+ledger, transactional outbox, payload store, queue/scheduler wake-ups,
+reconciliation, secrets, and operational lifecycle. The transport accepts a
+message and returns provider identity and lifecycle events.
+
+The durable store remains authoritative in every runtime. Queues and
+schedulers only accelerate due work, so a lost wake-up or a platform queue
+retention limit cannot erase a committed send or long schedule. Runtime,
+transport, and exact combined readiness are published separately; see
+[runtime and transport portability](runtime-portability.md).
+
 ## Trust boundary
 
-HayaSend is single-tenant by default. The API, queues, metadata, SES identity,
-and delivery events live in the customer's AWS account. There is no Haya
-control plane in the data path.
+HayaSend is single-tenant by default. The API, queues, metadata, provider
+identity, and delivery events live in the customer's cloud account. There is
+no Haya control plane in the data path. The remainder of this document
+describes the full AWS reference implementation; the Cloudflare profile is
+documented separately.
 
 The bootstrap bearer key is generated or supplied in Secrets Manager. Only the
 API function receives permission to read its value. The function retrieves and

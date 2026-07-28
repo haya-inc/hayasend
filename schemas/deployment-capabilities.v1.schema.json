@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hayasend.dev/schemas/deployment-capabilities.v1.schema.json",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "deployment": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "adapter_version": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "checked_at": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "runtime": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "transport": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "maturity": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "production_ready": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "effective_limits": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "evidence": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "privacy": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "limitations": {
+      "$ref": "#/$defs/__schema13"
+    }
+  },
+  "required": [
+    "schema_version",
+    "deployment",
+    "adapter_version",
+    "checked_at",
+    "runtime",
+    "transport",
+    "maturity",
+    "production_ready",
+    "effective_limits",
+    "evidence",
+    "privacy",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "title": "HayaSend deployment capability document",
+  "description": "Binds one runtime substrate to one mail transport and prevents readiness from exceeding the weakest component or evidence gate.",
+  "$defs": {
+    "__schema0": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "__schema1": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$"
+    },
+    "__schema2": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "__schema3": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "__schema4": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "adapter_version": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "capability_document": {
+          "type": "string",
+          "pattern": "^conformance\\/runtimes\\/[a-z0-9-]+\\.v1\\.json$"
+        }
+      },
+      "required": [
+        "profile",
+        "adapter_version",
+        "capability_document"
+      ],
+      "additionalProperties": false
+    },
+    "__schema5": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "adapter_version": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "capability_document": {
+          "type": "string",
+          "pattern": "^conformance\\/providers\\/[a-z0-9-]+\\.v1\\.json$"
+        }
+      },
+      "required": [
+        "provider",
+        "adapter_version",
+        "capability_document"
+      ],
+      "additionalProperties": false
+    },
+    "__schema6": {
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "transport": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "combination": {
+          "$ref": "#/$defs/__schema7"
+        }
+      },
+      "required": [
+        "runtime",
+        "transport",
+        "combination"
+      ],
+      "additionalProperties": false
+    },
+    "__schema7": {
+      "type": "string",
+      "enum": [
+        "experimental",
+        "beta",
+        "production"
+      ]
+    },
+    "__schema8": {
+      "type": "boolean"
+    },
+    "__schema9": {
+      "type": "object",
+      "properties": {
+        "max_serialized_request_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_mime_message_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_combined_recipients": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_attachments": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_decoded_attachment_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_batch_messages": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_schedule_delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "max_serialized_request_bytes",
+        "max_mime_message_bytes",
+        "max_combined_recipients",
+        "max_attachments",
+        "max_decoded_attachment_bytes",
+        "max_batch_messages",
+        "max_schedule_delay_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "__schema10": {
+      "type": "object",
+      "properties": {
+        "conformance": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "terminal_delivery": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "controlled_receipt": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/__schema11"
+        }
+      },
+      "required": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ],
+      "additionalProperties": false
+    },
+    "__schema11": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "pending"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https:\\/\\/.*"
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "status",
+        "url",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "__schema12": {
+      "type": "object",
+      "properties": {
+        "customer_owned_data_plane": {
+          "type": "boolean",
+          "const": true
+        },
+        "management_plane_content_exported_by_default": {
+          "type": "boolean",
+          "const": false
+        },
+        "addresses_exported_by_default": {
+          "type": "boolean",
+          "const": false
+        },
+        "raw_provider_errors_retained": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "customer_owned_data_plane",
+        "management_plane_content_exported_by_default",
+        "addresses_exported_by_default",
+        "raw_provider_errors_retained"
+      ],
+      "additionalProperties": false
+    },
+    "__schema13": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    }
+  }
+}

@@ -270,9 +270,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 315 and
-            .size < 450000 and
-            .unpackedSize < 2300000 and
+              .entryCount <= 350 and
+            .size < 500000 and
+            .unpackedSize < 2600000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -281,6 +281,12 @@ jobs:
               index("scripts/cloudflare-cost-model.mjs") != null) and
             ([.files[].path] | index("src/aws/api.ts") != null) and
             ([.files[].path] | index("src/workers/index.ts") != null) and
+            ([.files[].path] |
+              index("schemas/runtime-capabilities.v1.schema.json") != null) and
+            ([.files[].path] |
+              index("schemas/deployment-capabilities.v1.schema.json") != null) and
+            ([.files[].path] |
+              index("conformance/deployments/aws-ses.v1.json") != null) and
             ([.files[].path] | index("template.yaml") != null) and
             ([.files[].path] |
               index("dist/stale-cross-branch-artifact.txt") == null)
@@ -316,6 +322,12 @@ jobs:
           test -f \
             "$package_root/migrations/0003_cloudflare_suppressions.sql"
           test -f "$package_root/scripts/cloudflare-cost-model.mjs"
+          test -f \
+            "$package_root/schemas/runtime-capabilities.v1.schema.json"
+          test -f \
+            "$package_root/schemas/deployment-capabilities.v1.schema.json"
+          test -f \
+            "$package_root/conformance/deployments/aws-ses.v1.json"
           test -x "$consumer/node_modules/.bin/esbuild"
           npm_root="$(npm root --global)"
           npm_compat="$RUNNER_TEMP/npm-sam-compat"

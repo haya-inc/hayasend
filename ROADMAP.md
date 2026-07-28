@@ -62,6 +62,26 @@ The
 is the public gate. Green CI alone does not satisfy these operational
 requirements.
 
+## Portability foundation
+
+The accepted direction in
+[#132](https://github.com/haya-inc/hayasend/issues/132) separates runtime
+substrates from mail transports. Runtime, transport, and exact combined
+readiness are published independently so a stable application contract can
+move across Azure, GCP/Cloud Run, Vercel, Render, Railway, and Fly.io without
+overstating support.
+
+- [x] versioned runtime-capability and combined-deployment schemas
+- [x] initial AWS and Cloudflare runtime/deployment truth documents
+- [ ] `portable-postgres` API/worker reference runtime
+- [ ] Cloud Run and generic container-PaaS deployment packs
+- [ ] Azure Communication Services Email adapter and Event Grid ingestion
+- [ ] Vercel experimental runtime proof with database-owned long scheduling
+
+Architecture and contract extraction may proceed while production
+qualification is open. Breadth-first provider implementations remain ordered
+after the current terminal-delivery and dogfood evidence gates.
+
 ## Next — Cloudflare and FolioMCP proof
 
 - Workers runtime using the same public API
