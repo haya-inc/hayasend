@@ -163,8 +163,9 @@ do not log the URL because it may contain credentials.
   claimed supported until its pinned deployment pack and lifecycle,
   backup/restore, terminal-delivery, and cleanup evidence pass. The
   [experimental Cloud Run pack](../deploy/cloud-run/README.md) is published,
-  as is the [experimental Render pack](../deploy/render/README.md), but their
-  hosted evidence is still pending.
+  as are the [experimental Render pack](../deploy/render/README.md) and
+  [experimental Railway pack](../deploy/railway/README.md), but their hosted
+  evidence is still pending.
 
 See [runtime portability](runtime-portability.md) for the full provider matrix.
 
@@ -180,6 +181,9 @@ Checked on 2026-07-28:
 - [Render Blueprint YAML reference](https://render.com/docs/blueprint-spec)
 - [Render deployment lifecycle](https://render.com/docs/deploys)
 - [Render Postgres backups](https://render.com/docs/postgresql-backups)
+- [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
+- [Railway Storage Buckets](https://docs.railway.com/storage-buckets)
+- [Railway volume backups](https://docs.railway.com/volumes/backups)
 - [Azure Blob user delegation SAS](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript)
 - [Authorize access with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory)
 - [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)

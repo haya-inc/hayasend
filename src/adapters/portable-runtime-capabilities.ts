@@ -84,7 +84,7 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       safe_deploy: {
         status: "conditional",
         notes:
-          "The pinned Cloud Run and Render packs use migration-first rollouts and immutable images; hosted lifecycle proof and the remaining platform packs are still required.",
+          "The pinned Cloud Run, Render, and Railway packs use migration-first rollouts and immutable images; hosted lifecycle proof and the remaining platform packs are still required.",
       },
       doctor: {
         status: "conditional",
@@ -142,6 +142,16 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       {
         title: "Render deploy lifecycle",
         url: "https://render.com/docs/deploys",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Railway Infrastructure as Code",
+        url: "https://docs.railway.com/infrastructure-as-code",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Railway Storage Buckets",
+        url: "https://docs.railway.com/storage-buckets",
         checked_at: "2026-07-29",
       },
       {

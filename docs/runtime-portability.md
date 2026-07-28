@@ -102,6 +102,15 @@ the shared migration runner, disables automatic and preview deploys, and
 starts with lifecycle-only transport/storage. It remains experimental until
 hosted and exact-transport evidence passes.
 
+The third thin pack targets
+[Railway services, PostgreSQL 18, and private S3-compatible Buckets](../deploy/railway/README.md).
+It uses Railway's experimental project-level TypeScript IaC, pins one image
+digest across the API and worker, rejects destructive plans, and gives direct
+uploads a Railway-native object store. It remains experimental until hosted
+lifecycle, backup/restore, rollback, cleanup, and exact-transport evidence
+passes. Railway Bucket credentials are not SES credentials, so a certified
+external transport or split-credential design is still required.
+
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,
@@ -154,7 +163,9 @@ HayaSend does not plan to build or operate a custom MTA.
 | Cloudflare | `cloudflare-native` | Cloudflare Email Sending | Beta / non-production |
 | Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Executable foundation; Beta proof pending |
 | GCP / Cloud Run | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
-| Render / Railway / Fly.io | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
+| Render | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
+| Railway | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
+| Fly.io | `portable-postgres` | Certified external adapter | Executable foundation; pack pending |
 | Vercel | `vercel-serverless` | Certified external adapter | Planned experimental proof |
 
 These are roadmap targets, not current support claims. Generated capability
@@ -207,3 +218,5 @@ Checked on 2026-07-28:
 - [Vercel Queues](https://vercel.com/docs/queues)
 - [Vercel Queues API and limits](https://vercel.com/docs/queues/api)
 - [Render background workers](https://render.com/docs/background-workers)
+- [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
+- [Railway Storage Buckets](https://docs.railway.com/storage-buckets)
