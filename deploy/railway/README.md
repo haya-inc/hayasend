@@ -8,9 +8,9 @@ This experimental Railway Infrastructure as Code pack binds HayaSend's shared
 - one Railway PostgreSQL 18 service; and
 - one private, S3-compatible Railway Bucket for direct-upload attachments.
 
-Only the mail transport remains external. The default `console` transport is a
-lifecycle proof and sends no email. Railway IaC is itself experimental, so this
-pack is not a Beta or production-readiness claim.
+The pack uses the signed SendGrid HTTP transport because Railway has no native
+transactional-email service. Railway IaC is itself experimental, so this pack
+is not a Beta or production-readiness claim.
 
 ## Pinned inputs
 
@@ -47,6 +47,8 @@ outside source control:
 
 ```bash
 export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
+export SENDGRID_API_KEY="SG...."
+export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
 ```
 
 Keep the key in a password/operations system. Do not place it in the IaC file,
@@ -72,6 +74,12 @@ Both services run the checksum-pinned PostgreSQL migration command before
 starting. PostgreSQL advisory locking makes concurrent first deployment safe.
 Forward migrations must remain compatible with the immediately previous API
 and worker revisions.
+
+Configure SendGrid's Signed Event Webhook URL as
+`https://HAYASEND_RAILWAY_API_URL/events/sendgrid` and enable processed,
+deferred, delivered, bounce, dropped, spamreport, open, and click events.
+Only the API service receives the webhook verification key; both application
+services receive the scoped Mail Send/domain-authentication API key.
 
 Run later drift and health verification with the same API key:
 
@@ -99,15 +107,15 @@ credentials.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=console` records provider acceptance but sends no mail.
-Changing this pack directly to `aws-ses` is not sufficient: Railway Bucket
-credentials occupy the default AWS credential variables and cannot authorize
-SES. A certified external HTTP transport or an explicit split-credential
-design must be implemented and proven before production mail.
+`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
+Railway Bucket credentials remain isolated from the SendGrid credential. Only
+opaque HayaSend correlation values enter SendGrid custom arguments, and the
+public ingress verifies the exact raw body with SendGrid's ECDSA signature.
 
 Terminal recipient delivery, bounce, complaint, suppression, and controlled
-receipt evidence remain mandatory. A successful Railway deployment or API
-submission is not terminal delivery evidence.
+receipt evidence remain mandatory. A successful Railway deployment, SendGrid
+HTTP 202, or `processed` event is not terminal delivery evidence. Hosted proof
+remains tracked in issue #148.
 
 ## Backups, availability, and rollback
 

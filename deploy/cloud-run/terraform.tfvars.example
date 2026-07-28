@@ -2,8 +2,8 @@ project_id = "your-gcp-project-id"
 region     = "asia-northeast1"
 image      = "ghcr.io/haya-inc/hayasend@sha256:replace-with-a-release-digest"
 
-# Start with the lifecycle-only transport until a certified external provider
-# adapter or an explicitly designed cross-cloud AWS identity is configured.
+# Start with the lifecycle-only transport. Set "sendgrid" only after the
+# write-only SendGrid variables and Signed Event Webhook are prepared.
 transport = "console"
 
 # Browser direct uploads need exact origins. CLI uploads do not use CORS.

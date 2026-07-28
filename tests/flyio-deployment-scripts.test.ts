@@ -76,7 +76,9 @@ elif [[ "\${1:-} \${2:-}" == "secrets list" ]]; then
     {"name":"BUCKET_NAME","digest":"e","status":"Deployed"},
     {"name":"HAYASEND_API_KEY","digest":"f","status":"'\${FLY_FAKE_SECRET_STATUS:-Deployed}'"},
     {"name":"HAYASEND_DATABASE_URL","digest":"g","status":"Deployed"},
-    {"name":"HAYASEND_OBJECT_STORAGE_BUCKET","digest":"h","status":"Deployed"}
+    {"name":"HAYASEND_OBJECT_STORAGE_BUCKET","digest":"h","status":"Deployed"},
+    {"name":"SENDGRID_API_KEY","digest":"i","status":"Deployed"},
+    {"name":"SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY","digest":"j","status":"Deployed"}
   ]'
 elif [[ "\${1:-} \${2:-}" == "machine list" ]]; then
   machine_image="registry.fly.io/$HAYASEND_FLY_APP:deployment-test"
@@ -138,6 +140,9 @@ const baseEnvironment = {
   HAYASEND_FLY_ORG: organization,
   HAYASEND_FLY_MACHINE_IMAGE_DIGEST: machineImageDigest,
   HAYASEND_IMAGE: image,
+  SENDGRID_API_KEY: "SG.FLYIO_TEST_KEY_000000000000000000",
+  SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==",
 };
 
 describe.skipIf(process.platform === "win32")(

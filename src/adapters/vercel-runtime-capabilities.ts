@@ -9,7 +9,7 @@ export const VERCEL_RUNTIME_CAPABILITIES =
     schema_version: "1.0.0",
     runtime: "vercel-serverless",
     adapter_version: HAYASEND_VERSION,
-    checked_at: "2026-07-28",
+    checked_at: "2026-07-29",
     service_maturity: "experimental",
     runtime_class: "serverless",
     required_plan:
@@ -65,7 +65,7 @@ export const VERCEL_RUNTIME_CAPABILITIES =
       provider_event_ingress: {
         status: "conditional",
         notes:
-          "The shared ACS Event Grid ingress can run in the Hono function when its independent header secret is configured; hosted Vercel delivery evidence is pending.",
+          "The shared ACS Event Grid and SendGrid Signed Event Webhook ingresses can run in the Hono function with independent verification settings; hosted Vercel delivery evidence is pending.",
       },
       webhook_egress: {
         status: "supported",

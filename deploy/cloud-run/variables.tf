@@ -230,13 +230,63 @@ variable "attachment_cors_origins" {
 }
 
 variable "transport" {
-  description = "Portable transport. console is lifecycle-only; aws-ses additionally needs an external AWS credential strategy."
+  description = "Portable transport. console is lifecycle-only; sendgrid uses the scoped HTTP API and Signed Event Webhook."
   type        = string
   default     = "console"
 
   validation {
-    condition     = contains(["console", "aws-ses"], var.transport)
-    error_message = "transport must be console or aws-ses."
+    condition     = contains(["console", "aws-ses", "sendgrid"], var.transport)
+    error_message = "transport must be console, aws-ses, or sendgrid."
+  }
+}
+
+variable "sendgrid_api_key" {
+  description = "Scoped SendGrid API key used only when transport is sendgrid. Supply with TF_VAR_sendgrid_api_key; it is write-only and never stored in Terraform state."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.transport != "sendgrid" || try(
+      startswith(var.sendgrid_api_key, "SG.") &&
+      length(var.sendgrid_api_key) >= 32 &&
+      length(var.sendgrid_api_key) <= 512 &&
+      !can(regex("[\\r\\n\\u0000]", var.sendgrid_api_key)),
+      false,
+    )
+    error_message = "sendgrid_api_key must be a single-line SG. key between 32 and 512 characters when transport is sendgrid."
+  }
+}
+
+variable "sendgrid_event_webhook_public_key" {
+  description = "SendGrid Signed Event Webhook verification key used only when transport is sendgrid. Supply with TF_VAR_sendgrid_event_webhook_public_key; it is write-only and never stored in Terraform state."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.transport != "sendgrid" || try(
+      length(var.sendgrid_event_webhook_public_key) >= 64 &&
+      length(var.sendgrid_event_webhook_public_key) <= 16384 &&
+      !can(regex("\\u0000", var.sendgrid_event_webhook_public_key)),
+      false,
+    )
+    error_message = "sendgrid_event_webhook_public_key must contain the 64-16384 character SendGrid verification key when transport is sendgrid."
+  }
+}
+
+variable "sendgrid_secret_version" {
+  description = "Monotonic rotation number shared by the write-only SendGrid API and webhook verification keys."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = floor(var.sendgrid_secret_version) == var.sendgrid_secret_version && var.sendgrid_secret_version >= 1
+    error_message = "sendgrid_secret_version must be a positive integer."
   }
 }
 

@@ -49,6 +49,17 @@ import {
   SesMailTransport,
 } from "./adapters/ses-transport.js";
 import { LocalJobQueue, SqsJobQueue } from "./adapters/sqs-job-queue.js";
+import { SendGridApiClient } from "./adapters/sendgrid/sendgrid-api-client.js";
+import { SendGridDomainProvider } from "./adapters/sendgrid/sendgrid-domain-provider.js";
+import { SENDGRID_EMAIL_CAPABILITIES } from "./adapters/sendgrid/sendgrid-email-capabilities.js";
+import {
+  SendGridEmailEventIngress,
+  type SendGridEmailEventContext,
+} from "./adapters/sendgrid/sendgrid-email-events.js";
+import {
+  assertSendGridEmailRecordPreflight,
+  SendGridMailTransport,
+} from "./adapters/sendgrid/sendgrid-email-transport.js";
 import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
@@ -83,6 +94,10 @@ export interface Runtime extends AppServices {
     unknown,
     { received_at?: string | undefined },
     AcsEmailEventIngressResult
+  >;
+  sendGridEventIngress?: TransportEventIngress<
+    Uint8Array,
+    SendGridEmailEventContext
   >;
 }
 
@@ -374,6 +389,7 @@ export function createPortableRuntime(
   const usesSes = config.portableTransport === "aws-ses";
   const usesAcs =
     config.portableTransport === "azure-communication-services";
+  const usesSendGrid = config.portableTransport === "sendgrid";
   if (
     usesAcs &&
     (!config.azureCommunicationEmailEndpoint ||
@@ -387,8 +403,20 @@ export function createPortableRuntime(
       "Azure Communication Services runtime settings are incomplete.",
     );
   }
+  if (
+    usesSendGrid &&
+    (!config.sendGridApiKey || !config.sendGridApiBaseUrl)
+  ) {
+    throw new Error("SendGrid runtime settings are incomplete.");
+  }
   const azureCredential = usesAcs
     ? new DefaultAzureCredential()
+    : undefined;
+  const sendGridClient = usesSendGrid
+    ? new SendGridApiClient(
+        config.sendGridApiKey!,
+        config.sendGridApiBaseUrl!,
+      )
     : undefined;
   const provider = usesSes
     ? {
@@ -402,6 +430,12 @@ export function createPortableRuntime(
           adapter_version: ACS_EMAIL_CAPABILITIES.adapter_version,
           capability_version: ACS_EMAIL_CAPABILITIES.schema_version,
         }
+      : usesSendGrid
+        ? {
+            name: SENDGRID_EMAIL_CAPABILITIES.provider,
+            adapter_version: SENDGRID_EMAIL_CAPABILITIES.adapter_version,
+            capability_version: SENDGRID_EMAIL_CAPABILITIES.schema_version,
+          }
       : {
           name: "portable-console",
           adapter_version: HAYASEND_VERSION,
@@ -416,6 +450,8 @@ export function createPortableRuntime(
             azureCredential!,
           ),
         )
+      : usesSendGrid
+        ? new SendGridMailTransport(sendGridClient!)
       : new ConsoleMailTransport();
   const emailService = new EmailService(
     store,
@@ -427,10 +463,14 @@ export function createPortableRuntime(
     templateService,
     {
       provider,
-      ...(usesAcs
+      ...(usesAcs || usesSendGrid
         ? {
             pre_commit_validator: (record) => {
-              assertAcsEmailRecordPreflight(record);
+              if (usesAcs) {
+                assertAcsEmailRecordPreflight(record);
+              } else {
+                assertSendGridEmailRecordPreflight(record);
+              }
             },
           }
         : {}),
@@ -452,6 +492,8 @@ export function createPortableRuntime(
             config.azureSubscriptionId!,
           ),
         )
+      : usesSendGrid
+        ? new SendGridDomainProvider(sendGridClient!)
       : new LocalDomainProvider();
   const domainService = new DomainService(
     store,
@@ -474,6 +516,14 @@ export function createPortableRuntime(
           checked_at: ACS_EMAIL_CAPABILITIES.checked_at,
           document: ACS_EMAIL_CAPABILITIES,
         }
+      : usesSendGrid
+        ? {
+            provider: SENDGRID_EMAIL_CAPABILITIES.provider,
+            adapter_version: SENDGRID_EMAIL_CAPABILITIES.adapter_version,
+            capability_version: SENDGRID_EMAIL_CAPABILITIES.schema_version,
+            checked_at: SENDGRID_EMAIL_CAPABILITIES.checked_at,
+            document: SENDGRID_EMAIL_CAPABILITIES,
+          }
       : {
           provider: "portable-console",
           adapter_version: HAYASEND_VERSION,
@@ -516,6 +566,16 @@ export function createPortableRuntime(
         },
       )
     : undefined;
+  const sendGridEventIngress =
+    usesSendGrid && config.sendGridEventWebhookPublicKey
+    ? new SendGridEmailEventIngress(
+        {
+          emailService,
+          suppressionService: suppressions,
+        },
+        config.sendGridEventWebhookPublicKey,
+      )
+    : undefined;
 
   return {
     apiKeyService: apiKeys,
@@ -529,6 +589,7 @@ export function createPortableRuntime(
     webhookService: webhooks,
     jobQueue: queue,
     ...(transportEventIngress ? { transportEventIngress } : {}),
+    ...(sendGridEventIngress ? { sendGridEventIngress } : {}),
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
     checkReadiness: async () => {

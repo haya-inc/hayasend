@@ -112,11 +112,27 @@ revision to support rollback.
 `transport = "console"` is the safe default and records acceptance without
 sending. It is suitable only for deployment and lifecycle proof.
 
+`transport = "sendgrid"` uses the portable signed SendGrid adapter. Supply the
+scoped key and Event Webhook verification key through write-only Terraform
+variables:
+
+```bash
+export TF_VAR_transport="sendgrid"
+export TF_VAR_sendgrid_api_key="SG...."
+export TF_VAR_sendgrid_event_webhook_public_key="..."
+```
+
+After deploy, configure SendGrid's Signed Event Webhook URL as
+`https://API_HOST/events/sendgrid` and enable `processed`, `deferred`,
+`delivered`, `bounce`, `dropped`, `spamreport`, `open`, and `click` events.
+The API key is mounted in API, worker, and migration processes; the verification
+key is mounted only in the public API process. Hosted proof remains tracked in
+issue #144 and readiness stays false until every evidence gate passes.
+
 `transport = "aws-ses"` exercises the existing transport but needs a deliberate
 cross-cloud AWS credential strategy and terminal SES event ingress. This pack
 does not create access keys or claim that configuration certified. A native
-Google Cloud SES-equivalent does not exist; a certified external HTTP
-transport adapter is separate roadmap work.
+Google Cloud SES-equivalent does not exist.
 
 ## Scaling and cost controls
 
@@ -145,7 +161,8 @@ export TF_VAR_api_key_version=2
 ```
 
 Use `database_password_version` for a database password rotation. The new
-Cloud Run revisions pin the newly created Secret Manager version.
+Cloud Run revisions pin the newly created Secret Manager version. Increment
+`sendgrid_secret_version` when either SendGrid key rotates.
 
 ## Cleanup
 

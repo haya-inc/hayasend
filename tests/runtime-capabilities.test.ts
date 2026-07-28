@@ -13,6 +13,11 @@ import {
 } from "../src/core/runtime-capabilities.js";
 import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES } from "../src/deployments/cloudflare-email-capabilities.js";
+import {
+  CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  SENDGRID_DEPLOYMENT_CAPABILITIES,
+  VERCEL_SENDGRID_DEPLOYMENT_CAPABILITIES,
+} from "../src/deployments/sendgrid-portable-capabilities.js";
 
 describe("runtime and deployment capability contracts", () => {
   it("publishes durable-store authority and private runtime defaults", () => {
@@ -122,6 +127,23 @@ describe("runtime and deployment capability contracts", () => {
         controlled_receipt: { status: "pending" },
       },
     });
+    expect(CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES).toMatchObject({
+      deployment: "cloud-run-sendgrid",
+      runtime: { profile: "portable-postgres" },
+      transport: { provider: "sendgrid" },
+      maturity: { combination: "experimental" },
+      production_ready: false,
+    });
+    expect(VERCEL_SENDGRID_DEPLOYMENT_CAPABILITIES).toMatchObject({
+      deployment: "vercel-sendgrid",
+      runtime: { profile: "vercel-serverless" },
+      transport: { provider: "sendgrid" },
+      production_ready: false,
+      effective_limits: {
+        max_mime_message_bytes: 4_500_000,
+      },
+    });
+    expect(SENDGRID_DEPLOYMENT_CAPABILITIES).toHaveLength(5);
   });
 
   it("generates a sorted readiness matrix with evidence blockers", () => {

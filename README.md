@@ -28,6 +28,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Azure Container Apps](deploy/azure-container-apps/README.md) ·
 [Vercel](deploy/vercel/README.md) ·
 [Azure ACS Email](docs/provider-capabilities.md#azure-communication-services-email-evidence) ·
+[SendGrid](docs/provider-capabilities.md#sendgrid-evidence) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
@@ -84,6 +85,10 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 - an experimental Azure Communication Services Email transport with strict
   provider limits, read-only linked-domain verification, and authenticated
   exact-recipient Event Grid lifecycle ingestion
+- an experimental SendGrid transport shared by Cloud Run, Render, Railway,
+  Fly.io, and Vercel, with v3 Mail Send, authenticated-domain lifecycle,
+  exact raw-body ECDSA webhook verification, recipient-level delivery events,
+  and bounce/complaint suppression
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official Resend Node and Python SDKs plus

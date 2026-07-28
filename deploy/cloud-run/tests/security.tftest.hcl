@@ -95,3 +95,38 @@ run "workloads_use_pinned_identity_and_manual_worker" {
     error_message = "The worker must deploy the same immutable digest."
   }
 }
+
+run "sendgrid_uses_write_only_secrets_and_api_only_verification_key" {
+  command = plan
+
+  variables {
+    project_id                        = "hayasend-test-project"
+    image                             = "ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    api_key                           = "re_test_test_test_test_test_test_test"
+    database_password                 = "test-test-test-test-test-test-test-test"
+    transport                         = "sendgrid"
+    sendgrid_api_key                  = "SG.test-test-test-test-test-test-test-test"
+    sendgrid_event_webhook_public_key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g=="
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret.sendgrid_api_key) == 1 && length(google_secret_manager_secret.sendgrid_webhook_public_key) == 1
+    error_message = "SendGrid mode must provision exact Secret Manager containers for both scoped values."
+  }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_service.api.template[0].containers[0].env :
+      setting.value if setting.name == "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE"
+    ]) == "/var/run/hayasend/sendgrid-webhook-public-key/value"
+    error_message = "The API must read the SendGrid verification key from its exact mounted file."
+  }
+
+  assert {
+    condition = length([
+      for setting in google_cloud_run_v2_worker_pool.worker.template[0].containers[0].env :
+      setting if setting.name == "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE"
+    ]) == 0
+    error_message = "The worker must not receive the SendGrid verification key setting."
+  }
+}

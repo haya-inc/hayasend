@@ -52,8 +52,13 @@ assert.match(
   source,
   /HAYASEND_S3_ENDPOINT = "https:\/\/t3\.storage\.dev"/,
 );
-assert.match(source, /HAYASEND_TRANSPORT = "console"/);
+assert.match(source, /HAYASEND_TRANSPORT = "sendgrid"/);
 assert.doesNotMatch(source, /HAYASEND_API_KEY\s*=/);
+assert.doesNotMatch(source, /SENDGRID_API_KEY\s*=/);
+assert.doesNotMatch(
+  source,
+  /SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY\s*=/,
+);
 assert.doesNotMatch(source, /HAYASEND_DATABASE_URL\s*=/);
 assert.doesNotMatch(source, /AWS_ACCESS_KEY_ID\s*=/);
 assert.doesNotMatch(source, /AWS_SECRET_ACCESS_KEY\s*=/);

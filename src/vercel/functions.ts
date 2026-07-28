@@ -87,6 +87,9 @@ function createDeployment(): VercelDeployment {
           },
         }
       : {}),
+    ...(runtime.sendGridEventIngress
+      ? { sendGridEventIngress: runtime.sendGridEventIngress }
+      : {}),
   });
   return { app, config, runtime };
 }

@@ -15,9 +15,10 @@ error. Queue and Cron delivery may duplicate or overlap; PostgreSQL
 transactional jobs and leases make this safe.
 
 This pack is not a production-readiness claim. Vercel Queues and private Blob
-are Beta, Vercel does not supply the PostgreSQL database or mail transport, and
+are Beta, Vercel does not supply PostgreSQL or a native mail service, and
 hosted lifecycle, restore, interruption, terminal-delivery, controlled-receipt,
-and cleanup evidence remain pending.
+and cleanup evidence remain pending. The reviewed external transport is the
+signed SendGrid adapter.
 
 ## Pinned inputs and platform limits
 
@@ -106,7 +107,9 @@ Configure at least these Vercel production variables:
 | `HAYASEND_MODE` | `portable` |
 | `HAYASEND_DATABASE_URL` | secret pooled PostgreSQL URL with provider-required TLS |
 | `HAYASEND_API_KEY` | independent secret `re_...` bootstrap key |
-| `HAYASEND_TRANSPORT` | `console` only for lifecycle proof, or a separately certified real transport |
+| `HAYASEND_TRANSPORT` | `sendgrid` |
+| `SENDGRID_API_KEY` | customer-owned scoped SendGrid Mail Send/domain key |
+| `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | SendGrid Signed Event Webhook verification key |
 | `HAYASEND_OBJECT_STORAGE` | `vercel-blob` |
 | `BLOB_READ_WRITE_TOKEN` | token automatically connected from the private store |
 | `CRON_SECRET` | independently generated random secret of 32–512 characters |
@@ -118,10 +121,11 @@ Vercel sends `Authorization: Bearer $CRON_SECRET` to the configured Cron
 route. HayaSend validates it in constant time. The Queue trigger makes
 `api/queue.ts` air-gapped from the public internet.
 
-When using ACS Email, configure all settings in the portable runtime runbook,
-including an independent `HAYASEND_AZURE_EVENT_GRID_SECRET`. When using SES,
-provide separately scoped SES credentials; Blob credentials are not mail
-credentials.
+Configure SendGrid's Signed Event Webhook URL as
+`https://HAYASEND_VERCEL_API_URL/events/sendgrid` and enable processed,
+deferred, delivered, bounce, dropped, spamreport, open, and click events.
+Only opaque HayaSend correlation values enter custom arguments, and the
+ingress verifies the exact raw body with SendGrid's ECDSA signature.
 
 ## Deploy and verify
 
@@ -132,6 +136,8 @@ export HAYASEND_DATABASE_URL="postgresql://..."
 export HAYASEND_API_KEY="re_..."
 export BLOB_READ_WRITE_TOKEN="..."
 export CRON_SECRET="..."
+export SENDGRID_API_KEY="SG...."
+export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
 export HAYASEND_VERCEL_API_URL="https://your-production-origin.example"
 ./deploy/vercel/deploy.sh
 ```
@@ -149,6 +155,10 @@ then verifies:
 It does not put secrets on CLI arguments. Vercel production variables must
 already be configured and must match the locally exported verification
 values.
+
+HTTP 202, `processed`, Queue acknowledgment, and successful Cron execution are
+not terminal delivery evidence. Hosted proof remains tracked in issue #155 and
+readiness stays false until every evidence gate passes.
 
 ## Rollback
 

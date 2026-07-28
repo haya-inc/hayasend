@@ -21,7 +21,7 @@ accepted product decision in
 HayaSend publishes independent machine-readable truth for:
 
 - a runtime profile, such as `aws-native` or `cloudflare-native`;
-- a transport adapter, such as `aws-ses` or `cloudflare-email`; and
+- a transport adapter, such as `aws-ses`, `cloudflare-email`, or `sendgrid`;
 - the exact runtime and transport combination exposed to an operator.
 
 The combined deployment cannot claim a maturity level above its weakest
@@ -99,8 +99,8 @@ The second thin pack targets
 [Render Web Services, Background Workers, and private PostgreSQL](../deploy/render/README.md).
 It pins the same released image for both processes, gates each revision on
 the shared migration runner, disables automatic and preview deploys, and
-starts with lifecycle-only transport/storage. It remains experimental until
-hosted and exact-transport evidence passes.
+uses the shared signed SendGrid transport with disabled direct-upload storage.
+It remains experimental until hosted evidence passes.
 
 The third thin pack targets
 [Railway services, PostgreSQL 18, and private S3-compatible Buckets](../deploy/railway/README.md).
@@ -108,8 +108,8 @@ It uses Railway's experimental project-level TypeScript IaC, pins one image
 digest across the API and worker, rejects destructive plans, and gives direct
 uploads a Railway-native object store. It remains experimental until hosted
 lifecycle, backup/restore, rollback, cleanup, and exact-transport evidence
-passes. Railway Bucket credentials are not SES credentials, so a certified
-external transport or split-credential design is still required.
+passes. Railway Bucket credentials remain isolated from the scoped SendGrid
+credential.
 
 The fourth thin pack targets
 [Fly.io process groups, Managed Postgres, and private Tigris storage](../deploy/flyio/README.md).
@@ -142,10 +142,9 @@ advisory lock and each applied migration is pinned by SHA-256 checksum.
 
 [The portable runtime runbook](portable-postgres.md) documents its exact
 settings, storage bindings, identity requirements, and process model. ACS
-Email now supplies the first portable provider-event ingress; other
-transports, backup/restore drills, the remaining platform packs, and exact
-hosted evidence remain prerequisites before this profile can be claimed as a
-supported Beta deployment.
+Email and SendGrid now supply authenticated portable provider-event ingress;
+backup/restore drills and exact hosted evidence remain prerequisites before
+this profile can be claimed as a supported Beta deployment.
 
 ### `vercel-serverless` (executable experimental)
 
@@ -178,9 +177,12 @@ delivery, controlled receipt, quota, rollback, and cleanup evidence still gate
 promotion.
 
 Google Cloud does not currently offer a direct SES-equivalent transactional
-mail transport. A Cloud Run deployment therefore remains customer-owned in
-GCP while using a separately certified external transport adapter. The
-application contract and delivery history do not change.
+mail transport. The implemented SendGrid adapter therefore gives Cloud Run,
+Render, Railway, Fly.io, and Vercel one shared HTTP transport with
+authenticated domains, fail-closed submission limits, signed recipient-level
+events, duplicate/out-of-order convergence, and suppression handling. The
+application contract and delivery history do not change. Every exact host
+combination remains experimental until its hosted evidence gates pass.
 
 HayaSend does not plan to build or operate a custom MTA.
 
@@ -191,11 +193,11 @@ HayaSend does not plan to build or operate a custom MTA.
 | AWS | `aws-native` | Amazon SES | Beta; production candidate after exact proof |
 | Cloudflare | `cloudflare-native` | Cloudflare Email Sending | Beta / non-production |
 | Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Experimental adapter and foundation; hosted proof pending |
-| GCP / Cloud Run | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
-| Render | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
-| Railway | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
-| Fly.io | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
-| Vercel | `vercel-serverless` | Certified external adapter | Executable experimental pack; hosted proof pending |
+| GCP / Cloud Run | `portable-postgres` | SendGrid | Implemented experimental combination; hosted proof pending |
+| Render | `portable-postgres` | SendGrid | Implemented experimental combination; hosted proof pending |
+| Railway | `portable-postgres` | SendGrid | Implemented experimental combination; hosted proof pending |
+| Fly.io | `portable-postgres` | SendGrid | Implemented experimental combination; hosted proof pending |
+| Vercel | `vercel-serverless` | SendGrid | Implemented experimental combination; hosted proof pending |
 
 These are roadmap targets, not current support claims. Generated capability
 documents are the deployment truth.
@@ -214,11 +216,17 @@ Provider documents:
 - [`conformance/providers/aws-ses.v1.json`](../conformance/providers/aws-ses.v1.json)
 - [`conformance/providers/cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
 - [`conformance/providers/azure-communication-services.v1.json`](../conformance/providers/azure-communication-services.v1.json)
+- [`conformance/providers/sendgrid.v1.json`](../conformance/providers/sendgrid.v1.json)
 
 Combined deployment documents:
 
 - [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
 - [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
+- [`conformance/deployments/cloud-run-sendgrid.v1.json`](../conformance/deployments/cloud-run-sendgrid.v1.json)
+- [`conformance/deployments/render-sendgrid.v1.json`](../conformance/deployments/render-sendgrid.v1.json)
+- [`conformance/deployments/railway-sendgrid.v1.json`](../conformance/deployments/railway-sendgrid.v1.json)
+- [`conformance/deployments/flyio-sendgrid.v1.json`](../conformance/deployments/flyio-sendgrid.v1.json)
+- [`conformance/deployments/vercel-sendgrid.v1.json`](../conformance/deployments/vercel-sendgrid.v1.json)
 
 Generated readiness matrix:
 

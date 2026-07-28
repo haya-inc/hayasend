@@ -15,9 +15,26 @@ require_flyctl
 : "${HAYASEND_FLY_ORG:?Set HAYASEND_FLY_ORG to the exact organization slug.}"
 : "${HAYASEND_FLY_MPG_PLAN:?Set HAYASEND_FLY_MPG_PLAN explicitly after reviewing current pricing.}"
 : "${HAYASEND_API_KEY:?Set HAYASEND_API_KEY to an independently generated re_ key.}"
+: "${SENDGRID_API_KEY:?Set SENDGRID_API_KEY to a scoped SendGrid key.}"
+: "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Set SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY to the single-line SendGrid verification key.}"
 
 if [[ ! "$HAYASEND_FLY_APP" =~ ^hayasend-flyio-[a-z0-9]([a-z0-9-]{0,31}[a-z0-9])?$ ]]; then
   echo "HAYASEND_FLY_APP must be a lowercase hayasend-flyio-* name of at most 48 characters." >&2
+  exit 1
+fi
+if [[ "$SENDGRID_API_KEY" != SG.* ]] ||
+  [[ "${#SENDGRID_API_KEY}" -lt 32 ]] ||
+  [[ "${#SENDGRID_API_KEY}" -gt 512 ]] ||
+  [[ "$SENDGRID_API_KEY" == *$'\n'* ]] ||
+  [[ "$SENDGRID_API_KEY" == *$'\r'* ]]; then
+  echo "SENDGRID_API_KEY must be a single-line 32 to 512 character SG. key." >&2
+  exit 1
+fi
+if [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -lt 64 ]] ||
+  [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -gt 16384 ]] ||
+  [[ "$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY" == *$'\n'* ]] ||
+  [[ "$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY" == *$'\r'* ]]; then
+  echo "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must be the single-line SendGrid verification key." >&2
   exit 1
 fi
 if [[ ! "$HAYASEND_FLY_ORG" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
@@ -124,7 +141,9 @@ fi
 
 printf '%s\n' \
   "HAYASEND_API_KEY=$HAYASEND_API_KEY" \
-  "HAYASEND_OBJECT_STORAGE_BUCKET=$bucket_name" |
+  "HAYASEND_OBJECT_STORAGE_BUCKET=$bucket_name" \
+  "SENDGRID_API_KEY=$SENDGRID_API_KEY" \
+  "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY=$SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY" |
   "$fly_cli" secrets import \
     --app "$HAYASEND_FLY_APP" \
     --stage \

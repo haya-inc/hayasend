@@ -33,7 +33,7 @@ Set these on the migration, API, and worker processes:
 | `HAYASEND_MODE=portable` | Selects the portable PostgreSQL runtime |
 | `HAYASEND_DATABASE_URL` | `postgresql://` connection URL; configure TLS according to the managed database |
 | `HAYASEND_API_KEY` | Secret-injected bootstrap key, 16–512 characters and beginning with `re_` |
-| `HAYASEND_TRANSPORT` | `aws-ses` or `azure-communication-services` for real submission; `console` for development only |
+| `HAYASEND_TRANSPORT` | `aws-ses`, `azure-communication-services`, or `sendgrid` for real submission; `console` for development only |
 | `AWS_REGION` | SES Region when `HAYASEND_TRANSPORT=aws-ses` |
 
 `aws-ses` also needs AWS credentials supplied through the AWS SDK credential
@@ -69,6 +69,31 @@ The Resend-shaped domain API is deliberately read-only for Azure: it checks
 that the requested sender domain is verified and linked, and reports its
 SPF/DKIM records. It never creates, changes, or deletes operator-owned Azure
 resources or DNS.
+
+The experimental SendGrid adapter is the shared HTTP transport for Cloud Run,
+Render, Railway, Fly.io, and Vercel. Set:
+
+| Variable | Meaning |
+| --- | --- |
+| `SENDGRID_API_KEY` or `SENDGRID_API_KEY_FILE` | Customer-owned scoped `SG.` API key used by migration, API, and worker processes |
+| `SENDGRID_API_BASE_URL` | `https://api.sendgrid.com` (default) or `https://api.eu.sendgrid.com` for an eligible EU regional subuser |
+| `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` or `_FILE` | API process only: SendGrid verification key in the returned base64 form or PEM |
+
+Configure SendGrid's Signed Event Webhook to call
+`POST /events/sendgrid` with `processed`, `deferred`, `delivered`, `bounce`,
+`dropped`, `spamreport`, `open`, and `click` enabled. HayaSend verifies ECDSA
+over the timestamp plus the exact, unmodified request bytes before parsing the
+JSON batch. Each event must carry the opaque HayaSend message and attempt
+correlation values injected at submission; `sg_event_id` deduplicates retries
+and the exact recipient updates the shared ledger. Bounce and spam-report
+events create customer-owned suppressions. Unsubscribe-group events are
+ignored until HayaSend exposes a matching model.
+
+The v3 request fails before submission above 1,000 combined recipients, 20
+attachments, 20,000,000 decoded attachment bytes, or the documented 30 MB
+request ceiling. Only opaque HayaSend IDs enter SendGrid custom arguments;
+addresses, subject, content, and user tags are not copied there. HTTP 202 and
+`processed` are provider acceptance, never terminal delivery.
 
 `HAYASEND_DATABASE_URL_FILE` and `HAYASEND_API_KEY_FILE` are mutually
 exclusive alternatives to their unsuffixed variables. They must point to an
@@ -201,6 +226,11 @@ do not log the URL because it may contain credentials.
   remains experimental until exact hosted terminal-delivery, controlled
   receipt, quota, lifecycle, rollback, backup/restore, and cleanup evidence
   pass.
+- `sendgrid` implements v3 Mail Send submission, authenticated-domain
+  lifecycle, privacy-safe error mapping, raw-body ECDSA webhook verification,
+  exact-recipient delivery convergence, and bounce/complaint suppression. It
+  remains experimental until each exact host passes conformance, lifecycle,
+  terminal delivery, controlled receipt, backup/restore, and cleanup evidence.
 - No Cloud Run, Azure Container Apps, Render, Railway, Fly.io, or Vercel
   deployment is claimed supported until its pinned deployment pack and lifecycle,
   backup/restore, terminal-delivery, and cleanup evidence pass. The
@@ -240,3 +270,6 @@ Checked on 2026-07-29:
 - [Azure Communication Services Email events](https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events)
 - [Azure Communication Services custom verified domains](https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/email/add-custom-verified-domains)
 - [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)
+- [Twilio SendGrid Mail Send](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send)
+- [Twilio SendGrid Event Webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/event)
+- [Twilio SendGrid Event Webhook security](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)

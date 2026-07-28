@@ -167,7 +167,9 @@ assert_secret_names() {
           "BUCKET_NAME",
           "HAYASEND_API_KEY",
           "HAYASEND_DATABASE_URL",
-          "HAYASEND_OBJECT_STORAGE_BUCKET"
+          "HAYASEND_OBJECT_STORAGE_BUCKET",
+          "SENDGRID_API_KEY",
+          "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
         ];
       ([.[].name] | sort) as $names |
       (required | all(. as $name | $names | index($name) != null)) and

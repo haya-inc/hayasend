@@ -81,6 +81,16 @@ export interface AppOptions {
         >;
       }
     | undefined;
+  sendGridEventIngress?:
+    | TransportEventIngress<
+        Uint8Array,
+        {
+          signature?: string | undefined;
+          timestamp?: string | undefined;
+          received_at?: string | undefined;
+        }
+      >
+    | undefined;
 }
 
 function hasScope(principal: AuthenticatedPrincipal, scope: ApiScope) {
@@ -232,6 +242,39 @@ async function readJsonBodyWithLimit(request: Request, limit: number) {
   }
 }
 
+async function readProviderEventBodyWithLimit(
+  request: Request,
+  limit: number,
+): Promise<Uint8Array> {
+  if (!request.body) {
+    throw new ValidationError("Provider event content is required.");
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    length += value.byteLength;
+    if (length > limit) {
+      await reader.cancel();
+      throw new ValidationError(
+        `Provider event content must not exceed ${limit} bytes.`,
+      );
+    }
+    chunks.push(value);
+  }
+  const content = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    content.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return content;
+}
+
 function matchesSecret(actual: string | undefined, expected: string): boolean {
   if (!actual) {
     return false;
@@ -298,8 +341,10 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         context.req.path === "/preview" ||
         context.req.path.startsWith("/preview/"));
     const providerEventPath =
-      options.providerEventIngress !== undefined &&
-      context.req.path === "/events/azure-email" &&
+      ((options.providerEventIngress !== undefined &&
+        context.req.path === "/events/azure-email") ||
+        (options.sendGridEventIngress !== undefined &&
+          context.req.path === "/events/sendgrid")) &&
       context.req.method === "POST";
     if (
       context.req.path === "/healthz" ||
@@ -381,6 +426,26 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
             validationResponse: result.validation_response,
           })
         : context.json({ accepted: true });
+    });
+  }
+
+  if (options.sendGridEventIngress) {
+    const sendGridEventIngress = options.sendGridEventIngress;
+    app.post("/events/sendgrid", async (context) => {
+      const rawBody = await readProviderEventBodyWithLimit(
+        context.req.raw,
+        2 * 1024 * 1024,
+      );
+      await sendGridEventIngress.receive(rawBody, {
+        signature: context.req.header(
+          "x-twilio-email-event-webhook-signature",
+        ),
+        timestamp: context.req.header(
+          "x-twilio-email-event-webhook-timestamp",
+        ),
+        received_at: new Date().toISOString(),
+      });
+      return context.json({ accepted: true }, 202);
     });
   }
 
