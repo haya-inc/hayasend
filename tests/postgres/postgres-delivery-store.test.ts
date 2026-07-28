@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import postgresDeliveryMigration from "../../migrations/postgres/0001_delivery.sql?raw";
 import { PostgresDeliveryStore } from "../../src/adapters/postgres/postgres-delivery-store.js";
 import {
   runDeliverySubstrateContract,
@@ -19,16 +18,12 @@ if (!databaseUrl) {
     connectionString: databaseUrl,
     max: 12,
   });
-  const migrationPath = fileURLToPath(
-    new URL("../../migrations/postgres/0001_delivery.sql", import.meta.url),
-  );
-
   beforeAll(async () => {
     const existing = await pool.query<{ table_name: string | null }>(
       "SELECT to_regclass('public.delivery_messages')::text AS table_name",
     );
     if (!existing.rows[0]?.table_name) {
-      await pool.query(await readFile(migrationPath, "utf8"));
+      await pool.query(postgresDeliveryMigration);
     }
   });
 
