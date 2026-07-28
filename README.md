@@ -24,6 +24,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Cloud Run](deploy/cloud-run/README.md) ·
 [Render](deploy/render/README.md) ·
 [Railway](deploy/railway/README.md) ·
+[Fly.io](deploy/flyio/README.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
@@ -72,8 +73,8 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   API, and horizontally scalable worker processes, durable delayed jobs,
   lease-loss recovery, readiness checks, graceful shutdown, GCS/Azure
   Blob/S3-compatible attachment storage, and mounted-file secret injection
-  (experimental Cloud Run, Render, and Railway packs are published; hosted
-  lifecycle proofs are still pending)
+  (experimental Cloud Run, Render, Railway, and Fly.io packs are published;
+  hosted lifecycle proofs are still pending)
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official Resend Node and Python SDKs plus

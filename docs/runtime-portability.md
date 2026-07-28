@@ -111,6 +111,15 @@ lifecycle, backup/restore, rollback, cleanup, and exact-transport evidence
 passes. Railway Bucket credentials are not SES credentials, so a certified
 external transport or split-credential design is still required.
 
+The fourth thin pack targets
+[Fly.io process groups, Managed Postgres, and private Tigris storage](../deploy/flyio/README.md).
+It uses one immutable image for the migration command, API, and durable
+worker, keeps the application stateless, verifies the exact Machine/resource
+inventory, and publishes guarded rollback and cleanup scripts. Fly Managed
+Postgres currently tops out at PostgreSQL 17, and `fly storage create` does
+not enable Tigris snapshots, so hosted PostgreSQL-version parity and an
+object-store restore design remain explicit promotion gates.
+
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,
@@ -165,7 +174,7 @@ HayaSend does not plan to build or operate a custom MTA.
 | GCP / Cloud Run | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
 | Render | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
 | Railway | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
-| Fly.io | `portable-postgres` | Certified external adapter | Executable foundation; pack pending |
+| Fly.io | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
 | Vercel | `vercel-serverless` | Certified external adapter | Planned experimental proof |
 
 These are roadmap targets, not current support claims. Generated capability
@@ -208,7 +217,7 @@ A future management plane remains content-blind by default.
 
 ## Official references
 
-Checked on 2026-07-28:
+Checked on 2026-07-29:
 
 - [Azure Communication Services limits](https://learn.microsoft.com/en-us/azure/communication-services/concepts/service-limits)
 - [Azure Communication Services Email events](https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events)
@@ -220,3 +229,6 @@ Checked on 2026-07-28:
 - [Render background workers](https://render.com/docs/background-workers)
 - [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
 - [Railway Storage Buckets](https://docs.railway.com/storage-buckets)
+- [Fly.io app configuration](https://fly.io/docs/reference/configuration/)
+- [Fly.io Managed Postgres](https://fly.io/docs/mpg/)
+- [Fly.io Tigris object storage](https://fly.io/docs/tigris/)

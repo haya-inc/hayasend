@@ -77,6 +77,7 @@
     "test:postgres": "vitest run tests/postgres --pool=threads --maxWorkers=1",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest",
+    "validate:flyio": "node scripts/validate-flyio-config.mjs",
     "validate:railway": "node scripts/validate-railway-iac.mjs",
     "validate:render": "node scripts/validate-render-blueprint.mjs"
   },

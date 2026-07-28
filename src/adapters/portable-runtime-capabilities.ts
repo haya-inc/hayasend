@@ -84,7 +84,7 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       safe_deploy: {
         status: "conditional",
         notes:
-          "The pinned Cloud Run, Render, and Railway packs use migration-first rollouts and immutable images; hosted lifecycle proof and the remaining platform packs are still required.",
+          "The pinned Cloud Run, Render, Railway, and Fly.io packs use migration-first rollouts and immutable images; hosted lifecycle proof and the remaining platform packs are still required.",
       },
       doctor: {
         status: "conditional",
@@ -152,6 +152,21 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       {
         title: "Railway Storage Buckets",
         url: "https://docs.railway.com/storage-buckets",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Fly.io app configuration",
+        url: "https://fly.io/docs/reference/configuration/",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Fly.io Managed Postgres",
+        url: "https://fly.io/docs/mpg/",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Fly.io Tigris object storage",
+        url: "https://fly.io/docs/tigris/",
         checked_at: "2026-07-29",
       },
       {
