@@ -6,7 +6,7 @@ export interface QueueDepth {
 }
 
 export interface QueueDiagnosticsSnapshot {
-  provider: "memory" | "aws-sqs";
+  provider: "memory" | "aws-sqs" | "postgresql";
   primary: QueueDepth;
   dead_letters: {
     delivery: QueueDepth | null;

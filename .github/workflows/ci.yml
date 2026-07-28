@@ -36,7 +36,7 @@ jobs:
       - name: Install npm
         run: npm install --global --ignore-scripts npm@12.0.1
       - run: npm ci
-      - name: Exercise PostgreSQL 18 store and delivery semantics
+      - name: Exercise PostgreSQL 18 store, jobs, and portable runtime
         env:
           HAYASEND_POSTGRES_TEST_URL: >-
             postgres://hayasend:hayasend-test@127.0.0.1:5432/hayasend_test
@@ -302,15 +302,21 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 360 and
-            .size < 500000 and
-            .unpackedSize < 2600000 and
+              .entryCount <= 385 and
+            .size < 525000 and
+            .unpackedSize < 2750000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
               index("migrations/0003_cloudflare_suppressions.sql") != null) and
             ([.files[].path] |
               index("migrations/postgres/0002_application_store.sql") != null) and
+            ([.files[].path] |
+              index("migrations/postgres/0003_jobs.sql") != null) and
+            ([.files[].path] |
+              index("dist/portable/migrate.js") != null) and
+            ([.files[].path] |
+              index("dist/portable/worker.js") != null) and
             ([.files[].path] |
               index("scripts/cloudflare-cost-model.mjs") != null) and
             ([.files[].path] | index("src/aws/api.ts") != null) and
@@ -361,6 +367,10 @@ jobs:
             "$package_root/migrations/0003_cloudflare_suppressions.sql"
           test -f \
             "$package_root/migrations/postgres/0002_application_store.sql"
+          test -f \
+            "$package_root/migrations/postgres/0003_jobs.sql"
+          test -f "$package_root/dist/portable/migrate.js"
+          test -f "$package_root/dist/portable/worker.js"
           test -f "$package_root/scripts/cloudflare-cost-model.mjs"
           test -f \
             "$package_root/schemas/runtime-capabilities.v1.schema.json"

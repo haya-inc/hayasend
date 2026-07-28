@@ -5,6 +5,7 @@ import type {
 } from "../core/types.js";
 
 export interface AttachmentStorage {
+  assertConfigured?(): void;
   createUploadTarget(
     record: AttachmentUploadRecord,
     uploadToken: string,

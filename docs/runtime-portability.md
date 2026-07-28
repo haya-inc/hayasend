@@ -68,7 +68,7 @@ non-production until
 [issue #122](https://github.com/haya-inc/hayasend/issues/122) proves a terminal
 event and controlled receipt.
 
-### `portable-postgres` (foundation in progress)
+### `portable-postgres` (executable foundation)
 
 The shared foundation is one API container and one worker container with:
 
@@ -89,12 +89,19 @@ operational evidence, not a fork of core delivery logic.
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,
-webhooks and delivery history, API keys, and suppressions. Forward-only
-migrations are serialized with a PostgreSQL advisory lock and each applied
-migration is pinned by SHA-256 checksum. Runtime wiring, the durable job
-worker, object-storage adapters, backup/restore drills, and platform
-deployment evidence remain prerequisites before this profile can be claimed
-as a supported Beta deployment.
+webhooks and delivery history, API keys, and suppressions. The executable
+runtime adds separate API, migration, and horizontally scalable worker
+processes; deterministic durable jobs; `FOR UPDATE SKIP LOCKED` leasing;
+expired-lease recovery; retry exhaustion and DLQ-equivalent diagnostics;
+periodic outbox reconciliation; readiness checks; graceful lease release; and
+bounded retention. Forward-only migrations are serialized with a PostgreSQL
+advisory lock and each applied migration is pinned by SHA-256 checksum.
+
+[The portable runtime runbook](portable-postgres.md) documents its exact
+settings and process model. Object-storage adapters, portable provider event
+ingress, backup/restore drills, platform deployment packs, and exact platform
+evidence remain prerequisites before this profile can be claimed as a
+supported Beta deployment.
 
 ### `vercel-serverless` (planned experimental)
 
@@ -129,9 +136,9 @@ HayaSend does not plan to build or operate a custom MTA.
 | --- | --- | --- | --- |
 | AWS | `aws-native` | Amazon SES | Beta; production candidate after exact proof |
 | Cloudflare | `cloudflare-native` | Cloudflare Email Sending | Beta / non-production |
-| Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Planned Beta proof |
-| GCP / Cloud Run | `portable-postgres` | Certified external adapter | Planned Beta proof |
-| Render / Railway / Fly.io | `portable-postgres` | Certified external adapter | Planned Beta proof |
+| Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Executable foundation; Beta proof pending |
+| GCP / Cloud Run | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
+| Render / Railway / Fly.io | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
 | Vercel | `vercel-serverless` | Certified external adapter | Planned experimental proof |
 
 These are roadmap targets, not current support claims. Generated capability

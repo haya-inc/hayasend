@@ -69,6 +69,7 @@ export interface AppServices {
 
 export interface AppOptions {
   localPreview?: boolean;
+  readiness?: (() => Promise<void>) | undefined;
 }
 
 function hasScope(principal: AuthenticatedPrincipal, scope: ApiScope) {
@@ -239,6 +240,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         context.req.path.startsWith("/preview/"));
     if (
       context.req.path === "/healthz" ||
+      context.req.path === "/readyz" ||
       localPreviewPath ||
       (attachmentUploadPath && ["PUT", "OPTIONS"].includes(context.req.method))
     ) {
@@ -264,6 +266,33 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       version: HAYASEND_VERSION,
     }),
   );
+
+  app.get("/readyz", async (context) => {
+    try {
+      await options.readiness?.();
+      return context.json({
+        ok: true,
+        service: "hayasend",
+        version: HAYASEND_VERSION,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "HayaSend readiness check failed",
+          error_type: safeErrorCategory(error),
+        }),
+      );
+      return context.json(
+        {
+          ok: false,
+          service: "hayasend",
+          version: HAYASEND_VERSION,
+        },
+        503,
+      );
+    }
+  });
 
   app.get(
     "/diagnostics/recovery",

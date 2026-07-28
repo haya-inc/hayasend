@@ -1,5 +1,7 @@
+import type { Pool } from "pg";
 import type { AppServices } from "./app.js";
 import {
+  DisabledAttachmentStorage,
   MemoryAttachmentStorage,
   S3AttachmentStorage,
 } from "./adapters/attachment-storage.js";
@@ -15,6 +17,12 @@ import {
 } from "./adapters/email-scheduler.js";
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { MemoryStore } from "./adapters/memory-store.js";
+import { PostgresJobQueue } from "./adapters/postgres/postgres-job-queue.js";
+import {
+  assertPostgresReady,
+  createPostgresPool,
+} from "./adapters/postgres/postgres-pool.js";
+import { PostgresStore } from "./adapters/postgres/postgres-store.js";
 import {
   assertPublicWebhookEndpoint,
   createSafeWebhookFetch,
@@ -54,6 +62,12 @@ export interface Runtime extends AppServices {
   processJob(job: Job, attempt?: number): Promise<void>;
   dispatchOutbox(now?: Date): Promise<OutboxSweepResult>;
   getOutboxMetrics(now?: Date): Promise<OutboxMetrics>;
+  checkReadiness(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface PortableRuntime extends Runtime {
+  jobQueue: PostgresJobQueue;
 }
 
 export function createLocalRuntime(config = loadConfig()): Runtime {
@@ -156,6 +170,8 @@ export function createLocalRuntime(config = loadConfig()): Runtime {
     processJob,
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
+    checkReadiness: async () => undefined,
+    close: async () => undefined,
   };
 }
 
@@ -266,6 +282,147 @@ export function createAwsRuntime(
     webhookService: webhooks,
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
+    checkReadiness: async () => undefined,
+    close: async () => undefined,
+    async processJob(job: Job, attempt = 1) {
+      if (job.type === "send_email") {
+        await emailService.processSend(job.email_id, attempt);
+        return;
+      }
+      if (job.type === "reconcile_outbox") {
+        await outbox.sweep();
+        return;
+      }
+      if (job.type === "publish_received_email") {
+        await receivedEmails.publishWebhook(job.email_id);
+        return;
+      }
+      await webhooks.deliver(
+        job.webhook_id,
+        job.event,
+        job.delivery_id,
+        attempt,
+      );
+    },
+  };
+}
+
+export function createPortableRuntime(
+  config: Config,
+  pool: Pool = createPostgresPool(config, "hayasend"),
+): PortableRuntime {
+  if (
+    config.mode !== "portable" ||
+    !config.apiKey ||
+    !config.portableTransport ||
+    config.jobMaxAttempts === undefined
+  ) {
+    throw new Error("Portable runtime settings are incomplete.");
+  }
+  const store = new PostgresStore(pool);
+  const queue = new PostgresJobQueue(pool, {
+    max_attempts: config.jobMaxAttempts,
+  });
+  const webhooks = new WebhookService(store, queue, {
+    httpFetch: createSafeWebhookFetch(),
+    validateEndpoint: assertPublicWebhookEndpoint,
+    deliveryRetentionDays: config.webhookDeliveryRetentionDays,
+  });
+  const receivedEmails = new ReceivedEmailService(
+    store,
+    new DisabledInboundStorage(),
+    queue,
+    webhooks,
+    {
+      rawPrefix: config.inboundRawPrefix,
+      retentionDays: config.inboundRetentionDays,
+      maxMessageBytes: config.inboundMaxMessageBytes,
+    },
+  );
+  const suppressions = new SuppressionService(store);
+  const attachmentService = new AttachmentService(
+    store,
+    new DisabledAttachmentStorage(),
+  );
+  const scheduler = new QueueEmailScheduler(queue);
+  const apiKeys = new ApiKeyService(store, config.apiKey);
+  const templateService = new TemplateService(store, {
+    retentionDays: config.templateHistoryRetentionDays,
+    limit: config.templateHistoryLimit,
+  });
+  const usesSes = config.portableTransport === "aws-ses";
+  const provider = usesSes
+    ? {
+        name: AWS_SES_CAPABILITIES.provider,
+        adapter_version: AWS_SES_CAPABILITIES.adapter_version,
+        capability_version: AWS_SES_CAPABILITIES.schema_version,
+      }
+    : {
+        name: "portable-console",
+        adapter_version: HAYASEND_VERSION,
+        capability_version: "1.0.0",
+      };
+  const emailService = new EmailService(
+    store,
+    scheduler,
+    usesSes
+      ? new SesMailTransport(config.configurationSet)
+      : new ConsoleMailTransport(),
+    webhooks,
+    suppressions,
+    attachmentService,
+    templateService,
+    { provider },
+  );
+  const domainService = new DomainService(
+    store,
+    usesSes ? new SesDomainProvider() : new LocalDomainProvider(),
+    config.region,
+  );
+  const providerEvidence = usesSes
+    ? {
+        provider: AWS_SES_CAPABILITIES.provider,
+        adapter_version: AWS_SES_CAPABILITIES.adapter_version,
+        capability_version: AWS_SES_CAPABILITIES.schema_version,
+        checked_at: AWS_SES_CAPABILITIES.checked_at,
+        document: AWS_SES_CAPABILITIES,
+      }
+    : {
+        provider: "portable-console",
+        adapter_version: HAYASEND_VERSION,
+        capability_version: "1.0.0",
+        checked_at: null,
+        document: {
+          provider: "portable-console",
+          adapter_version: HAYASEND_VERSION,
+          capability_version: "1.0.0",
+          development_only: true,
+        },
+      };
+  const recoveryDiagnosticsService = new RecoveryDiagnosticsService(
+    store,
+    queue,
+    providerEvidence,
+  );
+  const outbox = new OutboxReconciler(store, queue, {
+    owner: createId("dispatcher"),
+  });
+
+  return {
+    apiKeyService: apiKeys,
+    attachmentService,
+    domainService,
+    emailService,
+    templateService,
+    receivedEmailService: receivedEmails,
+    recoveryDiagnosticsService,
+    suppressionService: suppressions,
+    webhookService: webhooks,
+    jobQueue: queue,
+    dispatchOutbox: (now) => outbox.sweep(now),
+    getOutboxMetrics: (now) => outbox.metrics(now),
+    checkReadiness: () => assertPostgresReady(pool),
+    close: () => pool.end(),
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {
         await emailService.processSend(job.email_id, attempt);
@@ -295,6 +452,9 @@ export function createRuntime(
 ): Runtime {
   if (config.mode === "local") {
     return createLocalRuntime(config);
+  }
+  if (config.mode === "portable") {
+    return createPortableRuntime(config);
   }
   if (!bootstrapKey) {
     throw new Error("AWS API runtime requires a bootstrap key provider.");
