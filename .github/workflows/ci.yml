@@ -81,7 +81,6 @@ jobs:
           GOOGLE_OAUTH_ACCESS_TOKEN: invalid-ci-token
           TF_VAR_api_key: re_DO_NOT_PERSIST_API_KEY_ABCDEFGHIJKL
           TF_VAR_database_password: DO_NOT_PERSIST_DATABASE_PASSWORD_1234
-          TF_VAR_enable_pubsub_wakeup: "true"
           TF_VAR_image: >-
             ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           TF_VAR_project_id: hayasend-test-project
@@ -97,7 +96,7 @@ jobs:
             --severity HIGH,CRITICAL \
             --skip-version-check \
             .
-          terraform plan \
+          TF_VAR_enable_pubsub_wakeup=true terraform plan \
             -input=false \
             -lock=false \
             -no-color \
