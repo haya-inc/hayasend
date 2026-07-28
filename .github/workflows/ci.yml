@@ -81,6 +81,39 @@ jobs:
             exit 1
           fi
 
+  render-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify the pinned Render CLI and deployment scripts
+        env:
+          RENDER_CLI_SHA256: 6cdcd11897b7bd7e673317e6f4aaf041b654d818444f3b1efec7240a835f79ec
+          RENDER_CLI_VERSION: 2.22.0
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/render-cli"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/render.zip" \
+            "https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          printf '%s  %s\n' \
+            "$RENDER_CLI_SHA256" \
+            "$cli_directory/render.zip" \
+            | sha256sum --check
+          unzip -q "$cli_directory/render.zip" -d "$cli_directory"
+          render_cli="$cli_directory/cli_v${RENDER_CLI_VERSION}"
+          test "$("$render_cli" --version | sed -n '1p')" = \
+            "render v${RENDER_CLI_VERSION}"
+          "$render_cli" blueprints validate --help > /dev/null
+          shellcheck \
+            deploy/render/deploy.sh \
+            deploy/render/verify.sh \
+            deploy/render/cleanup.sh
+          ruby -ryaml -e \
+            'YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], permitted_symbols: [], aliases: false)' \
+            deploy/render/render.yaml
+
   postgres-substrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -133,6 +166,7 @@ jobs:
       - run: npm run check
       - run: npm run check:workers
       - run: npm run check:conformance
+      - run: npm run validate:render
       - run: npm test
       - run: npm run build
       - name: Validate CloudFormation
@@ -373,7 +407,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 415 and
+              .entryCount <= 425 and
             .size < 550000 and
             .unpackedSize < 2900000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -410,6 +444,12 @@ jobs:
               index("deploy/cloud-run/.terraform-version") != null) and
             ([.files[].path] |
               index("deploy/cloud-run/backend.tf.example") != null) and
+            ([.files[].path] |
+              index("deploy/render/render.yaml") != null) and
+            ([.files[].path] |
+              index("deploy/render/.render-cli-version") != null) and
+            ([.files[].path] |
+              index("deploy/render/.render-schema-sha256") != null) and
             ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
@@ -471,6 +511,12 @@ jobs:
           test -f "$package_root/deploy/cloud-run/backend.tf.example"
           test -x "$package_root/deploy/cloud-run/deploy.sh"
           test -x "$package_root/deploy/cloud-run/cleanup.sh"
+          test -f "$package_root/deploy/render/render.yaml"
+          test -f "$package_root/deploy/render/.render-cli-version"
+          test -f "$package_root/deploy/render/.render-schema-sha256"
+          test -x "$package_root/deploy/render/deploy.sh"
+          test -x "$package_root/deploy/render/verify.sh"
+          test -x "$package_root/deploy/render/cleanup.sh"
           test -f "$package_root/conformance/readiness.v1.json"
           test -f \
             "$package_root/schemas/readiness-matrix.v1.schema.json"

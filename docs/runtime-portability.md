@@ -95,6 +95,13 @@ secrets and a migration-first rollout. It remains experimental until its
 hosted lifecycle, backup/restore, rollback, cleanup, and exact transport
 evidence pass.
 
+The second thin pack targets
+[Render Web Services, Background Workers, and private PostgreSQL](../deploy/render/README.md).
+It pins the same released image for both processes, gates each revision on
+the shared migration runner, disables automatic and preview deploys, and
+starts with lifecycle-only transport/storage. It remains experimental until
+hosted and exact-transport evidence passes.
+
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,

@@ -84,7 +84,7 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       safe_deploy: {
         status: "conditional",
         notes:
-          "The pinned Cloud Run pack uses a migration-first rollout, immutable images, Cloud SQL, GCS, Secret Manager, and a Worker Pool; hosted lifecycle proof and the remaining platform packs are still required.",
+          "The pinned Cloud Run and Render packs use migration-first rollouts and immutable images; hosted lifecycle proof and the remaining platform packs are still required.",
       },
       doctor: {
         status: "conditional",
@@ -133,6 +133,16 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
         title: "Cloud Run Worker Pools",
         url: "https://docs.cloud.google.com/run/docs/deploy-worker-pools",
         checked_at: "2026-07-28",
+      },
+      {
+        title: "Render Blueprint YAML reference",
+        url: "https://render.com/docs/blueprint-spec",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Render deploy lifecycle",
+        url: "https://render.com/docs/deploys",
+        checked_at: "2026-07-29",
       },
       {
         title: "Azure Blob user delegation SAS",
