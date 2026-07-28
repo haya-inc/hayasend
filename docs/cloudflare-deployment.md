@@ -172,8 +172,14 @@ checksums, pass/fail fields, tool versions, and cleanup results. The standalone
 Wrangler R2 object commands are not treated as a complete backup mechanism
 because they do not expose all HayaSend custom-metadata preservation controls.
 
-This drill must pass on an exact protected `main` commit before the
-`backup-restore` conformance case can be marked passed. The source commands are
+The drill passed on exact protected `main` commit
+`6158bec037f9d9aedf06871e445644d7f46fd58d` in
+[hosted run 30350436333](https://github.com/haya-inc/hayasend/actions/runs/30350436333).
+The source and restored combined state digests matched, relational and payload
+integrity passed, the first due-work sweep dispatched once, the second
+dispatched nothing, and the final residue check found no named proof resource.
+The synthetic terminal event in this drill is restore-only evidence and does
+not satisfy issue #122's provider-delivery gate. The source commands are
 documented by Cloudflare in
 [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
 and

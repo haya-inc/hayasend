@@ -5,15 +5,15 @@
   "adapter_version": "0.2.0",
   "capability_document_sha256": "bed79c438c936f43fcec4f47517eca7442cbd4d48eb34c0c738185dc123ec210",
   "started_at": "2026-07-27T14:00:00.000Z",
-  "completed_at": "2026-07-27T20:58:55.000Z",
+  "completed_at": "2026-07-28T10:25:12.000Z",
   "evidence_url": "https://github.com/haya-inc/hayasend/issues/104",
   "case_count": 21,
   "summary": {
-    "passed": 17,
-    "failed": 1,
+    "passed": 18,
+    "failed": 0,
     "unsupported": 3
   },
-  "status": "failed",
+  "status": "passed",
   "results": [
     {
       "case_id": "api-plain-text-fallback",
@@ -97,9 +97,8 @@
     },
     {
       "case_id": "backup-restore",
-      "status": "failed",
-      "evidence_url": "https://github.com/haya-inc/hayasend/issues/132",
-      "reason": "A complete isolated D1 and R2 backup/restore drill is not yet published."
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/actions/runs/30350436333"
     },
     {
       "case_id": "telemetry-private-fields",

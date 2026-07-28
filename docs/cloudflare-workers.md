@@ -93,10 +93,11 @@ The machine-readable
 keeps the provider maturity at Beta. The local
 [`conformance report`](../conformance/reports/cloudflare-email.local.v1.json)
 uses the exact-main hosted deploy/rollback evidence from issue #104, records
-the three capability differences as unsupported, and fails the new required
-backup/restore case until an isolated D1 and R2 restore drill is published.
-The combined deployment remains non-production until that evidence and issue
-#122's terminal event convergence and controlled mailbox receipt are complete.
+the three capability differences as unsupported, and passes the required
+backup/restore case with
+[exact-main isolated D1 and R2 restore evidence](https://github.com/haya-inc/hayasend/actions/runs/30350436333).
+The combined deployment remains non-production until issue #122's terminal
+event convergence and controlled mailbox receipt are complete.
 
 ## Privacy boundary
 

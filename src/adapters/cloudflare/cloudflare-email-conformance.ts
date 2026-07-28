@@ -12,6 +12,8 @@ const DEPLOYMENT_EVIDENCE_URL =
   "https://github.com/haya-inc/hayasend/issues/104";
 const PORTABILITY_EVIDENCE_URL =
   "https://github.com/haya-inc/hayasend/issues/132";
+const BACKUP_RESTORE_EVIDENCE_URL =
+  "https://github.com/haya-inc/hayasend/actions/runs/30350436333";
 
 const UNSUPPORTED = new Map<
   string,
@@ -57,10 +59,8 @@ const results: ConformanceResult["results"] = CONFORMANCE_CASES.map(
     if (testCase.case_id === "backup-restore") {
       return {
         case_id: testCase.case_id,
-        status: "failed" as const,
-        evidence_url: PORTABILITY_EVIDENCE_URL,
-        reason:
-          "A complete isolated D1 and R2 backup/restore drill is not yet published.",
+        status: "passed" as const,
+        evidence_url: BACKUP_RESTORE_EVIDENCE_URL,
       };
     }
     if (
@@ -95,7 +95,7 @@ export const CLOUDFLARE_EMAIL_CONFORMANCE_REPORT =
         JSON.stringify(CLOUDFLARE_EMAIL_CAPABILITIES),
       ),
       started_at: "2026-07-27T14:00:00.000Z",
-      completed_at: "2026-07-27T20:58:55.000Z",
+      completed_at: "2026-07-28T10:25:12.000Z",
       evidence_url: DEPLOYMENT_EVIDENCE_URL,
       case_count: results.length,
       summary: {
@@ -107,7 +107,7 @@ export const CLOUDFLARE_EMAIL_CONFORMANCE_REPORT =
           (result) => result.status === "unsupported",
         ).length,
       },
-      status: "failed",
+      status: "passed",
       results,
     },
     CLOUDFLARE_EMAIL_CAPABILITIES,
