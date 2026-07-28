@@ -327,7 +327,9 @@ export class PortableWorker {
   }
 }
 
-function portableWorkerOptions(config: Config): PortableWorkerOptions {
+export function portableWorkerOptions(
+  config: Config,
+): PortableWorkerOptions {
   if (
     config.mode !== "portable" ||
     config.workerConcurrency === undefined ||

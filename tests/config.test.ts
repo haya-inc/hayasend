@@ -203,6 +203,19 @@ describe("loadConfig", () => {
       objectStorageBucket: "attachments",
       azureStorageAccount: "portableaccount",
     });
+
+    expect(
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "vercel-blob",
+        BLOB_READ_WRITE_TOKEN:
+          "vercel_blob_read_write_token_for_private_store_1234567890",
+      }),
+    ).toMatchObject({
+      portableObjectStorage: "vercel-blob",
+      vercelBlobToken:
+        "vercel_blob_read_write_token_for_private_store_1234567890",
+    });
   });
 
   it("loads an Azure Communication Services transport with isolated Event Grid authentication", () => {
@@ -315,6 +328,21 @@ describe("loadConfig", () => {
         HAYASEND_OBJECT_STORAGE_BUCKET: "attachments",
       }),
     ).toThrow("AZURE_STORAGE_ACCOUNT_NAME");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "vercel-blob",
+      }),
+    ).toThrow("BLOB_READ_WRITE_TOKEN");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "vercel-blob",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "not-used",
+        BLOB_READ_WRITE_TOKEN:
+          "vercel_blob_read_write_token_for_private_store_1234567890",
+      }),
+    ).toThrow("HAYASEND_OBJECT_STORAGE_BUCKET is not used");
   });
 
   it("loads portable secrets from bounded mounted files", async () => {

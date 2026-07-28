@@ -17,6 +17,8 @@
     "types": ["node", "aws-lambda"]
   },
   "include": [
+    "api/**/*.ts",
+    "app.ts",
     "worker-configuration.d.ts",
     "scripts/**/*.ts",
     "src/**/*.ts",

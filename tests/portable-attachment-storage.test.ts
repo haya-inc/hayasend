@@ -6,6 +6,7 @@ import {
 import { AzureBlobAttachmentStorage } from "../src/adapters/azure-blob-attachment-storage.js";
 import { GoogleCloudStorageAttachmentStorage } from "../src/adapters/google-cloud-storage-attachment-storage.js";
 import { createPortableAttachmentStorage } from "../src/adapters/portable-attachment-storage.js";
+import { VercelBlobAttachmentStorage } from "../src/adapters/vercel-blob-attachment-storage.js";
 import { loadConfig } from "../src/config.js";
 
 const base = {
@@ -54,5 +55,16 @@ describe("createPortableAttachmentStorage", () => {
         }),
       ),
     ).toBeInstanceOf(AzureBlobAttachmentStorage);
+
+    expect(
+      createPortableAttachmentStorage(
+        loadConfig({
+          ...base,
+          HAYASEND_OBJECT_STORAGE: "vercel-blob",
+          BLOB_READ_WRITE_TOKEN:
+            "vercel_blob_read_write_token_for_private_store_1234567890",
+        }),
+      ),
+    ).toBeInstanceOf(VercelBlobAttachmentStorage);
   });
 });

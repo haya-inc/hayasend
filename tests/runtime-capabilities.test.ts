@@ -4,6 +4,7 @@ import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
+import { VERCEL_RUNTIME_CAPABILITIES } from "../src/adapters/vercel-runtime-capabilities.js";
 import {
   buildReadinessMatrix,
   readinessMatrixSchema,
@@ -57,6 +58,34 @@ describe("runtime and deployment capability contracts", () => {
       lifecycle: {
         safe_deploy: { status: "conditional" },
         cleanup: { status: "unsupported" },
+      },
+    });
+  });
+
+  it("keeps Vercel experimental with PostgreSQL as scheduling authority", () => {
+    expect(
+      runtimeCapabilityDocumentSchema.parse(
+        VERCEL_RUNTIME_CAPABILITIES,
+      ),
+    ).toMatchObject({
+      runtime: "vercel-serverless",
+      service_maturity: "experimental",
+      runtime_class: "serverless",
+      limits: {
+        max_payload_bytes: 4_500_000,
+        max_schedule_delay_seconds: 2_592_000,
+        reconciliation_interval_seconds: 60,
+      },
+      authority: {
+        queue_is_source_of_truth: false,
+        scheduler_is_source_of_truth: false,
+        due_row_reconciliation: true,
+      },
+      components: {
+        payload_store: { status: "supported" },
+        queue_wakeup: { status: "conditional" },
+        scheduler_wakeup: { status: "supported" },
+        backup_restore: { status: "unsupported" },
       },
     });
   });
@@ -230,6 +259,7 @@ describe("runtime and deployment capability contracts", () => {
       AWS_RUNTIME_CAPABILITIES,
       CLOUDFLARE_RUNTIME_CAPABILITIES,
       PORTABLE_RUNTIME_CAPABILITIES,
+      VERCEL_RUNTIME_CAPABILITIES,
       AWS_SES_DEPLOYMENT_CAPABILITIES,
       CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
     ]);

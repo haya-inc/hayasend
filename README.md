@@ -26,6 +26,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Railway](deploy/railway/README.md) ·
 [Fly.io](deploy/flyio/README.md) ·
 [Azure Container Apps](deploy/azure-container-apps/README.md) ·
+[Vercel](deploy/vercel/README.md) ·
 [Azure ACS Email](docs/provider-capabilities.md#azure-communication-services-email-evidence) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
@@ -74,9 +75,12 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 - an executable PostgreSQL 18 portable foundation with separate migration,
   API, and horizontally scalable worker processes, durable delayed jobs,
   lease-loss recovery, readiness checks, graceful shutdown, GCS/Azure
-  Blob/S3-compatible attachment storage, and mounted-file secret injection
+  Blob/S3-compatible/Vercel Blob attachment storage, and mounted-file secret injection
   (experimental Cloud Run, Render, Railway, and Fly.io packs are published;
   hosted lifecycle proofs are still pending)
+- an executable experimental Vercel serverless profile using Hono Functions,
+  content-free Queue wakeups, authenticated Cron reconciliation, private Blob
+  direct uploads, and external PostgreSQL scheduling authority
 - an experimental Azure Communication Services Email transport with strict
   provider limits, read-only linked-domain verification, and authenticated
   exact-recipient Event Grid lifecycle ingestion
