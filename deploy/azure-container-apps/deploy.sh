@@ -176,7 +176,7 @@ HAYASEND_AZURE_API_URL="$(terraform output -raw api_url)"
 export HAYASEND_AZURE_DEPLOYMENT_ID
 HAYASEND_AZURE_DEPLOYMENT_ID="$(terraform output -raw deployment_id)"
 export HAYASEND_AZURE_EVENT_GRID_SECRET="$TF_VAR_event_grid_secret"
-node event-grid.mjs ensure
+node event-grid-ensure.mjs
 unset HAYASEND_AZURE_EVENT_GRID_SECRET
 
 ./verify.sh

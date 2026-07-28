@@ -133,7 +133,7 @@ HAYASEND_AZURE_EVENT_SUBSCRIPTION_NAME="$(terraform output -raw event_subscripti
 export HAYASEND_AZURE_API_URL
 HAYASEND_AZURE_API_URL="$(terraform output -raw api_url)"
 export HAYASEND_AZURE_DEPLOYMENT_ID="$deployment_id"
-node event-grid.mjs delete
+node event-grid-delete.mjs
 
 terraform apply -input=false -lock-timeout=5m "$@"
 terraform destroy -input=false -lock-timeout=5m "$@"

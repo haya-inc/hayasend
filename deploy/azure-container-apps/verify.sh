@@ -148,6 +148,6 @@ HAYASEND_AZURE_EVENT_SUBSCRIPTION_NAME="$(terraform output -raw event_subscripti
 export HAYASEND_AZURE_API_URL="$api_url"
 export HAYASEND_AZURE_DEPLOYMENT_ID
 HAYASEND_AZURE_DEPLOYMENT_ID="$(terraform output -raw deployment_id)"
-node event-grid.mjs verify
+node event-grid-verify.mjs
 
 echo "HayaSend Azure runtime is ready at $api_url"

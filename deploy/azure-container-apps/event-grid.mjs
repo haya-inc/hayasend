@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 
 const API_VERSION = "2025-02-15";
+const MANAGEMENT_ORIGIN = "https://management.azure.com";
 const EVENT_TYPES = [
   "Microsoft.Communication.EmailDeliveryReportReceived",
   "Microsoft.Communication.EmailEngagementTrackingReportReceived",
@@ -48,7 +49,7 @@ function validateUuid(value, label) {
   }
 }
 
-function inputs(command) {
+function inputs(requiresSecret) {
   const subscriptionId = requiredEnvironment(
     "HAYASEND_AZURE_SUBSCRIPTION_ID",
   );
@@ -72,13 +73,13 @@ function inputs(command) {
   ) {
     fail("HAYASEND_AZURE_API_URL must be a credential-free HTTPS origin.");
   }
+  const scopeMatch =
+    /^\/subscriptions\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/resourceGroups\/[A-Za-z0-9_().-]{1,90}\/providers\/Microsoft\.Communication\/communicationServices\/[A-Za-z0-9-]{1,63}$/i.exec(
+      scope,
+    );
   if (
-    !scope.toLowerCase().startsWith(
-      `/subscriptions/${subscriptionId.toLowerCase()}/resourcegroups/`,
-    ) ||
-    !scope
-      .toLowerCase()
-      .includes("/providers/microsoft.communication/communicationservices/")
+    !scopeMatch ||
+    scopeMatch[1].toLowerCase() !== subscriptionId.toLowerCase()
   ) {
     fail("HAYASEND_AZURE_EVENT_SCOPE must be an ACS resource in the selected subscription.");
   }
@@ -90,7 +91,7 @@ function inputs(command) {
   }
 
   let secret;
-  if (command === "ensure") {
+  if (requiresSecret) {
     secret = requiredEnvironment("HAYASEND_AZURE_EVENT_GRID_SECRET");
     if (
       secret.length < 32 ||
@@ -144,7 +145,16 @@ function resourceUrl({ scope, subscriptionName }, suffix = "") {
 }
 
 async function request(url, token, options = {}) {
-  const response = await fetch(url, {
+  const managementUrl = new URL(url);
+  if (
+    managementUrl.origin !== MANAGEMENT_ORIGIN ||
+    managementUrl.username ||
+    managementUrl.password ||
+    managementUrl.port
+  ) {
+    fail("Azure management request must use the fixed HTTPS management origin.");
+  }
+  const response = await fetch(managementUrl, {
     ...options,
     headers: {
       authorization: `Bearer ${token}`,
@@ -343,18 +353,23 @@ async function remove(config, token) {
   fail("Event Grid subscription still exists after 60 seconds.");
 }
 
-const command = process.argv[2];
-if (!["ensure", "verify", "delete"].includes(command)) {
-  fail("Usage: node event-grid.mjs ensure|verify|delete");
+function authenticatedConfig(requiresSecret) {
+  const config = inputs(requiresSecret);
+  assertAzureAccount(config);
+  return { config, token: managementToken() };
 }
-const config = inputs(command);
-assertAzureAccount(config);
-const token = managementToken();
 
-if (command === "ensure") {
+export async function ensureFromEnvironment() {
+  const { config, token } = authenticatedConfig(true);
   await ensure(config, token);
-} else if (command === "verify") {
+}
+
+export async function verifyFromEnvironment() {
+  const { config, token } = authenticatedConfig(false);
   await verify(config, token);
-} else {
+}
+
+export async function deleteFromEnvironment() {
+  const { config, token } = authenticatedConfig(false);
   await remove(config, token);
 }

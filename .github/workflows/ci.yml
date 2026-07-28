@@ -33,6 +33,9 @@ jobs:
           terraform test -no-color | tee "$RUNNER_TEMP/azure-terraform-test.txt"
           shellcheck deploy.sh verify.sh rollback.sh cleanup.sh
           node --check event-grid.mjs
+          node --check event-grid-ensure.mjs
+          node --check event-grid-verify.mjs
+          node --check event-grid-delete.mjs
           trivy config \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
@@ -565,7 +568,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 460 and
+            .entryCount <= 500 and
             .size < 620000 and
             .unpackedSize < 3150000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -610,6 +613,22 @@ jobs:
               index("deploy/cloud-run/.terraform-version") != null) and
             ([.files[].path] |
               index("deploy/cloud-run/backend.tf.example") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/main.tf") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.terraform.lock.hcl") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.terraform-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.azure-cli-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-ensure.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-verify.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-delete.mjs") != null) and
             ([.files[].path] |
               index("deploy/render/render.yaml") != null) and
             ([.files[].path] |
@@ -699,6 +718,24 @@ jobs:
           test -f "$package_root/deploy/cloud-run/backend.tf.example"
           test -x "$package_root/deploy/cloud-run/deploy.sh"
           test -x "$package_root/deploy/cloud-run/cleanup.sh"
+          test -f "$package_root/deploy/azure-container-apps/main.tf"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.terraform.lock.hcl"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.terraform-version"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.azure-cli-version"
+          test -x "$package_root/deploy/azure-container-apps/deploy.sh"
+          test -x "$package_root/deploy/azure-container-apps/verify.sh"
+          test -x "$package_root/deploy/azure-container-apps/rollback.sh"
+          test -x "$package_root/deploy/azure-container-apps/cleanup.sh"
+          test -x "$package_root/deploy/azure-container-apps/event-grid.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-ensure.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-verify.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-delete.mjs"
           test -f "$package_root/deploy/render/render.yaml"
           test -f "$package_root/deploy/render/.render-cli-version"
           test -f "$package_root/deploy/render/.render-schema-sha256"

@@ -63,8 +63,10 @@ persist it in Terraform state. `event-grid.mjs` instead:
 6. verifies topic, endpoint, TLS, event types, secret metadata, and
    provisioning state without printing secret values.
 
-`deploy.sh`, `verify.sh`, and `cleanup.sh` own this sidecar lifecycle so the
-subscription cannot be orphaned silently.
+`deploy.sh`, `verify.sh`, and `cleanup.sh` invoke separate fixed-action
+entrypoints backed by `event-grid.mjs`, so a caller-controlled subcommand
+cannot select the destructive path and the subscription cannot be orphaned
+silently.
 
 ## Versions
 
