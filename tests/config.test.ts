@@ -345,6 +345,15 @@ describe("loadConfig", () => {
         ...base,
         SENDGRID_API_KEY:
           "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+        SENDGRID_API_BASE_URL:
+          "https://api.sendgrid.com.attacker.example",
+      }),
+    ).toThrow("global or EU SendGrid API origin");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SENDGRID_API_KEY:
+          "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
         SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: "not-a-key",
       }),
     ).toThrow("base64 or PEM");

@@ -411,16 +411,22 @@ export function loadConfig(env = process.env): Config {
         "SENDGRID_API_BASE_URL",
       )
     : "https://api.sendgrid.com";
+  const sendGridApiUrl = new URL(sendGridApiBaseUrl);
+  const approvedSendGridOrigin =
+    sendGridApiUrl.protocol === "https:" &&
+    sendGridApiUrl.port === "" &&
+    (sendGridApiUrl.hostname === "api.sendgrid.com" ||
+      sendGridApiUrl.hostname === "api.eu.sendgrid.com");
+  const loopbackSendGridOrigin =
+    sendGridApiUrl.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(
+      sendGridApiUrl.hostname,
+    );
   if (
     mode === "portable" &&
     usesSendGrid &&
-    ![
-      "https://api.sendgrid.com",
-      "https://api.eu.sendgrid.com",
-    ].includes(sendGridApiBaseUrl) &&
-    !/^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(
-      sendGridApiBaseUrl,
-    )
+    !approvedSendGridOrigin &&
+    !loopbackSendGridOrigin
   ) {
     throw new ValidationError(
       "SENDGRID_API_BASE_URL must be the global or EU SendGrid API origin (loopback HTTP is allowed only for tests).",
