@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "deployment": "cloudflare-email",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "runtime": {
+    "profile": "cloudflare-native",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/runtimes/cloudflare-native.v1.json"
+  },
+  "transport": {
+    "provider": "cloudflare-email",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/providers/cloudflare-email.v1.json"
+  },
+  "maturity": {
+    "runtime": "beta",
+    "transport": "beta",
+    "combination": "beta"
+  },
+  "production_ready": false,
+  "effective_limits": {
+    "max_serialized_request_bytes": 9437184,
+    "max_mime_message_bytes": 5242880,
+    "max_combined_recipients": 50,
+    "max_attachments": 20,
+    "max_decoded_attachment_bytes": 3800000,
+    "max_batch_messages": 100,
+    "max_schedule_delay_seconds": 2592000
+  },
+  "evidence": {
+    "conformance": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/122",
+      "notes": "The shared catalog and hosted lifecycle pass, but the exact combination remains incomplete until terminal-event convergence is proven."
+    },
+    "lifecycle": {
+      "status": "passed",
+      "url": "https://github.com/haya-inc/hayasend/issues/104",
+      "notes": "The protected hosted workflow proved deploy, doctor, controlled failure, upgrade, rollback, and cleanup."
+    },
+    "terminal_delivery": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/122",
+      "notes": "Provider acceptance has not yet produced the required terminal delivery event."
+    },
+    "controlled_receipt": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/122",
+      "notes": "The uniquely identified message has not yet been confirmed in the controlled mailbox."
+    },
+    "cleanup": {
+      "status": "passed",
+      "url": "https://github.com/haya-inc/hayasend/issues/104",
+      "notes": "The hosted lifecycle proof removed the isolated Worker, D1, R2, and Queue resources and verified absence."
+    }
+  },
+  "privacy": {
+    "customer_owned_data_plane": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_provider_errors_retained": false
+  },
+  "limitations": [
+    "Cloudflare Email Service and this deployment combination remain Beta.",
+    "Production readiness is false while issue #122 remains incomplete.",
+    "The current Cloudflare runtime exposes a narrower product surface than the AWS runtime."
+  ]
+}

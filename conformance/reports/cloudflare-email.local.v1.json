@@ -1,19 +1,19 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "cloudflare-email-local-20260727",
+  "run_id": "cloudflare-email-evidence-20260728",
   "provider": "cloudflare-email",
   "adapter_version": "0.2.0",
   "capability_document_sha256": "bed79c438c936f43fcec4f47517eca7442cbd4d48eb34c0c738185dc123ec210",
   "started_at": "2026-07-27T14:00:00.000Z",
-  "completed_at": "2026-07-27T16:30:00.000Z",
-  "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
+  "completed_at": "2026-07-27T20:58:55.000Z",
+  "evidence_url": "https://github.com/haya-inc/hayasend/issues/104",
   "case_count": 18,
   "summary": {
-    "passed": 14,
-    "failed": 1,
+    "passed": 15,
+    "failed": 0,
     "unsupported": 3
   },
-  "status": "failed",
+  "status": "passed",
   "results": [
     {
       "case_id": "api-plain-text-fallback",
@@ -82,9 +82,8 @@
     },
     {
       "case_id": "deploy-interruption",
-      "status": "failed",
-      "evidence_url": "https://github.com/haya-inc/hayasend/issues/103",
-      "reason": "Production Cloudflare deploy, upgrade, and rollback evidence is intentionally deferred to issue #104."
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/104"
     },
     {
       "case_id": "telemetry-private-fields",

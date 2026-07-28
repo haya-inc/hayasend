@@ -19,6 +19,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [API reference](https://hayasend.com/api-reference.html) ·
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
+[Runtime portability](docs/runtime-portability.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·

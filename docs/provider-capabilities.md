@@ -7,16 +7,28 @@ limits and unsupported behavior before accepting a message.
 
 The generated artifacts are:
 
+- [`conformance/runtimes/aws-native.v1.json`](../conformance/runtimes/aws-native.v1.json)
+  and
+  [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json)
+  — runtime-substrate capabilities independent of mail transport;
 - [`conformance/providers/aws-ses.v1.json`](../conformance/providers/aws-ses.v1.json)
   — current AWS adapter capabilities;
 - [`conformance/providers/cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
   — current Beta Cloudflare Email Sending adapter capabilities;
+- [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
+  and
+  [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
+  — exact runtime+transport maturity, effective limits, and evidence gates;
 - [`conformance/reports/cloudflare-email.local.v1.json`](../conformance/reports/cloudflare-email.local.v1.json)
-  — local Cloudflare proof, including the remaining #104 deploy/rollback gap;
+  — shared adapter evidence plus the completed #104 hosted lifecycle proof;
 - [`conformance/cases.v1.json`](../conformance/cases.v1.json) — shared fault
   and lifecycle cases;
 - [`schemas/provider-capabilities.v1.schema.json`](../schemas/provider-capabilities.v1.schema.json)
   — capability document schema;
+- [`schemas/runtime-capabilities.v1.schema.json`](../schemas/runtime-capabilities.v1.schema.json)
+  — runtime-substrate capability schema;
+- [`schemas/deployment-capabilities.v1.schema.json`](../schemas/deployment-capabilities.v1.schema.json)
+  — combined runtime+transport deployment schema;
 - [`schemas/conformance-result.v1.schema.json`](../schemas/conformance-result.v1.schema.json)
   — evidence report schema.
 - [`schemas/delivery-record.v1.schema.json`](../schemas/delivery-record.v1.schema.json)
@@ -25,6 +37,12 @@ The generated artifacts are:
 `npm run check:conformance` regenerates every artifact in memory and fails if a
 committed file is absent or stale. This prevents source types, published JSON,
 and CI evidence from drifting apart.
+
+See [runtime and transport portability](runtime-portability.md) for why
+runtime, transport, and combined readiness are separate. A deployment
+combination cannot claim a maturity above its weakest component, and
+`production_ready` additionally requires every named operational evidence gate
+to pass.
 
 ## Support meanings
 
@@ -87,7 +105,9 @@ and other unrecognized fields are discarded.
 
 The current subscription publishes delivered, deferred, bounced, failed,
 rejected, and complained events. Open, click, and durable provider-side send
-idempotency are explicitly unsupported. The local report remains failed on the
-required deploy-interruption case until issue #104 supplies real hosted
-deploy, upgrade, rollback, and cleanup evidence; this is intentional and
-prevents a local green test from being presented as production evidence.
+idempotency are explicitly unsupported. The report now passes every required
+shared case because issue #104 supplies exact-main hosted deploy, upgrade,
+rollback, and cleanup evidence. The three documented provider capability gaps
+remain unsupported. This does not make the combined deployment
+production-ready: issue #122 still owns terminal event convergence and
+controlled mailbox receipt.

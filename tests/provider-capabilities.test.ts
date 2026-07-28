@@ -105,16 +105,16 @@ describe("provider capability contract", () => {
     });
     expect(CLOUDFLARE_EMAIL_CONFORMANCE_REPORT).toMatchObject({
       provider: "cloudflare-email",
-      status: "failed",
-      summary: { failed: 1, unsupported: 3 },
+      status: "passed",
+      summary: { failed: 0, unsupported: 3 },
     });
     expect(
       CLOUDFLARE_EMAIL_CONFORMANCE_REPORT.results.find(
         (result) => result.case_id === "deploy-interruption",
       ),
     ).toMatchObject({
-      status: "failed",
-      reason: expect.stringContaining("issue #104"),
+      status: "passed",
+      evidence_url: "https://github.com/haya-inc/hayasend/issues/104",
     });
   });
 

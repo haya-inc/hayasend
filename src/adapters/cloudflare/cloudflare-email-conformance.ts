@@ -8,6 +8,8 @@ import { CLOUDFLARE_EMAIL_CAPABILITIES } from "./cloudflare-email-capabilities.j
 
 const EVIDENCE_URL =
   "https://github.com/haya-inc/hayasend/issues/103";
+const DEPLOYMENT_EVIDENCE_URL =
+  "https://github.com/haya-inc/hayasend/issues/104";
 
 const UNSUPPORTED = new Map<
   string,
@@ -50,19 +52,13 @@ const results: ConformanceResult["results"] = CONFORMANCE_CASES.map(
         ...unsupported,
       };
     }
-    if (testCase.case_id === "deploy-interruption") {
-      return {
-        case_id: testCase.case_id,
-        status: "failed" as const,
-        evidence_url: EVIDENCE_URL,
-        reason:
-          "Production Cloudflare deploy, upgrade, and rollback evidence is intentionally deferred to issue #104.",
-      };
-    }
     return {
       case_id: testCase.case_id,
       status: "passed" as const,
-      evidence_url: EVIDENCE_URL,
+      evidence_url:
+        testCase.case_id === "deploy-interruption"
+          ? DEPLOYMENT_EVIDENCE_URL
+          : EVIDENCE_URL,
     };
   },
 );
@@ -71,15 +67,15 @@ export const CLOUDFLARE_EMAIL_CONFORMANCE_REPORT =
   validateConformanceResult(
     {
       schema_version: "1.0.0",
-      run_id: "cloudflare-email-local-20260727",
+      run_id: "cloudflare-email-evidence-20260728",
       provider: CLOUDFLARE_EMAIL_CAPABILITIES.provider,
       adapter_version: CLOUDFLARE_EMAIL_CAPABILITIES.adapter_version,
       capability_document_sha256: sha256(
         JSON.stringify(CLOUDFLARE_EMAIL_CAPABILITIES),
       ),
       started_at: "2026-07-27T14:00:00.000Z",
-      completed_at: "2026-07-27T16:30:00.000Z",
-      evidence_url: EVIDENCE_URL,
+      completed_at: "2026-07-27T20:58:55.000Z",
+      evidence_url: DEPLOYMENT_EVIDENCE_URL,
       case_count: results.length,
       summary: {
         passed: results.filter((result) => result.status === "passed")
@@ -90,7 +86,7 @@ export const CLOUDFLARE_EMAIL_CONFORMANCE_REPORT =
           (result) => result.status === "unsupported",
         ).length,
       },
-      status: "failed",
+      status: "passed",
       results,
     },
     CLOUDFLARE_EMAIL_CAPABILITIES,

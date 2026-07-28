@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { AWS_RUNTIME_CAPABILITIES } from "../src/adapters/aws-runtime-capabilities.js";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
+import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import {
   CONFORMANCE_CASES,
   conformanceCaseCatalogSchema,
@@ -9,6 +11,12 @@ import {
   providerCapabilityDocumentSchema,
 } from "../src/core/provider-capabilities.js";
 import { deliveryRecordSchema } from "../src/core/delivery-model.js";
+import {
+  deploymentCapabilityDocumentSchema,
+  runtimeCapabilityDocumentSchema,
+} from "../src/core/runtime-capabilities.js";
+import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
+import { CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES } from "../src/deployments/cloudflare-email-capabilities.js";
 
 function jsonSchema(schema: z.ZodType, id: string) {
   const generated = z.toJSONSchema(schema, {
@@ -32,6 +40,13 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "conformance/providers/aws-ses.v1.json": AWS_SES_CAPABILITIES,
   "conformance/providers/cloudflare-email.v1.json":
     CLOUDFLARE_EMAIL_CAPABILITIES,
+  "conformance/runtimes/aws-native.v1.json": AWS_RUNTIME_CAPABILITIES,
+  "conformance/runtimes/cloudflare-native.v1.json":
+    CLOUDFLARE_RUNTIME_CAPABILITIES,
+  "conformance/deployments/aws-ses.v1.json":
+    AWS_SES_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/cloudflare-email.v1.json":
+    CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
   "conformance/reports/cloudflare-email.local.v1.json":
     CLOUDFLARE_EMAIL_CONFORMANCE_REPORT,
   "schemas/conformance-cases.v1.schema.json": jsonSchema(
@@ -49,5 +64,13 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "schemas/provider-capabilities.v1.schema.json": jsonSchema(
     providerCapabilityDocumentSchema,
     "https://hayasend.dev/schemas/provider-capabilities.v1.schema.json",
+  ),
+  "schemas/runtime-capabilities.v1.schema.json": jsonSchema(
+    runtimeCapabilityDocumentSchema,
+    "https://hayasend.dev/schemas/runtime-capabilities.v1.schema.json",
+  ),
+  "schemas/deployment-capabilities.v1.schema.json": jsonSchema(
+    deploymentCapabilityDocumentSchema,
+    "https://hayasend.dev/schemas/deployment-capabilities.v1.schema.json",
   ),
 };
