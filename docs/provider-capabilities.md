@@ -110,9 +110,11 @@ and other unrecognized fields are discarded.
 The current subscription publishes delivered, deferred, bounced, failed,
 rejected, and complained events. Open, click, and durable provider-side send
 idempotency are explicitly unsupported. Issue #104 supplies exact-main hosted
-deploy, upgrade, rollback, and cleanup evidence. The report now fails only the
-new required backup/restore drill because a complete isolated D1 and R2 restore
-has not been published; the three documented provider capability gaps remain
-unsupported. The combined deployment also remains non-production because
-issue #122 still owns terminal event convergence and controlled mailbox
-receipt.
+deploy, upgrade, rollback, and cleanup evidence. The
+[exact-main isolated restore run](https://github.com/haya-inc/hayasend/actions/runs/30350436333)
+proves combined D1 and R2 backup/restore, integrity, deterministic one-time
+recovery without an external send, cleanup, and zero named residue. The report
+therefore passes every required case while retaining the three documented
+provider capability gaps as unsupported. The combined deployment remains
+non-production because issue #122 still owns terminal event convergence and
+controlled mailbox receipt.

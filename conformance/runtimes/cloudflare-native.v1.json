@@ -56,8 +56,8 @@
       "notes": "The current Cloudflare proof runtime does not expose the full webhook surface."
     },
     "backup_restore": {
-      "status": "conditional",
-      "notes": "Deployment creates a D1 pre-migration backup; a complete D1 and R2 restore drill is not yet published."
+      "status": "supported",
+      "notes": "Exact-main hosted evidence exports D1, copies retained R2 objects with metadata and digests, restores both into an isolated namespace, verifies relational and payload integrity, recovers due work exactly once without an external send, and removes every named proof resource."
     }
   },
   "lifecycle": {
@@ -108,11 +108,15 @@
       "title": "Cloudflare R2",
       "url": "https://developers.cloudflare.com/r2/",
       "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Exact-main isolated D1 and R2 restore evidence",
+      "url": "https://github.com/haya-inc/hayasend/actions/runs/30350436333",
+      "checked_at": "2026-07-28"
     }
   ],
   "limitations": [
     "Production readiness remains false until issue #122 proves a terminal provider event and controlled mailbox receipt.",
-    "Webhook delivery, hosted templates, domain management, and inbound email are outside the current proof runtime.",
-    "A complete D1 and R2 backup/restore drill is not yet published."
+    "Webhook delivery, hosted templates, domain management, and inbound email are outside the current proof runtime."
   ]
 }
