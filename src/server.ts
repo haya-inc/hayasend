@@ -3,11 +3,16 @@ import { serve } from "@hono/node-server";
 import { createPortableAttachmentStorage } from "./adapters/portable-attachment-storage.js";
 import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
-import { loadConfig, type Config } from "./config.js";
+import {
+  assertApiServerConfig,
+  loadConfig,
+  type Config,
+} from "./config.js";
 import { safeErrorCategory } from "./core/error-telemetry.js";
 import { createRuntime } from "./runtime.js";
 
 export async function startServer(config: Config = loadConfig()) {
+  assertApiServerConfig(config);
   const bootstrapKey =
     config.mode === "aws" && config.apiKeySecretArn
       ? createSecretValueProvider(config.apiKeySecretArn)
@@ -28,6 +33,14 @@ export async function startServer(config: Config = loadConfig()) {
   const app = createApp(runtime, {
     localPreview: config.mode === "local",
     readiness: () => runtime.checkReadiness(),
+    ...(runtime.transportEventIngress && config.azureEventGridSecret
+      ? {
+          providerEventIngress: {
+            secret: config.azureEventGridSecret,
+            ingress: runtime.transportEventIngress,
+          },
+        }
+      : {}),
   });
   let server: ReturnType<typeof serve>;
   try {

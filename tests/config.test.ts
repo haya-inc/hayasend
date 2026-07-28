@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import {
+  assertApiServerConfig,
+  loadConfig,
+} from "../src/config.js";
 
 describe("loadConfig", () => {
   it("uses a development bootstrap key in local mode", () => {
@@ -200,6 +203,74 @@ describe("loadConfig", () => {
       objectStorageBucket: "attachments",
       azureStorageAccount: "portableaccount",
     });
+  });
+
+  it("loads an Azure Communication Services transport with isolated Event Grid authentication", () => {
+    const config = loadConfig({
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "azure-communication-services",
+      HAYASEND_REGION: "japaneast",
+      AZURE_COMMUNICATION_EMAIL_ENDPOINT:
+        "https://hayasend.communication.azure.com",
+      AZURE_SUBSCRIPTION_ID: "00000000-0000-4000-8000-000000000000",
+      AZURE_RESOURCE_GROUP: "hayasend-proof",
+      AZURE_COMMUNICATION_SERVICE_NAME: "hayasend-communication",
+      AZURE_EMAIL_SERVICE_NAME: "hayasend-email",
+      AZURE_EMAIL_DOMAIN_RESOURCE_NAME: "example.com",
+      HAYASEND_AZURE_EVENT_GRID_SECRET:
+        "event-grid-secret-with-at-least-32-characters",
+    });
+
+    expect(config).toMatchObject({
+      portableTransport: "azure-communication-services",
+      region: "japaneast",
+      azureCommunicationEmailEndpoint:
+        "https://hayasend.communication.azure.com",
+      azureSubscriptionId: "00000000-0000-4000-8000-000000000000",
+      azureResourceGroup: "hayasend-proof",
+      azureCommunicationServiceName: "hayasend-communication",
+      azureEmailServiceName: "hayasend-email",
+      azureEmailDomainResourceName: "example.com",
+      azureEventGridSecret:
+        "event-grid-secret-with-at-least-32-characters",
+    });
+  });
+
+  it("fails closed on incomplete Azure Communication Services settings", () => {
+    expect(() =>
+      loadConfig({
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend?sslmode=require",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "azure-communication-services",
+      }),
+    ).toThrow("Azure Communication Services transport requires");
+  });
+
+  it("keeps the Event Grid secret on the API process only", () => {
+    const config = loadConfig({
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "azure-communication-services",
+      AZURE_COMMUNICATION_EMAIL_ENDPOINT:
+        "https://hayasend.communication.azure.com",
+      AZURE_SUBSCRIPTION_ID: "00000000-0000-4000-8000-000000000000",
+      AZURE_RESOURCE_GROUP: "hayasend-proof",
+      AZURE_COMMUNICATION_SERVICE_NAME: "hayasend-communication",
+      AZURE_EMAIL_SERVICE_NAME: "hayasend-email",
+      AZURE_EMAIL_DOMAIN_RESOURCE_NAME: "example.com",
+    });
+
+    expect(config.azureEventGridSecret).toBeUndefined();
+    expect(() => assertApiServerConfig(config)).toThrow(
+      "API process requires",
+    );
   });
 
   it("fails closed on incomplete or unsafe object-storage settings", () => {

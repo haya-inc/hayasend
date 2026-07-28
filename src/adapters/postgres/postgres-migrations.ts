@@ -203,10 +203,20 @@ CREATE INDEX jobs_failed
   ON jobs(job_type, failed_at, id)
   WHERE failed_at IS NOT NULL;`;
 
+const providerMessageCorrelationMigrationSql = `DROP INDEX delivery_attempts_provider_message;
+
+CREATE UNIQUE INDEX delivery_attempts_provider_message
+  ON delivery_attempts(provider, provider_message_id)
+  WHERE provider_message_id IS NOT NULL;`;
+
 export const POSTGRES_MIGRATIONS = [
   { version: "0001_delivery", sql: deliveryMigrationSql },
   { version: "0002_application_store", sql: applicationStoreMigrationSql },
   { version: "0003_jobs", sql: jobsMigrationSql },
+  {
+    version: "0004_provider_message_correlation",
+    sql: providerMessageCorrelationMigrationSql,
+  },
 ] as const;
 
 function checksum(sql: string): string {

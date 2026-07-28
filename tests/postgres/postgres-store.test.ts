@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import applicationStoreMigration from "../../migrations/postgres/0002_application_store.sql?raw";
 import deliveryMigration from "../../migrations/postgres/0001_delivery.sql?raw";
 import jobsMigration from "../../migrations/postgres/0003_jobs.sql?raw";
+import providerMessageCorrelationMigration from "../../migrations/postgres/0004_provider_message_correlation.sql?raw";
 import {
   migratePostgres,
   POSTGRES_MIGRATIONS,
@@ -122,6 +123,7 @@ describe("packaged PostgreSQL migrations", () => {
         deliveryMigration.trim(),
         applicationStoreMigration.trim(),
         jobsMigration.trim(),
+        providerMessageCorrelationMigration.trim(),
       ],
     );
   });
@@ -186,6 +188,10 @@ if (!databaseUrl) {
         },
         {
           version: "0003_jobs",
+          checksum_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+        {
+          version: "0004_provider_message_correlation",
           checksum_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         },
       ]);

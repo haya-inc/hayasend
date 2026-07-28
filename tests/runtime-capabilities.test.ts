@@ -51,7 +51,7 @@ describe("runtime and deployment capability contracts", () => {
         atomic_store: { status: "supported" },
         payload_store: { status: "supported" },
         secret_injection: { status: "supported" },
-        provider_event_ingress: { status: "unsupported" },
+        provider_event_ingress: { status: "conditional" },
         backup_restore: { status: "unsupported" },
       },
       lifecycle: {

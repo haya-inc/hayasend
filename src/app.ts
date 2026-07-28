@@ -47,6 +47,7 @@ import { HAYASEND_VERSION } from "./version.js";
 import type { SuppressionService } from "./services/suppression-service.js";
 import type { WebhookService } from "./services/webhook-service.js";
 import type { TemplateService } from "./services/template-service.js";
+import type { TransportEventIngress } from "./ports/transport-event-ingress.js";
 
 interface AppEnv {
   Variables: {
@@ -70,6 +71,16 @@ export interface AppServices {
 export interface AppOptions {
   localPreview?: boolean;
   readiness?: (() => Promise<void>) | undefined;
+  providerEventIngress?:
+    | {
+        secret: string;
+        ingress: TransportEventIngress<
+          unknown,
+          { received_at?: string | undefined },
+          { validation_response?: string | undefined }
+        >;
+      }
+    | undefined;
 }
 
 function hasScope(principal: AuthenticatedPrincipal, scope: ApiScope) {
@@ -187,6 +198,54 @@ async function readBodyWithLimit(request: Request, limit: number) {
   return content;
 }
 
+async function readJsonBodyWithLimit(request: Request, limit: number) {
+  if (!request.body) {
+    throw new ValidationError("Provider event content is required.");
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    length += value.byteLength;
+    if (length > limit) {
+      await reader.cancel();
+      throw new ValidationError(
+        `Provider event content must not exceed ${limit} bytes.`,
+      );
+    }
+    chunks.push(value);
+  }
+  const content = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    content.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(content)) as unknown;
+  } catch {
+    throw new ValidationError("Malformed JSON in provider event body.");
+  }
+}
+
+function matchesSecret(actual: string | undefined, expected: string): boolean {
+  if (!actual) {
+    return false;
+  }
+  const encoder = new TextEncoder();
+  const actualBytes = encoder.encode(actual);
+  const expectedBytes = encoder.encode(expected);
+  let mismatch = actualBytes.byteLength ^ expectedBytes.byteLength;
+  for (let index = 0; index < expectedBytes.byteLength; index += 1) {
+    mismatch |= (actualBytes[index] ?? 0) ^ expectedBytes[index]!;
+  }
+  return mismatch === 0;
+}
+
 function previewSummary(record: EmailRecord) {
   return {
     id: record.id,
@@ -238,10 +297,15 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         context.req.path === "/favicon.ico" ||
         context.req.path === "/preview" ||
         context.req.path.startsWith("/preview/"));
+    const providerEventPath =
+      options.providerEventIngress !== undefined &&
+      context.req.path === "/events/azure-email" &&
+      context.req.method === "POST";
     if (
       context.req.path === "/healthz" ||
       context.req.path === "/readyz" ||
       localPreviewPath ||
+      providerEventPath ||
       (attachmentUploadPath && ["PUT", "OPTIONS"].includes(context.req.method))
     ) {
       await next();
@@ -293,6 +357,32 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       );
     }
   });
+
+  if (options.providerEventIngress) {
+    const providerEventIngress = options.providerEventIngress;
+    app.post("/events/azure-email", async (context) => {
+      if (
+        !matchesSecret(
+          context.req.header("x-hayasend-event-grid-secret"),
+          providerEventIngress.secret,
+        )
+      ) {
+        throw new UnauthorizedError();
+      }
+      const input = await readJsonBodyWithLimit(
+        context.req.raw,
+        1024 * 1024,
+      );
+      const result = await providerEventIngress.ingress.receive(input, {
+        received_at: new Date().toISOString(),
+      });
+      return result.validation_response
+        ? context.json({
+            validationResponse: result.validation_response,
+          })
+        : context.json({ accepted: true });
+    });
+  }
 
   app.get(
     "/diagnostics/recovery",

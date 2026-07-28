@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
+import { ACS_EMAIL_CAPABILITIES } from "../src/adapters/azure/acs-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import {
@@ -137,6 +138,31 @@ describe("provider capability contract", () => {
       status: "passed",
       evidence_url:
         "https://github.com/haya-inc/hayasend/actions/runs/30350436333",
+    });
+  });
+
+  it("publishes fail-closed ACS limits and recipient-event boundaries", () => {
+    expect(ACS_EMAIL_CAPABILITIES).toMatchObject({
+      provider: "azure-communication-services",
+      service_maturity: "experimental",
+      limits: {
+        max_serialized_request_bytes: 10_000_000,
+        max_combined_recipients: 50,
+        max_decoded_attachment_bytes: 7_500_000,
+      },
+      features: {
+        provider_message_id: { status: "supported" },
+        provider_event_id: { status: "supported" },
+        provider_idempotency: { status: "unsupported" },
+        domain_verification: { status: "conditional" },
+      },
+      events: {
+        delivered: { status: "supported" },
+        bounced: { status: "supported" },
+        complained: { status: "unsupported" },
+        opened: { status: "conditional" },
+        clicked: { status: "conditional" },
+      },
     });
   });
 

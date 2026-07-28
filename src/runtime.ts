@@ -1,4 +1,7 @@
 import type { Pool } from "pg";
+import { CommunicationServiceManagementClient } from "@azure/arm-communication";
+import { EmailClient } from "@azure/communication-email";
+import { DefaultAzureCredential } from "@azure/identity";
 import type { AppServices } from "./app.js";
 import {
   DisabledAttachmentStorage,
@@ -16,6 +19,16 @@ import {
   QueueEmailScheduler,
 } from "./adapters/email-scheduler.js";
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
+import { ACS_EMAIL_CAPABILITIES } from "./adapters/azure/acs-email-capabilities.js";
+import { AcsDomainProvider } from "./adapters/azure/acs-domain-provider.js";
+import {
+  AcsEmailEventGridIngress,
+  type AcsEmailEventIngressResult,
+} from "./adapters/azure/acs-email-events.js";
+import {
+  AcsEmailTransport,
+  assertAcsEmailRecordPreflight,
+} from "./adapters/azure/acs-email-transport.js";
 import { MemoryStore } from "./adapters/memory-store.js";
 import { PostgresJobQueue } from "./adapters/postgres/postgres-job-queue.js";
 import {
@@ -41,6 +54,7 @@ import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
 import type { AttachmentStorage } from "./ports/attachment-storage.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
+import type { TransportEventIngress } from "./ports/transport-event-ingress.js";
 import { HAYASEND_VERSION } from "./version.js";
 import {
   ApiKeyService,
@@ -65,6 +79,11 @@ export interface Runtime extends AppServices {
   getOutboxMetrics(now?: Date): Promise<OutboxMetrics>;
   checkReadiness(): Promise<void>;
   close(): Promise<void>;
+  transportEventIngress?: TransportEventIngress<
+    unknown,
+    { received_at?: string | undefined },
+    AcsEmailEventIngressResult
+  >;
 }
 
 export interface PortableRuntime extends Runtime {
@@ -353,32 +372,90 @@ export function createPortableRuntime(
     limit: config.templateHistoryLimit,
   });
   const usesSes = config.portableTransport === "aws-ses";
+  const usesAcs =
+    config.portableTransport === "azure-communication-services";
+  if (
+    usesAcs &&
+    (!config.azureCommunicationEmailEndpoint ||
+      !config.azureSubscriptionId ||
+      !config.azureResourceGroup ||
+      !config.azureCommunicationServiceName ||
+      !config.azureEmailServiceName ||
+      !config.azureEmailDomainResourceName)
+  ) {
+    throw new Error(
+      "Azure Communication Services runtime settings are incomplete.",
+    );
+  }
+  const azureCredential = usesAcs
+    ? new DefaultAzureCredential()
+    : undefined;
   const provider = usesSes
     ? {
         name: AWS_SES_CAPABILITIES.provider,
         adapter_version: AWS_SES_CAPABILITIES.adapter_version,
         capability_version: AWS_SES_CAPABILITIES.schema_version,
       }
-    : {
-        name: "portable-console",
-        adapter_version: HAYASEND_VERSION,
-        capability_version: "1.0.0",
-      };
+    : usesAcs
+      ? {
+          name: ACS_EMAIL_CAPABILITIES.provider,
+          adapter_version: ACS_EMAIL_CAPABILITIES.adapter_version,
+          capability_version: ACS_EMAIL_CAPABILITIES.schema_version,
+        }
+      : {
+          name: "portable-console",
+          adapter_version: HAYASEND_VERSION,
+          capability_version: "1.0.0",
+        };
+  const mailTransport = usesSes
+    ? new SesMailTransport(config.configurationSet)
+    : usesAcs
+      ? new AcsEmailTransport(
+          new EmailClient(
+            config.azureCommunicationEmailEndpoint!,
+            azureCredential!,
+          ),
+        )
+      : new ConsoleMailTransport();
   const emailService = new EmailService(
     store,
     scheduler,
-    usesSes
-      ? new SesMailTransport(config.configurationSet)
-      : new ConsoleMailTransport(),
+    mailTransport,
     webhooks,
     suppressions,
     attachmentService,
     templateService,
-    { provider },
+    {
+      provider,
+      ...(usesAcs
+        ? {
+            pre_commit_validator: (record) => {
+              assertAcsEmailRecordPreflight(record);
+            },
+          }
+        : {}),
+    },
   );
+  const domainProvider = usesSes
+    ? new SesDomainProvider()
+    : usesAcs
+      ? new AcsDomainProvider(
+          {
+            resource_group: config.azureResourceGroup!,
+            email_service_name: config.azureEmailServiceName!,
+            communication_service_name:
+              config.azureCommunicationServiceName!,
+            domain_resource_name: config.azureEmailDomainResourceName!,
+          },
+          new CommunicationServiceManagementClient(
+            azureCredential!,
+            config.azureSubscriptionId!,
+          ),
+        )
+      : new LocalDomainProvider();
   const domainService = new DomainService(
     store,
-    usesSes ? new SesDomainProvider() : new LocalDomainProvider(),
+    domainProvider,
     config.region,
   );
   const providerEvidence = usesSes
@@ -389,18 +466,26 @@ export function createPortableRuntime(
         checked_at: AWS_SES_CAPABILITIES.checked_at,
         document: AWS_SES_CAPABILITIES,
       }
-    : {
-        provider: "portable-console",
-        adapter_version: HAYASEND_VERSION,
-        capability_version: "1.0.0",
-        checked_at: null,
-        document: {
+    : usesAcs
+      ? {
+          provider: ACS_EMAIL_CAPABILITIES.provider,
+          adapter_version: ACS_EMAIL_CAPABILITIES.adapter_version,
+          capability_version: ACS_EMAIL_CAPABILITIES.schema_version,
+          checked_at: ACS_EMAIL_CAPABILITIES.checked_at,
+          document: ACS_EMAIL_CAPABILITIES,
+        }
+      : {
           provider: "portable-console",
           adapter_version: HAYASEND_VERSION,
           capability_version: "1.0.0",
-          development_only: true,
-        },
-      };
+          checked_at: null,
+          document: {
+            provider: "portable-console",
+            adapter_version: HAYASEND_VERSION,
+            capability_version: "1.0.0",
+            development_only: true,
+          },
+        };
   const recoveryDiagnosticsService = new RecoveryDiagnosticsService(
     store,
     queue,
@@ -409,6 +494,28 @@ export function createPortableRuntime(
   const outbox = new OutboxReconciler(store, queue, {
     owner: createId("dispatcher"),
   });
+  const transportEventIngress = usesAcs
+    ? new AcsEmailEventGridIngress(
+        {
+          resolver: {
+            findMessageIdByProviderMessageId: (providerMessageId) =>
+              store.findMessageIdByProviderMessageId(
+                ACS_EMAIL_CAPABILITIES.provider,
+                providerMessageId,
+              ),
+          },
+          emailService,
+          suppressionService: suppressions,
+        },
+        {
+          expected_topic:
+            `/subscriptions/${config.azureSubscriptionId!}` +
+            `/resourceGroups/${config.azureResourceGroup!}` +
+            "/providers/Microsoft.Communication/communicationServices/" +
+            config.azureCommunicationServiceName!,
+        },
+      )
+    : undefined;
 
   return {
     apiKeyService: apiKeys,
@@ -421,6 +528,7 @@ export function createPortableRuntime(
     suppressionService: suppressions,
     webhookService: webhooks,
     jobQueue: queue,
+    ...(transportEventIngress ? { transportEventIngress } : {}),
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
     checkReadiness: async () => {

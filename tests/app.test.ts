@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/app.js";
+import { createApp, type AppOptions } from "../src/app.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { MemoryInboundStorage } from "../src/adapters/inbound-storage.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
@@ -31,7 +31,7 @@ class RecordingTransport implements MailTransport {
   }
 }
 
-function fixture() {
+function fixture(options: AppOptions = {}) {
   const store = new MemoryStore();
   const queue = new CapturingJobQueue();
   const webhooks = new WebhookService(store, queue, {
@@ -87,17 +87,20 @@ function fixture() {
       },
     },
   );
-  const app = createApp({
-    apiKeyService: apiKeys,
-    attachmentService: attachments,
-    domainService: domains,
-    emailService: emails,
-    receivedEmailService,
-    recoveryDiagnosticsService: recoveryDiagnostics,
-    suppressionService: suppressions,
-    templateService: templates,
-    webhookService: webhooks,
-  });
+  const app = createApp(
+    {
+      apiKeyService: apiKeys,
+      attachmentService: attachments,
+      domainService: domains,
+      emailService: emails,
+      receivedEmailService,
+      recoveryDiagnosticsService: recoveryDiagnostics,
+      suppressionService: suppressions,
+      templateService: templates,
+      webhookService: webhooks,
+    },
+    options,
+  );
   const request = (
     path: string,
     init: RequestInit = {},
@@ -170,6 +173,55 @@ describe("HTTP API", () => {
 
     const unauthorized = await request("/emails", {}, "wrong");
     expect(unauthorized.status).toBe(401);
+  });
+
+  it("protects Azure Event Grid ingress with an independent secret and returns validation", async () => {
+    const receive = vi.fn(async () => ({
+      validation_response: "validation-code",
+    }));
+    const { app } = fixture({
+      providerEventIngress: {
+        secret: "event-grid-secret-that-is-independent",
+        ingress: { receive },
+      },
+    });
+    const body = JSON.stringify([{ eventType: "validation" }]);
+    const unauthorized = await app.request("/events/azure-email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(unauthorized.status).toBe(401);
+    const wrong = await app.request("/events/azure-email", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hayasend-event-grid-secret": "wrong",
+      },
+      body,
+    });
+    expect(wrong.status).toBe(401);
+    const accepted = await app.request("/events/azure-email", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hayasend-event-grid-secret":
+          "event-grid-secret-that-is-independent",
+      },
+      body,
+    });
+    expect(accepted.status).toBe(200);
+    await expect(accepted.json()).resolves.toEqual({
+      validationResponse: "validation-code",
+    });
+    expect(receive).toHaveBeenCalledWith(
+      [{ eventType: "validation" }],
+      {
+        received_at: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ),
+      },
+    );
   });
 
   it("reports readiness failures without exposing private diagnostics", async () => {

@@ -2,8 +2,8 @@
 
 The portable runtime is the shared container foundation for Cloud Run, Azure
 Container Apps, Render, Railway, and Fly.io. It is executable, but is not yet
-a supported Beta deployment: provider event ingress, backup/restore evidence,
-and each platform deployment proof remain open.
+a supported Beta deployment: hosted provider-event, backup/restore, and
+platform lifecycle proofs remain open.
 
 ## Process model
 
@@ -33,12 +33,42 @@ Set these on the migration, API, and worker processes:
 | `HAYASEND_MODE=portable` | Selects the portable PostgreSQL runtime |
 | `HAYASEND_DATABASE_URL` | `postgresql://` connection URL; configure TLS according to the managed database |
 | `HAYASEND_API_KEY` | Secret-injected bootstrap key, 16–512 characters and beginning with `re_` |
-| `HAYASEND_TRANSPORT` | `aws-ses` for real SES submission or `console` for development only |
+| `HAYASEND_TRANSPORT` | `aws-ses` or `azure-communication-services` for real submission; `console` for development only |
 | `AWS_REGION` | SES Region when `HAYASEND_TRANSPORT=aws-ses` |
 
 `aws-ses` also needs AWS credentials supplied through the AWS SDK credential
 chain and optional `HAYASEND_CONFIGURATION_SET`. Cross-cloud identity and
 terminal SES event ingress are not yet certified.
+
+The experimental ACS Email adapter uses `DefaultAzureCredential` for both
+submission and read-only resource inspection. Set the applicable values when
+`HAYASEND_TRANSPORT=azure-communication-services`:
+
+| Variable | Meaning |
+| --- | --- |
+| `AZURE_COMMUNICATION_EMAIL_ENDPOINT` | HTTPS endpoint of the linked Communication Services resource |
+| `AZURE_SUBSCRIPTION_ID` | Subscription containing the communication resources |
+| `AZURE_RESOURCE_GROUP` | Resource group containing both resources |
+| `AZURE_COMMUNICATION_SERVICE_NAME` | Communication Services resource receiving the linked domain |
+| `AZURE_EMAIL_SERVICE_NAME` | Email Communication Services resource that owns the domain |
+| `AZURE_EMAIL_DOMAIN_RESOURCE_NAME` | Existing Azure domain resource name, such as `AzureManagedDomain` or the custom domain |
+| `HAYASEND_AZURE_EVENT_GRID_SECRET` | API process only: independent 32–512 character secret configured as the `x-hayasend-event-grid-secret` Event Grid delivery header |
+| `HAYASEND_REGION` or `AZURE_LOCATION` | Public region metadata recorded for HayaSend domains |
+
+`HAYASEND_AZURE_EVENT_GRID_SECRET_FILE` is also supported. Do not reuse the
+HayaSend API key or expose this secret to migration and worker processes.
+Configure Event Grid to deliver ACS Email events to
+`POST /events/azure-email` with that custom header. HayaSend verifies the
+secret and the exact configured Communication Services resource ID in every
+event `topic`, validates the subscription handshake, limits the JSON body to
+1 MiB, and applies recipient delivery reports through the provider-neutral
+ledger. Correlation races return a retryable response so Event Grid can
+redeliver after the accepted attempt is durable.
+
+The Resend-shaped domain API is deliberately read-only for Azure: it checks
+that the requested sender domain is verified and linked, and reports its
+SPF/DKIM records. It never creates, changes, or deletes operator-owned Azure
+resources or DNS.
 
 `HAYASEND_DATABASE_URL_FILE` and `HAYASEND_API_KEY_FILE` are mutually
 exclusive alternatives to their unsuffixed variables. They must point to an
@@ -95,7 +125,7 @@ disabled and only the documented upload headers are forwarded.
 
 The API binds to `0.0.0.0:$HAYASEND_PORT` in portable mode. `/healthz` is a
 process liveness check. `/readyz` verifies that PostgreSQL is reachable, all
-three packaged migrations are present, and the selected object-storage
+four packaged migrations are present, and the selected object-storage
 bucket/container is accessible.
 
 ## Start order
@@ -159,6 +189,12 @@ do not log the URL because it may contain credentials.
   real delivery.
 - `aws-ses` can submit mail, but portable terminal event ingestion and
   cross-cloud credential evidence are not complete.
+- `azure-communication-services` implements submission, strict 50-recipient
+  and 10 MB preflight, exact-recipient Event Grid delivery reports, engagement
+  retention, suppression convergence, and linked-domain inspection. It
+  remains experimental until exact hosted terminal-delivery, controlled
+  receipt, quota, lifecycle, rollback, backup/restore, and cleanup evidence
+  pass.
 - No Cloud Run, Azure Container Apps, Render, Railway, or Fly.io deployment is
   claimed supported until its pinned deployment pack and lifecycle,
   backup/restore, terminal-delivery, and cleanup evidence pass. The
@@ -191,4 +227,8 @@ Checked on 2026-07-29:
 - [Fly.io Tigris object storage](https://fly.io/docs/tigris/)
 - [Azure Blob user delegation SAS](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript)
 - [Authorize access with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory)
+- [Azure Communication Services Email JavaScript SDK](https://learn.microsoft.com/en-us/javascript/api/@azure/communication-email/)
+- [Azure Communication Services limits](https://learn.microsoft.com/en-us/azure/communication-services/concepts/service-limits)
+- [Azure Communication Services Email events](https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events)
+- [Azure Communication Services custom verified domains](https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/email/add-custom-verified-domains)
 - [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)
