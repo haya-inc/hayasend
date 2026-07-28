@@ -9,6 +9,7 @@ import type {
   ProviderEventRecord,
 } from "../core/delivery-model.js";
 import { emitCountMetric } from "../core/metrics.js";
+import type { TransportEventIngress } from "../ports/transport-event-ingress.js";
 import {
   createAwsRuntime,
   type Runtime,
@@ -86,6 +87,19 @@ type SesEventServices = {
 interface SesEventContext {
   providerEventId?: string | undefined;
   receivedAt?: string | undefined;
+}
+
+export class SesEventIngress
+  implements TransportEventIngress<SesEvent, SesEventContext>
+{
+  constructor(private readonly services: SesEventServices) {}
+
+  async receive(
+    event: SesEvent,
+    context: SesEventContext = {},
+  ): Promise<void> {
+    await processSesEvent(event, this.services, context);
+  }
 }
 
 function getRuntime() {
@@ -236,10 +250,10 @@ export async function processSesRecords(
   event: SNSEvent,
   services: SesEventServices,
 ): Promise<void> {
+  const ingress = new SesEventIngress(services);
   for (const record of event.Records) {
-    await processSesEvent(
+    await ingress.receive(
       JSON.parse(record.Sns.Message) as SesEvent,
-      services,
       {
         providerEventId: record.Sns.MessageId,
         receivedAt: record.Sns.Timestamp,

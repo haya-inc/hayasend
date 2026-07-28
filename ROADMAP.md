@@ -73,6 +73,9 @@ overstating support.
 
 - [x] versioned runtime-capability and combined-deployment schemas
 - [x] initial AWS and Cloudflare runtime/deployment truth documents
+- [x] explicit transport domain and provider-event ingress ports
+- [x] scheduler-loss, long-delay, and backup/restore conformance gates
+- [x] generated deployment support/readiness matrix
 - [ ] `portable-postgres` API/worker reference runtime
 - [ ] Cloud Run and generic container-PaaS deployment packs
 - [ ] Azure Communication Services Email adapter and Event Grid ingestion

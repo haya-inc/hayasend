@@ -12,7 +12,9 @@ import {
 } from "../src/core/provider-capabilities.js";
 import { deliveryRecordSchema } from "../src/core/delivery-model.js";
 import {
+  buildReadinessMatrix,
   deploymentCapabilityDocumentSchema,
+  readinessMatrixSchema,
   runtimeCapabilityDocumentSchema,
 } from "../src/core/runtime-capabilities.js";
 import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
@@ -32,6 +34,11 @@ function jsonSchema(schema: z.ZodType, id: string) {
   };
 }
 
+const READINESS_MATRIX = buildReadinessMatrix([
+  AWS_SES_DEPLOYMENT_CAPABILITIES,
+  CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
+]);
+
 export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "conformance/cases.v1.json": conformanceCaseCatalogSchema.parse({
     schema_version: "1.0.0",
@@ -47,6 +54,7 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     AWS_SES_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloudflare-email.v1.json":
     CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
+  "conformance/readiness.v1.json": READINESS_MATRIX,
   "conformance/reports/cloudflare-email.local.v1.json":
     CLOUDFLARE_EMAIL_CONFORMANCE_REPORT,
   "schemas/conformance-cases.v1.schema.json": jsonSchema(
@@ -72,5 +80,9 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "schemas/deployment-capabilities.v1.schema.json": jsonSchema(
     deploymentCapabilityDocumentSchema,
     "https://hayasend.dev/schemas/deployment-capabilities.v1.schema.json",
+  ),
+  "schemas/readiness-matrix.v1.schema.json": jsonSchema(
+    readinessMatrixSchema,
+    "https://hayasend.dev/schemas/readiness-matrix.v1.schema.json",
   ),
 };

@@ -92,10 +92,11 @@ The machine-readable
 [`cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
 keeps the provider maturity at Beta. The local
 [`conformance report`](../conformance/reports/cloudflare-email.local.v1.json)
-passes the required shared cases using the exact-main hosted deploy/rollback
-evidence from issue #104 and records the three capability differences as
-unsupported. The combined deployment remains non-production until issue #122
-proves terminal event convergence and controlled mailbox receipt.
+uses the exact-main hosted deploy/rollback evidence from issue #104, records
+the three capability differences as unsupported, and fails the new required
+backup/restore case until an isolated D1 and R2 restore drill is published.
+The combined deployment remains non-production until that evidence and issue
+#122's terminal event convergence and controlled mailbox receipt are complete.
 
 ## Privacy boundary
 

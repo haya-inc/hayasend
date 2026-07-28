@@ -1,7 +1,10 @@
 import { env } from "cloudflare:workers";
 import {
   applyD1Migrations,
+  createExecutionContext,
   createMessageBatch,
+  createScheduledController,
+  waitOnExecutionContext,
 } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CloudflareJobEnvelope } from "../../src/adapters/cloudflare/queues-job-queue.js";
@@ -11,10 +14,23 @@ import worker, {
 } from "../../src/workers/index.js";
 
 class CapturingQueue {
-  readonly messages: CloudflareJobEnvelope[] = [];
+  readonly messages: Array<{
+    body: CloudflareJobEnvelope;
+    options?: QueueSendOptions | undefined;
+  }> = [];
+  failure: Error | undefined;
 
-  async send(body: CloudflareJobEnvelope): Promise<void> {
-    this.messages.push(structuredClone(body));
+  async send(
+    body: CloudflareJobEnvelope,
+    options?: QueueSendOptions,
+  ): Promise<void> {
+    if (this.failure) {
+      throw this.failure;
+    }
+    this.messages.push({
+      body: structuredClone(body),
+      ...(options ? { options: structuredClone(options) } : {}),
+    });
   }
 }
 
@@ -74,7 +90,7 @@ describe("deployed Cloudflare Worker API boundary", () => {
     const body = (await created.json()) as { id: string };
     expect(body.id).toMatch(/^email_[a-f0-9]{32}$/);
     expect(queue.messages).toHaveLength(1);
-    expect(queue.messages[0]?.job).toMatchObject({
+    expect(queue.messages[0]?.body.job).toMatchObject({
       type: "reconcile_outbox",
     });
 
@@ -84,12 +100,12 @@ describe("deployed Cloudflare Worker API boundary", () => {
           id: "reconcile-delivery",
           timestamp: new Date(),
           attempts: 1,
-          body: queue.messages[0]!,
+          body: queue.messages[0]!.body,
         },
       ]),
       boundEnv,
     );
-    expect(queue.messages[1]?.job).toMatchObject({
+    expect(queue.messages[1]?.body.job).toMatchObject({
       type: "send_email",
       email_id: body.id,
     });
@@ -100,7 +116,7 @@ describe("deployed Cloudflare Worker API boundary", () => {
           id: "send-delivery",
           timestamp: new Date(),
           attempts: 1,
-          body: queue.messages[1]!,
+          body: queue.messages[1]!.body,
         },
       ]),
       boundEnv,
@@ -203,12 +219,12 @@ describe("deployed Cloudflare Worker API boundary", () => {
           id: "reconcile-delivery",
           timestamp: new Date(),
           attempts: 1,
-          body: queue.messages[0]!,
+          body: queue.messages[0]!.body,
         },
       ]),
       boundEnv,
     );
-    const sendJob = queue.messages[1]!;
+    const sendJob = queue.messages[1]!.body;
 
     for (let delivery = 0; delivery < 3; delivery += 1) {
       await worker.queue(
@@ -243,5 +259,123 @@ describe("deployed Cloudflare Worker API boundary", () => {
     expect(JSON.stringify(body)).not.toContain(
       "private provider detail",
     );
+  });
+
+  it("recovers a lost scheduler wake-up from the durable D1 outbox", async () => {
+    const failedQueue = new CapturingQueue();
+    failedQueue.failure = new Error("injected scheduler wake-up loss");
+    const created = await worker.fetch(
+      new Request("https://worker.invalid/emails", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer re_cloudflare_worker_test",
+          "content-type": "application/json",
+          "idempotency-key": "worker-wakeup-loss",
+        },
+        body: JSON.stringify({
+          from: "sender@example.com",
+          to: "recipient@example.net",
+          subject: "Durable wake-up recovery",
+          text: "hello",
+        }),
+      }),
+      runtimeEnv(failedQueue),
+    );
+    expect(created.status).toBe(200);
+    const { id } = (await created.json()) as { id: string };
+    expect(failedQueue.messages).toEqual([]);
+
+    const recoveredQueue = new CapturingQueue();
+    const context = createExecutionContext();
+    await worker.scheduled!(
+      createScheduledController({
+        scheduledTime: Date.now(),
+        cron: "*/5 * * * *",
+      }),
+      runtimeEnv(recoveredQueue, {
+        HAYASEND_DEPLOYMENT_ID: "cloudflare-worker-redeployed",
+      }),
+      context,
+    );
+    await waitOnExecutionContext(context);
+
+    expect(recoveredQueue.messages).toHaveLength(1);
+    expect(recoveredQueue.messages[0]?.body.job).toMatchObject({
+      type: "send_email",
+      email_id: id,
+      job_id: expect.stringMatching(
+        /^outbox:v1:email_[^:]+:dispatch-message:0$/,
+      ),
+    });
+  });
+
+  it("recovers a 30-day schedule after redeploy beyond the native queue delay", async () => {
+    const initialQueue = new CapturingQueue();
+    const scheduledAt = new Date(
+      Date.now() + 30 * 86_400_000 - 60_000,
+    ).toISOString();
+    const created = await worker.fetch(
+      new Request("https://worker.invalid/emails", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer re_cloudflare_worker_test",
+          "content-type": "application/json",
+          "idempotency-key": "worker-long-delay",
+        },
+        body: JSON.stringify({
+          from: "sender@example.com",
+          to: "recipient@example.net",
+          subject: "Durable long schedule",
+          text: "hello",
+          scheduled_at: scheduledAt,
+        }),
+      }),
+      runtimeEnv(initialQueue),
+    );
+    expect(created.status).toBe(200);
+    const { id } = (await created.json()) as { id: string };
+    expect(initialQueue.messages).toHaveLength(1);
+    expect(initialQueue.messages[0]).toMatchObject({
+      body: { job: { type: "reconcile_outbox" } },
+      options: { delaySeconds: 900 },
+    });
+
+    const row = await env.TEST_DB.prepare(
+      "SELECT id, entity FROM outbox_items WHERE message_id = ?",
+    )
+      .bind(id)
+      .first<{ id: string; entity: string }>();
+    expect(row).toBeTruthy();
+    const dueAt = new Date(Date.now() - 1).toISOString();
+    const updatedAt = new Date().toISOString();
+    const entity = JSON.parse(row!.entity) as Record<string, unknown>;
+    entity.due_at = dueAt;
+    entity.updated_at = updatedAt;
+    await env.TEST_DB.prepare(
+      "UPDATE outbox_items SET due_at = ?, entity = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(dueAt, JSON.stringify(entity), updatedAt, row!.id)
+      .run();
+
+    const recoveredQueue = new CapturingQueue();
+    const context = createExecutionContext();
+    await worker.scheduled!(
+      createScheduledController({
+        scheduledTime: Date.now(),
+        cron: "*/5 * * * *",
+      }),
+      runtimeEnv(recoveredQueue, {
+        HAYASEND_DEPLOYMENT_ID: "cloudflare-worker-long-delay-redeploy",
+      }),
+      context,
+    );
+    await waitOnExecutionContext(context);
+
+    expect(recoveredQueue.messages).toHaveLength(1);
+    expect(recoveredQueue.messages[0]?.body.job).toMatchObject({
+      type: "send_email",
+      email_id: id,
+      job_id: row!.id,
+    });
   });
 });

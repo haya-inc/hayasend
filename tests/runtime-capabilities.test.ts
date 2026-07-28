@@ -4,6 +4,8 @@ import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import {
+  buildReadinessMatrix,
+  readinessMatrixSchema,
   runtimeCapabilityDocumentSchema,
   validateDeploymentCapabilityDocument,
 } from "../src/core/runtime-capabilities.js";
@@ -67,6 +69,54 @@ describe("runtime and deployment capability contracts", () => {
         controlled_receipt: { status: "pending" },
       },
     });
+  });
+
+  it("generates a sorted readiness matrix with evidence blockers", () => {
+    const matrix = buildReadinessMatrix([
+      CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
+      AWS_SES_DEPLOYMENT_CAPABILITIES,
+    ]);
+
+    expect(readinessMatrixSchema.parse(matrix)).toMatchObject({
+      schema_version: "1.0.0",
+      deployments: [
+        {
+          deployment: "aws-ses",
+          production_ready: false,
+          blockers: [
+            "conformance",
+            "terminal_delivery",
+            "controlled_receipt",
+          ],
+        },
+        {
+          deployment: "cloudflare-email",
+          production_ready: false,
+          blockers: [
+            "conformance",
+            "terminal_delivery",
+            "controlled_receipt",
+          ],
+        },
+      ],
+    });
+  });
+
+  it("rejects readiness blockers that drift from their evidence gates", () => {
+    const matrix = buildReadinessMatrix([
+      AWS_SES_DEPLOYMENT_CAPABILITIES,
+    ]);
+    expect(() =>
+      readinessMatrixSchema.parse({
+        ...matrix,
+        deployments: matrix.deployments.map((deployment) => ({
+          ...deployment,
+          blockers: [],
+        })),
+      }),
+    ).toThrow(
+      "readiness blockers must exactly match non-passed evidence gates",
+    );
   });
 
   it("rejects component identity, maturity, and limit drift", () => {
