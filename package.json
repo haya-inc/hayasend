@@ -70,6 +70,7 @@
     "site:verify": "node scripts/verify-site.mjs",
     "start": "node dist/server.js",
     "test": "vitest run",
+    "test:postgres": "vitest run tests/postgres/postgres-delivery-store.test.ts --pool=threads --maxWorkers=1",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest"
   },
@@ -89,6 +90,7 @@
     "esbuild": "0.28.1",
     "hono": "4.12.32",
     "html-to-text": "10.0.0",
+    "pg": "8.22.0",
     "postal-mime": "2.7.5",
     "zod": "4.4.3"
   },
@@ -99,6 +101,7 @@
     "@types/aws-lambda": "8.10.162",
     "@types/html-to-text": "9.0.4",
     "@types/node": "26.1.2",
+    "@types/pg": "8.20.0",
     "@types/react": "19.2.17",
     "react": "19.2.8",
     "react-dom": "19.2.8",
