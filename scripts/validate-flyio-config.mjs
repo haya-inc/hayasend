@@ -12,7 +12,7 @@ const platformDigestUrl = new URL(
 const source = await readFile(configUrl, "utf8");
 const platformDigest = (await readFile(platformDigestUrl, "utf8")).trim();
 const expectedImage =
-  "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519";
+  "ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979";
 
 assert.match(
   source,
@@ -22,7 +22,7 @@ assert.match(
 );
 assert.equal(
   platformDigest,
-  "sha256:4731fbc644c55088399f6a8c11105d9c3b300acb2b3beda71b581289327f2a4b",
+  "sha256:79a2e9221ad8e395490cf342be9247f5c92013cd5657cdb1dbe7910392567ec6",
 );
 assert.match(
   source,

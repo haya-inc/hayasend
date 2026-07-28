@@ -12,7 +12,7 @@ const railwayFile = fileURLToPath(
   ),
 );
 const expectedImage =
-  "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519";
+  "ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979";
 process.env.HAYASEND_API_KEY ??=
   "re_RAILWAY_STATIC_VALIDATION_DO_NOT_USE";
 process.env.HAYASEND_TRANSPORT = "console";
