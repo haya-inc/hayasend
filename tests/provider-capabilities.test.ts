@@ -105,8 +105,8 @@ describe("provider capability contract", () => {
     });
     expect(CLOUDFLARE_EMAIL_CONFORMANCE_REPORT).toMatchObject({
       provider: "cloudflare-email",
-      status: "passed",
-      summary: { failed: 0, unsupported: 3 },
+      status: "failed",
+      summary: { failed: 1, unsupported: 3 },
     });
     expect(
       CLOUDFLARE_EMAIL_CONFORMANCE_REPORT.results.find(
@@ -115,6 +115,27 @@ describe("provider capability contract", () => {
     ).toMatchObject({
       status: "passed",
       evidence_url: "https://github.com/haya-inc/hayasend/issues/104",
+    });
+    for (const caseId of [
+      "scheduler-wakeup-loss",
+      "long-delay-recovery",
+    ]) {
+      expect(
+        CLOUDFLARE_EMAIL_CONFORMANCE_REPORT.results.find(
+          (result) => result.case_id === caseId,
+        ),
+      ).toMatchObject({
+        status: "passed",
+        evidence_url: "https://github.com/haya-inc/hayasend/issues/132",
+      });
+    }
+    expect(
+      CLOUDFLARE_EMAIL_CONFORMANCE_REPORT.results.find(
+        (result) => result.case_id === "backup-restore",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      reason: expect.stringContaining("D1 and R2"),
     });
   });
 

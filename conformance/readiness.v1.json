@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "deployments": [
+    {
+      "deployment": "aws-ses",
+      "checked_at": "2026-07-28",
+      "runtime": "aws-native",
+      "transport": "aws-ses",
+      "maturity": "beta",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "passed",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "passed"
+      },
+      "blockers": [
+        "conformance",
+        "terminal_delivery",
+        "controlled_receipt"
+      ]
+    },
+    {
+      "deployment": "cloudflare-email",
+      "checked_at": "2026-07-28",
+      "runtime": "cloudflare-native",
+      "transport": "cloudflare-email",
+      "maturity": "beta",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "passed",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "passed"
+      },
+      "blockers": [
+        "conformance",
+        "terminal_delivery",
+        "controlled_receipt"
+      ]
+    }
+  ]
+}

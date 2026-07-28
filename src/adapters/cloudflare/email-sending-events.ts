@@ -9,6 +9,7 @@ import type {
   ProviderEventRecord,
 } from "../../core/delivery-model.js";
 import type { WebhookEventType } from "../../core/types.js";
+import type { TransportEventIngress } from "../../ports/transport-event-ingress.js";
 import type { EmailService } from "../../services/email-service.js";
 import type { SuppressionService } from "../../services/suppression-service.js";
 
@@ -97,6 +98,27 @@ export interface CloudflareEmailEventConsumerOptions {
         disposition: "ack" | "retry";
       }) => void | Promise<void>)
     | undefined;
+}
+
+export interface CloudflareEmailEventContext {
+  received_at?: string | undefined;
+}
+
+export class CloudflareEmailEventIngress
+  implements TransportEventIngress<unknown, CloudflareEmailEventContext>
+{
+  constructor(private readonly services: CloudflareEmailEventServices) {}
+
+  async receive(
+    event: unknown,
+    context: CloudflareEmailEventContext = {},
+  ): Promise<void> {
+    await processCloudflareEmailSendingEvent(
+      event,
+      this.services,
+      context.received_at,
+    );
+  }
 }
 
 const EVENT_NORMALIZATION = {
@@ -200,6 +222,7 @@ export async function consumeCloudflareEmailEventBatch(
   services: CloudflareEmailEventServices,
   options: CloudflareEmailEventConsumerOptions = {},
 ): Promise<void> {
+  const ingress = new CloudflareEmailEventIngress(services);
   const retryDelay = options.retry_delay_seconds ?? 30;
   if (
     !Number.isSafeInteger(retryDelay) ||
@@ -212,10 +235,9 @@ export async function consumeCloudflareEmailEventBatch(
   }
   for (const message of batch.messages) {
     try {
-      await processCloudflareEmailSendingEvent(
+      await ingress.receive(
         message.body,
-        services,
-        message.timestamp.toISOString(),
+        { received_at: message.timestamp.toISOString() },
       );
       message.ack();
     } catch (error) {

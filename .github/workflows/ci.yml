@@ -287,6 +287,10 @@ jobs:
               index("schemas/deployment-capabilities.v1.schema.json") != null) and
             ([.files[].path] |
               index("conformance/deployments/aws-ses.v1.json") != null) and
+            ([.files[].path] |
+              index("conformance/readiness.v1.json") != null) and
+            ([.files[].path] |
+              index("schemas/readiness-matrix.v1.schema.json") != null) and
             ([.files[].path] | index("template.yaml") != null) and
             ([.files[].path] |
               index("dist/stale-cross-branch-artifact.txt") == null)
@@ -328,6 +332,9 @@ jobs:
             "$package_root/schemas/deployment-capabilities.v1.schema.json"
           test -f \
             "$package_root/conformance/deployments/aws-ses.v1.json"
+          test -f "$package_root/conformance/readiness.v1.json"
+          test -f \
+            "$package_root/schemas/readiness-matrix.v1.schema.json"
           test -x "$consumer/node_modules/.bin/esbuild"
           npm_root="$(npm root --global)"
           npm_compat="$RUNNER_TEMP/npm-sam-compat"

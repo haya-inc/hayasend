@@ -30,6 +30,20 @@
       "required": true
     },
     {
+      "case_id": "scheduler-wakeup-loss",
+      "boundary": "Schedule wake-up",
+      "injected_condition": "The queue delay or platform scheduler loses an accepted wake-up",
+      "required_outcome": "The durable due time remains authoritative and reconciliation republishes the deterministic job without a client replay.",
+      "required": true
+    },
+    {
+      "case_id": "long-delay-recovery",
+      "boundary": "Long schedule",
+      "injected_condition": "A scheduled send exceeds the queue retention or native delay limit and the runtime is redeployed before it becomes due",
+      "required_outcome": "The schedule survives in the durable store and is materialized into executable work within the documented recovery bound.",
+      "required": true
+    },
+    {
       "case_id": "send-lease-concurrency",
       "boundary": "Send lease",
       "injected_condition": "Concurrent or expired consumers",
@@ -97,6 +111,13 @@
       "boundary": "Deploy",
       "injected_condition": "Interrupted migration",
       "required_outcome": "Retry is safe or a tested rollback is documented.",
+      "required": true
+    },
+    {
+      "case_id": "backup-restore",
+      "boundary": "Backup and restore",
+      "injected_condition": "The authoritative store and retained payload objects are restored into an isolated deployment",
+      "required_outcome": "Message, recipient, attempt, provider-event, outbox, and payload references remain consistent and due work is recoverable without duplicate terminal mutation.",
       "required": true
     },
     {

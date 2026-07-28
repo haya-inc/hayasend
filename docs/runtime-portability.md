@@ -139,10 +139,15 @@ Combined deployment documents:
 - [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
 - [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
 
+Generated readiness matrix:
+
+- [`conformance/readiness.v1.json`](../conformance/readiness.v1.json)
+
 Schemas:
 
 - [`schemas/runtime-capabilities.v1.schema.json`](../schemas/runtime-capabilities.v1.schema.json)
 - [`schemas/deployment-capabilities.v1.schema.json`](../schemas/deployment-capabilities.v1.schema.json)
+- [`schemas/readiness-matrix.v1.schema.json`](../schemas/readiness-matrix.v1.schema.json)
 
 `npm run check:conformance` rejects missing or stale generated artifacts.
 

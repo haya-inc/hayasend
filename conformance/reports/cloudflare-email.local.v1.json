@@ -7,13 +7,13 @@
   "started_at": "2026-07-27T14:00:00.000Z",
   "completed_at": "2026-07-27T20:58:55.000Z",
   "evidence_url": "https://github.com/haya-inc/hayasend/issues/104",
-  "case_count": 18,
+  "case_count": 21,
   "summary": {
-    "passed": 15,
-    "failed": 0,
+    "passed": 17,
+    "failed": 1,
     "unsupported": 3
   },
-  "status": "passed",
+  "status": "failed",
   "results": [
     {
       "case_id": "api-plain-text-fallback",
@@ -34,6 +34,16 @@
       "case_id": "outbox-ack-crash",
       "status": "passed",
       "evidence_url": "https://github.com/haya-inc/hayasend/issues/103"
+    },
+    {
+      "case_id": "scheduler-wakeup-loss",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/132"
+    },
+    {
+      "case_id": "long-delay-recovery",
+      "status": "passed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/132"
     },
     {
       "case_id": "send-lease-concurrency",
@@ -84,6 +94,12 @@
       "case_id": "deploy-interruption",
       "status": "passed",
       "evidence_url": "https://github.com/haya-inc/hayasend/issues/104"
+    },
+    {
+      "case_id": "backup-restore",
+      "status": "failed",
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/132",
+      "reason": "A complete isolated D1 and R2 backup/restore drill is not yet published."
     },
     {
       "case_id": "telemetry-private-fields",

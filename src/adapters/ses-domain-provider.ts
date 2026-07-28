@@ -10,7 +10,7 @@ import type {
   DomainDnsRecord,
   DomainProviderResult,
 } from "../core/types.js";
-import type { DomainProvider } from "../ports/domain-provider.js";
+import type { TransportDomainProvider } from "../ports/transport-domain-provider.js";
 
 function dmarcRecord(name: string): DomainDnsRecord {
   return {
@@ -22,7 +22,7 @@ function dmarcRecord(name: string): DomainDnsRecord {
   };
 }
 
-export class SesDomainProvider implements DomainProvider {
+export class SesDomainProvider implements TransportDomainProvider {
   constructor(private readonly client = new SESv2Client({})) {}
 
   async create(name: string): Promise<DomainProviderResult> {
@@ -84,7 +84,7 @@ export class SesDomainProvider implements DomainProvider {
   }
 }
 
-export class LocalDomainProvider implements DomainProvider {
+export class LocalDomainProvider implements TransportDomainProvider {
   private readonly identities = new Set<string>();
 
   async create(name: string): Promise<DomainProviderResult> {

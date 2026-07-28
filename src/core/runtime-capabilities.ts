@@ -6,6 +6,7 @@ import {
 
 export const RUNTIME_CAPABILITY_SCHEMA_VERSION = "1.0.0" as const;
 export const DEPLOYMENT_CAPABILITY_SCHEMA_VERSION = "1.0.0" as const;
+export const READINESS_MATRIX_SCHEMA_VERSION = "1.0.0" as const;
 
 const semanticVersionSchema = z
   .string()
@@ -94,9 +95,11 @@ export const runtimeCapabilityDocumentSchema = z
       "Versioned, privacy-safe capabilities and limits for one customer-owned HayaSend runtime substrate.",
   });
 
+const evidenceStatusSchema = z.enum(["passed", "failed", "pending"]);
+
 const evidenceSchema = z
   .object({
-    status: z.enum(["passed", "failed", "pending"]),
+    status: evidenceStatusSchema,
     url: httpsUrlSchema,
     notes: z.string().trim().min(1).max(1_000),
   })
@@ -176,6 +179,135 @@ export type RuntimeCapabilityDocument = z.infer<
 export type DeploymentCapabilityDocument = z.infer<
   typeof deploymentCapabilityDocumentSchema
 >;
+
+const readinessEvidenceSchema = z
+  .object({
+    conformance: evidenceStatusSchema,
+    lifecycle: evidenceStatusSchema,
+    terminal_delivery: evidenceStatusSchema,
+    controlled_receipt: evidenceStatusSchema,
+    cleanup: evidenceStatusSchema,
+  })
+  .strict();
+
+const readinessBlockerSchema = z.enum([
+  "conformance",
+  "lifecycle",
+  "terminal_delivery",
+  "controlled_receipt",
+  "cleanup",
+]);
+
+type ReadinessBlocker = z.infer<typeof readinessBlockerSchema>;
+
+const READINESS_GATES = [
+  "conformance",
+  "lifecycle",
+  "terminal_delivery",
+  "controlled_receipt",
+  "cleanup",
+] as const satisfies readonly ReadinessBlocker[];
+
+function compareIdentifiers(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+const readinessDeploymentSchema = z
+  .object({
+    deployment: identifierSchema,
+    checked_at: isoDateSchema,
+    runtime: identifierSchema,
+    transport: identifierSchema,
+    maturity: maturitySchema,
+    production_ready: z.boolean(),
+    evidence: readinessEvidenceSchema,
+    blockers: z.array(readinessBlockerSchema),
+  })
+  .strict()
+  .superRefine((deployment, context) => {
+    const expected = READINESS_GATES.filter(
+      (gate) => deployment.evidence[gate] !== "passed",
+    );
+    if (
+      deployment.blockers.length !== expected.length ||
+      deployment.blockers.some((blocker, index) => blocker !== expected[index])
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["blockers"],
+        message:
+          "readiness blockers must exactly match non-passed evidence gates in canonical order",
+      });
+    }
+  });
+
+export const readinessMatrixSchema = z
+  .object({
+    schema_version: z.literal(READINESS_MATRIX_SCHEMA_VERSION),
+    deployments: z
+      .array(readinessDeploymentSchema)
+      .min(1)
+      .refine(
+        (deployments) =>
+          new Set(deployments.map(({ deployment }) => deployment)).size ===
+          deployments.length,
+        { message: "readiness deployment identities must be unique" },
+      )
+      .refine(
+        (deployments) =>
+          deployments.every(
+            ({ deployment }, index) =>
+              index === 0 ||
+              compareIdentifiers(
+                deployments[index - 1]!.deployment,
+                deployment,
+              ) <= 0,
+          ),
+        { message: "readiness deployments must be sorted by identity" },
+      ),
+  })
+  .strict()
+  .meta({
+    id: "https://hayasend.dev/schemas/readiness-matrix.v1.schema.json",
+    title: "HayaSend deployment readiness matrix",
+    description:
+      "A generated summary of exact runtime and transport combinations and their incomplete operational evidence gates.",
+  });
+
+export type ReadinessMatrix = z.infer<typeof readinessMatrixSchema>;
+
+export function buildReadinessMatrix(
+  documents: readonly DeploymentCapabilityDocument[],
+): ReadinessMatrix {
+  return readinessMatrixSchema.parse({
+    schema_version: READINESS_MATRIX_SCHEMA_VERSION,
+    deployments: [...documents]
+      .sort((left, right) =>
+        compareIdentifiers(left.deployment, right.deployment),
+      )
+      .map((document) => {
+        const evidence = {
+          conformance: document.evidence.conformance.status,
+          lifecycle: document.evidence.lifecycle.status,
+          terminal_delivery: document.evidence.terminal_delivery.status,
+          controlled_receipt: document.evidence.controlled_receipt.status,
+          cleanup: document.evidence.cleanup.status,
+        };
+        return {
+          deployment: document.deployment,
+          checked_at: document.checked_at,
+          runtime: document.runtime.profile,
+          transport: document.transport.provider,
+          maturity: document.maturity.combination,
+          production_ready: document.production_ready,
+          evidence,
+          blockers: READINESS_GATES.filter(
+            (gate) => evidence[gate] !== "passed",
+          ),
+        };
+      }),
+  });
+}
 
 const MATURITY_RANK = {
   experimental: 0,

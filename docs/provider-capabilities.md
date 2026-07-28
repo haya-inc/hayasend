@@ -19,6 +19,8 @@ The generated artifacts are:
   and
   [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
   — exact runtime+transport maturity, effective limits, and evidence gates;
+- [`conformance/readiness.v1.json`](../conformance/readiness.v1.json)
+  — generated support/readiness matrix and current evidence blockers;
 - [`conformance/reports/cloudflare-email.local.v1.json`](../conformance/reports/cloudflare-email.local.v1.json)
   — shared adapter evidence plus the completed #104 hosted lifecycle proof;
 - [`conformance/cases.v1.json`](../conformance/cases.v1.json) — shared fault
@@ -29,6 +31,8 @@ The generated artifacts are:
   — runtime-substrate capability schema;
 - [`schemas/deployment-capabilities.v1.schema.json`](../schemas/deployment-capabilities.v1.schema.json)
   — combined runtime+transport deployment schema;
+- [`schemas/readiness-matrix.v1.schema.json`](../schemas/readiness-matrix.v1.schema.json)
+  — generated readiness matrix schema;
 - [`schemas/conformance-result.v1.schema.json`](../schemas/conformance-result.v1.schema.json)
   — evidence report schema.
 - [`schemas/delivery-record.v1.schema.json`](../schemas/delivery-record.v1.schema.json)
@@ -105,9 +109,10 @@ and other unrecognized fields are discarded.
 
 The current subscription publishes delivered, deferred, bounced, failed,
 rejected, and complained events. Open, click, and durable provider-side send
-idempotency are explicitly unsupported. The report now passes every required
-shared case because issue #104 supplies exact-main hosted deploy, upgrade,
-rollback, and cleanup evidence. The three documented provider capability gaps
-remain unsupported. This does not make the combined deployment
-production-ready: issue #122 still owns terminal event convergence and
-controlled mailbox receipt.
+idempotency are explicitly unsupported. Issue #104 supplies exact-main hosted
+deploy, upgrade, rollback, and cleanup evidence. The report now fails only the
+new required backup/restore drill because a complete isolated D1 and R2 restore
+has not been published; the three documented provider capability gaps remain
+unsupported. The combined deployment also remains non-production because
+issue #122 still owns terminal event convergence and controlled mailbox
+receipt.

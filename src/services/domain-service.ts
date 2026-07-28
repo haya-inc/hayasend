@@ -1,13 +1,13 @@
 import { createId } from "../core/crypto.js";
 import { NotFoundError } from "../core/errors.js";
 import type { DomainRecord, Page } from "../core/types.js";
-import type { DomainProvider } from "../ports/domain-provider.js";
 import type { Store } from "../ports/store.js";
+import type { TransportDomainProvider } from "../ports/transport-domain-provider.js";
 
 export class DomainService {
   constructor(
     private readonly store: Store,
-    private readonly provider: DomainProvider,
+    private readonly provider: TransportDomainProvider,
     private readonly region: string,
   ) {}
 
