@@ -24,6 +24,28 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     );
     expect(workflow).toContain('--allowed-recipient "$CLOUDFLARE_TEST_TO"');
     expect(workflow).toContain('CF_ENDPOINT="$INITIAL_CF_ENDPOINT"');
+    expect(workflow).toContain(
+      "node scripts/cloudflare-backup-restore-seed.mjs",
+    );
+    expect(workflow).toContain(
+      "src/workers/cloudflare-backup-restore-probe.ts",
+    );
+    expect(workflow).toContain("wrangler@4.114.0 d1 export");
+    expect(workflow).toContain(
+      '.status == "passed" and',
+    );
+    expect(workflow).toContain(
+      ".immutable_delivery_ledger_unchanged == true",
+    );
+    expect(workflow).toContain(
+      ".external_send_performed_during_restore == false",
+    );
+    expect(workflow).toContain(
+      '--name "$RESTORE_DEPLOYMENT_NAME"',
+    );
+    expect(workflow).toContain(
+      "Restore Worker absence could not be verified.",
+    );
     expect(workflow).toContain("for _ in $(seq 1 30)");
     expect(workflow).toContain('test "$failure_http_code" = "503"');
     expect(workflow).toContain('--version-id "$INITIAL_CF_VERSION_ID"');

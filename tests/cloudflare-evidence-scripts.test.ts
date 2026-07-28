@@ -60,4 +60,21 @@ describe("Cloudflare hosted evidence scripts", () => {
       "INITIAL_CF_ENDPOINT=https://hayasend-proof.controlled-subdomain.workers.dev",
     );
   });
+
+  it("seeds only a controlled future-due restore fixture", async () => {
+    const source = await readFile(
+      new URL(
+        "../scripts/cloudflare-backup-restore-seed.mjs",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(source).toContain('endpoint.hostname.endsWith(".workers.dev")');
+    expect(source).toContain("Date.now() + 7 * 86_400_000");
+    expect(source).toContain(
+      "`hayasend-cloudflare-backup-restore-${runId}-${runAttempt}`",
+    );
+    expect(source).toContain('record.status !== "scheduled"');
+    expect(source).not.toContain("console.log(record)");
+  });
 });

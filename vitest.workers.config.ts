@@ -15,7 +15,7 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: "2026-07-27",
         d1Databases: ["TEST_DB"],
-        r2Buckets: ["TEST_BUCKET"],
+        r2Buckets: ["TEST_BUCKET", "TEST_TARGET_BUCKET"],
         queueProducers: ["TEST_QUEUE"],
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(migrationsPath),
