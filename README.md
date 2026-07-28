@@ -25,6 +25,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Render](deploy/render/README.md) ·
 [Railway](deploy/railway/README.md) ·
 [Fly.io](deploy/flyio/README.md) ·
+[Azure ACS Email](docs/provider-capabilities.md#azure-communication-services-email-evidence) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
@@ -75,6 +76,9 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   Blob/S3-compatible attachment storage, and mounted-file secret injection
   (experimental Cloud Run, Render, Railway, and Fly.io packs are published;
   hosted lifecycle proofs are still pending)
+- an experimental Azure Communication Services Email transport with strict
+  provider limits, read-only linked-domain verification, and authenticated
+  exact-recipient Event Grid lifecycle ingestion
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official Resend Node and Python SDKs plus

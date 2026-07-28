@@ -528,6 +528,8 @@ jobs:
             ([.files[].path] |
               index("migrations/postgres/0003_jobs.sql") != null) and
             ([.files[].path] |
+              index("migrations/postgres/0004_provider_message_correlation.sql") != null) and
+            ([.files[].path] |
               index("dist/portable/migrate.js") != null) and
             ([.files[].path] |
               index("dist/portable/worker.js") != null) and
@@ -544,7 +546,13 @@ jobs:
             ([.files[].path] |
               index("conformance/runtimes/portable-postgres.v1.json") != null) and
             ([.files[].path] |
+              index("conformance/providers/azure-communication-services.v1.json") != null) and
+            ([.files[].path] |
               index("dist/adapters/portable-attachment-storage.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/azure/acs-email-transport.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/azure/acs-email-events.js") != null) and
             ([.files[].path] |
               index("deploy/cloud-run/main.tf") != null) and
             ([.files[].path] |
@@ -615,6 +623,8 @@ jobs:
             "$package_root/migrations/postgres/0002_application_store.sql"
           test -f \
             "$package_root/migrations/postgres/0003_jobs.sql"
+          test -f \
+            "$package_root/migrations/postgres/0004_provider_message_correlation.sql"
           test -f "$package_root/dist/portable/migrate.js"
           test -f "$package_root/dist/portable/worker.js"
           test -f "$package_root/scripts/cloudflare-cost-model.mjs"
@@ -627,7 +637,13 @@ jobs:
           test -f \
             "$package_root/conformance/runtimes/portable-postgres.v1.json"
           test -f \
+            "$package_root/conformance/providers/azure-communication-services.v1.json"
+          test -f \
             "$package_root/dist/adapters/portable-attachment-storage.js"
+          test -f \
+            "$package_root/dist/adapters/azure/acs-email-transport.js"
+          test -f \
+            "$package_root/dist/adapters/azure/acs-email-events.js"
           test -f "$package_root/deploy/cloud-run/main.tf"
           test -f "$package_root/deploy/cloud-run/.terraform.lock.hcl"
           test -f "$package_root/deploy/cloud-run/.terraform-version"

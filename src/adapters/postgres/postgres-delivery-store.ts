@@ -56,6 +56,10 @@ interface IdempotencyRow extends QueryResultRow {
   expires_at: string;
 }
 
+interface ProviderMessageRow extends QueryResultRow {
+  message_id: string;
+}
+
 interface OutboxMetricsRow extends QueryResultRow {
   due: string;
   leased: string;
@@ -410,6 +414,28 @@ export class PostgresDeliveryStore
 
   async getProviderEvent(id: string): Promise<ProviderEventRecord | undefined> {
     return this.getProviderEventUsing(this.pool, id);
+  }
+
+  async findMessageIdByProviderMessageId(
+    provider: string,
+    providerMessageId: string,
+  ): Promise<string | undefined> {
+    if (
+      !/^[a-z][a-z0-9-]{1,63}$/.test(provider) ||
+      !/^[\x21-\x3F\x41-\x7E]{1,512}$/.test(providerMessageId)
+    ) {
+      throw new Error("Provider-message lookup identifiers are invalid.");
+    }
+    const result = await this.pool.query<ProviderMessageRow>(
+      "SELECT message_id FROM delivery_attempts WHERE provider = $1 AND provider_message_id = $2 LIMIT 2",
+      [provider, providerMessageId],
+    );
+    if (result.rows.length > 1) {
+      throw new ConflictError(
+        "Provider message ID correlates to multiple delivery attempts.",
+      );
+    }
+    return result.rows[0]?.message_id;
   }
 
   async getLatestProviderEventReceivedAt(): Promise<string | undefined> {

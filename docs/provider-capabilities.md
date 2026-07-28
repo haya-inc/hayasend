@@ -9,12 +9,16 @@ The generated artifacts are:
 
 - [`conformance/runtimes/aws-native.v1.json`](../conformance/runtimes/aws-native.v1.json)
   and
-  [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json)
+  [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json),
+  plus
+  [`conformance/runtimes/portable-postgres.v1.json`](../conformance/runtimes/portable-postgres.v1.json)
   — runtime-substrate capabilities independent of mail transport;
 - [`conformance/providers/aws-ses.v1.json`](../conformance/providers/aws-ses.v1.json)
   — current AWS adapter capabilities;
 - [`conformance/providers/cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
   — current Beta Cloudflare Email Sending adapter capabilities;
+- [`conformance/providers/azure-communication-services.v1.json`](../conformance/providers/azure-communication-services.v1.json)
+  — experimental ACS Email transport and Event Grid capabilities;
 - [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
   and
   [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
@@ -118,3 +122,33 @@ therefore passes every required case while retaining the three documented
 provider capability gaps as unsupported. The combined deployment remains
 non-production because issue #122 still owns terminal event convergence and
 controlled mailbox receipt.
+
+## Azure Communication Services Email evidence
+
+The Azure document was checked on 2026-07-29 against the official
+[JavaScript Email SDK](https://learn.microsoft.com/en-us/javascript/api/@azure/communication-email/),
+[service limits](https://learn.microsoft.com/en-us/azure/communication-services/concepts/service-limits),
+[Event Grid event schema](https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events),
+and
+[custom-domain workflow](https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/email/add-custom-verified-domains).
+
+HayaSend enforces 50 combined recipients, 20 attachments, a conservative
+7,500,000 decoded attachment-byte ceiling, and the 10,000,000-byte serialized
+request boundary before the durable delivery commit and again immediately
+before submission. The completed long-running send operation supplies the
+provider message ID.
+
+The Event Grid endpoint uses a secret independent of the API key and checks
+the exact configured Communication Services resource `topic`. Delivery
+reports correlate that provider message ID and one exact recipient. Immutable
+Event Grid IDs deduplicate retries; sticky recipient transitions prevent late
+or out-of-order nonterminal events from undoing a terminal outcome. Views and
+clicks are retained without recipient mutation when the documented engagement
+schema omits a recipient.
+
+Domain lifecycle is intentionally operator-owned. HayaSend reads the existing
+Email Communication Services domain, checks Domain/SPF/DKIM/DKIM2
+verification and the ACS link, and never creates, mutates, or deletes Azure
+resources or DNS. This adapter remains experimental until a hosted Azure
+composition proves quota, terminal delivery, controlled receipt,
+backup/restore, rollback, and zero-residue cleanup.

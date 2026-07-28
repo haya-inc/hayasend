@@ -34,7 +34,10 @@ export interface Config {
   templateHistoryRetentionDays: number;
   templateHistoryLimit: number;
   databaseUrl?: string;
-  portableTransport?: "console" | "aws-ses";
+  portableTransport?:
+    | "console"
+    | "aws-ses"
+    | "azure-communication-services";
   portableObjectStorage?: "disabled" | "s3" | "gcs" | "azure-blob";
   objectStorageBucket?: string;
   s3Endpoint?: string;
@@ -42,6 +45,13 @@ export interface Config {
   gcsProjectId?: string;
   azureStorageAccount?: string;
   azureBlobEndpoint?: string;
+  azureCommunicationEmailEndpoint?: string;
+  azureSubscriptionId?: string;
+  azureResourceGroup?: string;
+  azureCommunicationServiceName?: string;
+  azureEmailServiceName?: string;
+  azureEmailDomainResourceName?: string;
+  azureEventGridSecret?: string;
   postgresPoolMax?: number;
   postgresIdleTimeoutMs?: number;
   postgresConnectionTimeoutMs?: number;
@@ -243,10 +253,67 @@ export function loadConfig(env = process.env): Config {
   const portableTransport = env.HAYASEND_TRANSPORT;
   if (
     mode === "portable" &&
-    !["console", "aws-ses"].includes(portableTransport ?? "")
+    ![
+      "console",
+      "aws-ses",
+      "azure-communication-services",
+    ].includes(portableTransport ?? "")
   ) {
     throw new ValidationError(
-      "HAYASEND_TRANSPORT must be console or aws-ses in portable mode.",
+      "HAYASEND_TRANSPORT must be console, aws-ses, or azure-communication-services in portable mode.",
+    );
+  }
+  const usesAcs = portableTransport === "azure-communication-services";
+  const azureCommunicationEmailEndpoint =
+    env.AZURE_COMMUNICATION_EMAIL_ENDPOINT
+      ? secureServiceEndpoint(
+          env.AZURE_COMMUNICATION_EMAIL_ENDPOINT,
+          "AZURE_COMMUNICATION_EMAIL_ENDPOINT",
+        )
+      : undefined;
+  const azureSubscriptionId = env.AZURE_SUBSCRIPTION_ID;
+  const azureResourceGroup = env.AZURE_RESOURCE_GROUP;
+  const azureCommunicationServiceName =
+    env.AZURE_COMMUNICATION_SERVICE_NAME;
+  const azureEmailServiceName = env.AZURE_EMAIL_SERVICE_NAME;
+  const azureEmailDomainResourceName =
+    env.AZURE_EMAIL_DOMAIN_RESOURCE_NAME;
+  const azureEventGridSecret = secretSetting(
+    env,
+    "HAYASEND_AZURE_EVENT_GRID_SECRET",
+  );
+  if (
+    azureEventGridSecret !== undefined &&
+    (azureEventGridSecret.length < 32 ||
+      azureEventGridSecret.length > 512)
+  ) {
+    throw new ValidationError(
+      "HAYASEND_AZURE_EVENT_GRID_SECRET must contain 32 to 512 characters.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    usesAcs &&
+    (!azureCommunicationEmailEndpoint ||
+      !azureSubscriptionId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        azureSubscriptionId,
+      ) ||
+      !azureResourceGroup ||
+      !/^[A-Za-z0-9_().-]{1,90}$/.test(azureResourceGroup) ||
+      azureResourceGroup.endsWith(".") ||
+      !azureCommunicationServiceName ||
+      !/^[A-Za-z0-9-]{1,63}$/.test(
+        azureCommunicationServiceName,
+      ) ||
+      !azureEmailServiceName ||
+      !/^[A-Za-z0-9-]{1,63}$/.test(azureEmailServiceName) ||
+      !azureEmailDomainResourceName ||
+      azureEmailDomainResourceName.length > 253 ||
+      !/^[A-Za-z0-9.-]+$/.test(azureEmailDomainResourceName))
+  ) {
+    throw new ValidationError(
+      "Azure Communication Services transport requires a safe endpoint, subscription ID, resource group, Communication Services name, Email Services name, and domain resource name.",
     );
   }
   const portableObjectStorage = env.HAYASEND_OBJECT_STORAGE ?? "disabled";
@@ -429,7 +496,10 @@ export function loadConfig(env = process.env): Config {
     mode === "portable"
       ? {
           databaseUrl: databaseUrl as string,
-          portableTransport: portableTransport as "console" | "aws-ses",
+          portableTransport: portableTransport as
+            | "console"
+            | "aws-ses"
+            | "azure-communication-services",
           portableObjectStorage: portableObjectStorage as
             | "disabled"
             | "s3"
@@ -453,6 +523,19 @@ export function loadConfig(env = process.env): Config {
           ...(azureBlobEndpoint
             ? { azureBlobEndpoint }
             : {}),
+          ...(azureCommunicationEmailEndpoint
+            ? { azureCommunicationEmailEndpoint }
+            : {}),
+          ...(azureSubscriptionId ? { azureSubscriptionId } : {}),
+          ...(azureResourceGroup ? { azureResourceGroup } : {}),
+          ...(azureCommunicationServiceName
+            ? { azureCommunicationServiceName }
+            : {}),
+          ...(azureEmailServiceName ? { azureEmailServiceName } : {}),
+          ...(azureEmailDomainResourceName
+            ? { azureEmailDomainResourceName }
+            : {}),
+          ...(azureEventGridSecret ? { azureEventGridSecret } : {}),
           postgresPoolMax: integerSetting(
             env,
             "HAYASEND_POSTGRES_POOL_MAX",
@@ -537,7 +620,11 @@ export function loadConfig(env = process.env): Config {
     mode,
     host,
     port,
-    region: env.AWS_REGION ?? "ap-northeast-1",
+    region:
+      env.HAYASEND_REGION ??
+      env.AWS_REGION ??
+      env.AZURE_LOCATION ??
+      "ap-northeast-1",
     inboundRawPrefix,
     inboundRetentionDays,
     inboundMaxMessageBytes,
@@ -592,4 +679,16 @@ export function loadConfig(env = process.env): Config {
       ? { inboundBucket: env.HAYASEND_INBOUND_BUCKET }
       : {}),
   };
+}
+
+export function assertApiServerConfig(config: Config): void {
+  if (
+    config.mode === "portable" &&
+    config.portableTransport === "azure-communication-services" &&
+    !config.azureEventGridSecret
+  ) {
+    throw new ValidationError(
+      "The Azure Communication Services API process requires HAYASEND_AZURE_EVENT_GRID_SECRET or HAYASEND_AZURE_EVENT_GRID_SECRET_FILE.",
+    );
+  }
 }

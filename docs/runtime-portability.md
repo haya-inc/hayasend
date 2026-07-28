@@ -132,10 +132,11 @@ bounded retention. Forward-only migrations are serialized with a PostgreSQL
 advisory lock and each applied migration is pinned by SHA-256 checksum.
 
 [The portable runtime runbook](portable-postgres.md) documents its exact
-settings, storage bindings, identity requirements, and process model. Portable
-provider event ingress, backup/restore drills, the remaining platform packs,
-and exact hosted evidence remain prerequisites before this profile can be
-claimed as a supported Beta deployment.
+settings, storage bindings, identity requirements, and process model. ACS
+Email now supplies the first portable provider-event ingress; other
+transports, backup/restore drills, the remaining platform packs, and exact
+hosted evidence remain prerequisites before this profile can be claimed as a
+supported Beta deployment.
 
 ### `vercel-serverless` (planned experimental)
 
@@ -153,9 +154,13 @@ evidence.
 ## Transport direction
 
 Amazon SES remains the first production candidate. Cloudflare Email Sending
-remains Beta. Azure Communication Services Email is the next native transport
-candidate because it supplies custom-domain sending and Event Grid delivery
-events that can be normalized into the recipient ledger.
+remains Beta. The experimental Azure Communication Services Email adapter now
+implements SDK submission, read-only linked-domain verification, strict
+request limits, and authenticated Event Grid delivery/engagement ingress.
+Recipient delivery reports converge into the same ledger; engagement events
+that omit the recipient are retained without guessing. Hosted terminal
+delivery, controlled receipt, quota, rollback, and cleanup evidence still gate
+promotion.
 
 Google Cloud does not currently offer a direct SES-equivalent transactional
 mail transport. A Cloud Run deployment therefore remains customer-owned in
@@ -170,7 +175,7 @@ HayaSend does not plan to build or operate a custom MTA.
 | --- | --- | --- | --- |
 | AWS | `aws-native` | Amazon SES | Beta; production candidate after exact proof |
 | Cloudflare | `cloudflare-native` | Cloudflare Email Sending | Beta / non-production |
-| Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Executable foundation; Beta proof pending |
+| Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Experimental adapter and foundation; hosted proof pending |
 | GCP / Cloud Run | `portable-postgres` | Certified external adapter | Executable foundation; Beta proof pending |
 | Render | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
 | Railway | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
@@ -187,6 +192,12 @@ Runtime documents:
 - [`conformance/runtimes/aws-native.v1.json`](../conformance/runtimes/aws-native.v1.json)
 - [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json)
 - [`conformance/runtimes/portable-postgres.v1.json`](../conformance/runtimes/portable-postgres.v1.json)
+
+Provider documents:
+
+- [`conformance/providers/aws-ses.v1.json`](../conformance/providers/aws-ses.v1.json)
+- [`conformance/providers/cloudflare-email.v1.json`](../conformance/providers/cloudflare-email.v1.json)
+- [`conformance/providers/azure-communication-services.v1.json`](../conformance/providers/azure-communication-services.v1.json)
 
 Combined deployment documents:
 

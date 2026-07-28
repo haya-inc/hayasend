@@ -65,9 +65,9 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
           "Bootstrap API and PostgreSQL secrets accept mutually exclusive environment or bounded absolute mounted-file injection; storage SDKs use provider workload identity and credential chains.",
       },
       provider_event_ingress: {
-        status: "unsupported",
+        status: "conditional",
         notes:
-          "Portable provider-event HTTP ingress is not yet implemented or proven.",
+          "The ACS Email Event Grid HTTP ingress uses an independent secret, validates subscription handshakes and provider schemas, and applies exact recipient delivery reports; hosted lifecycle evidence remains pending.",
       },
       webhook_egress: {
         status: "supported",
@@ -175,6 +175,11 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
         checked_at: "2026-07-28",
       },
       {
+        title: "Azure Communication Services Email events",
+        url: "https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events",
+        checked_at: "2026-07-29",
+      },
+      {
         title: "Amazon S3 presigned upload",
         url: "https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html",
         checked_at: "2026-07-28",
@@ -183,6 +188,6 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
     limitations: [
       "The runtime remains experimental until one exact platform deployment passes lifecycle, backup/restore, terminal delivery, controlled receipt, and zero-residue cleanup evidence.",
       "Direct-upload metadata binds the declared SHA-256 to the signed upload contract; HayaSend additionally re-hashes downloaded bytes immediately before provider submission.",
-      "Inbound receiving and portable provider-event ingestion remain disabled.",
+      "Inbound receiving and non-ACS portable provider-event ingestion remain disabled.",
     ],
   }) satisfies RuntimeCapabilityDocument;

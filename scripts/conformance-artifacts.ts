@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AWS_RUNTIME_CAPABILITIES } from "../src/adapters/aws-runtime-capabilities.js";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
+import { ACS_EMAIL_CAPABILITIES } from "../src/adapters/azure/acs-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
@@ -48,6 +49,8 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "conformance/providers/aws-ses.v1.json": AWS_SES_CAPABILITIES,
   "conformance/providers/cloudflare-email.v1.json":
     CLOUDFLARE_EMAIL_CAPABILITIES,
+  "conformance/providers/azure-communication-services.v1.json":
+    ACS_EMAIL_CAPABILITIES,
   "conformance/runtimes/aws-native.v1.json": AWS_RUNTIME_CAPABILITIES,
   "conformance/runtimes/cloudflare-native.v1.json":
     CLOUDFLARE_RUNTIME_CAPABILITIES,

@@ -16,6 +16,7 @@
   "keywords": [
     "amazon-ses",
     "aws",
+    "azure-communication-services",
     "cloudflare",
     "email",
     "resend",
@@ -91,6 +92,8 @@
     "@aws-sdk/client-sqs": "3.1096.0",
     "@aws-sdk/lib-dynamodb": "3.1096.0",
     "@aws-sdk/s3-request-presigner": "3.1096.0",
+    "@azure/arm-communication": "5.0.0",
+    "@azure/communication-email": "1.1.0",
     "@azure/identity": "4.13.1",
     "@azure/storage-blob": "12.33.0",
     "@google-cloud/storage": "7.21.0",

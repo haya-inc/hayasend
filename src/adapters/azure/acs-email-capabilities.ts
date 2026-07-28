@@ -1,0 +1,168 @@
+import {
+  providerCapabilityDocumentSchema,
+  type ProviderCapabilityDocument,
+} from "../../core/provider-capabilities.js";
+import { HAYASEND_VERSION } from "../../version.js";
+
+export const ACS_EMAIL_CAPABILITIES =
+  providerCapabilityDocumentSchema.parse({
+    schema_version: "1.0.0",
+    provider: "azure-communication-services",
+    adapter_version: HAYASEND_VERSION,
+    checked_at: "2026-07-29",
+    service_maturity: "experimental",
+    required_plan:
+      "An Azure Communication Services resource linked to a verified Email Communication Services domain is required. Azure-managed domains retain low non-increasable send quotas; production use normally requires a custom domain and approved quota.",
+    limits: {
+      max_serialized_request_bytes: 10_000_000,
+      max_mime_message_bytes: 10_000_000,
+      max_combined_recipients: 50,
+      max_attachments: 20,
+      max_decoded_attachment_bytes: 7_500_000,
+      max_batch_messages: 100,
+      max_schedule_delay_seconds: 30 * 86_400,
+    },
+    features: {
+      attachments: {
+        status: "conditional",
+        notes:
+          "HayaSend supports up to 20 regular or inline attachments while enforcing the Azure 10 MB serialized request boundary after base64 expansion.",
+      },
+      custom_headers: {
+        status: "supported",
+        notes:
+          "Validated HayaSend custom headers are passed through the ACS Email SDK.",
+      },
+      scheduling: {
+        status: "supported",
+        notes:
+          "The portable PostgreSQL runtime retains schedules for up to 30 days before ACS submission.",
+      },
+      cancellation: {
+        status: "conditional",
+        notes:
+          "Queued or scheduled messages can be canceled before provider submission.",
+      },
+      batch: {
+        status: "conditional",
+        notes:
+          "HayaSend accepts 1 to 100 messages with strict per-message preflight; ACS receives each message separately.",
+      },
+      provider_message_id: {
+        status: "supported",
+        notes:
+          "The completed ACS send operation returns the message ID used by Event Grid delivery reports.",
+      },
+      provider_event_id: {
+        status: "supported",
+        notes:
+          "Event Grid event IDs are retained as privacy-safe immutable event identities.",
+      },
+      provider_idempotency: {
+        status: "unsupported",
+        notes:
+          "The adapter does not claim a durable provider-enforced send idempotency guarantee.",
+      },
+      domain_verification: {
+        status: "conditional",
+        notes:
+          "HayaSend verifies that the configured Email Communication Services domain is authenticated and linked to the configured Communication Services resource; provisioning and DNS mutation remain operator-managed.",
+      },
+      suppression_handling: {
+        status: "conditional",
+        notes:
+          "HayaSend preflights customer-owned suppressions and converts ACS Bounced or Suppressed recipient reports into customer-owned bounce suppressions.",
+      },
+    },
+    events: {
+      accepted: {
+        status: "supported",
+        notes:
+          "HayaSend records the successfully completed ACS send operation and provider message ID.",
+      },
+      delivered: {
+        status: "supported",
+        notes:
+          "Event Grid delivery reports include the provider message ID and exact recipient.",
+      },
+      delayed: {
+        status: "conditional",
+        notes:
+          "ACS Expanded delivery reports are retained as nonterminal delayed state; ACS does not publish a general deferred status.",
+      },
+      bounced: {
+        status: "supported",
+        notes:
+          "Recipient-level Bounced events are terminal and create customer-owned suppressions.",
+      },
+      complained: {
+        status: "unsupported",
+        notes:
+          "The documented ACS Email Event Grid schema does not publish a complaint event.",
+      },
+      rejected: {
+        status: "supported",
+        notes:
+          "Synchronous 4xx failures and terminal Suppressed, Quarantined, FilteredSpam, or Failed reports map to privacy-safe categories.",
+      },
+      opened: {
+        status: "conditional",
+        notes:
+          "Opt-in engagement events report views but omit a recipient; multi-recipient events are retained without recipient mutation.",
+      },
+      clicked: {
+        status: "conditional",
+        notes:
+          "Opt-in engagement events report clicks but omit a recipient; multi-recipient events are retained without recipient mutation.",
+      },
+    },
+    error_mapping: {
+      retryable_categories: [
+        "application_error",
+        "network_dns",
+        "network_refused",
+        "network_reset",
+        "provider_error",
+        "provider_throttled",
+        "provider_unavailable",
+        "timeout",
+      ],
+      permanent_categories: ["invalid_data", "provider_rejected"],
+      unknown_error_behavior: "retry",
+    },
+    privacy: {
+      content_exported_by_default: false,
+      addresses_exported_by_default: false,
+      raw_provider_errors_retained: false,
+    },
+    sources: [
+      {
+        title: "Azure Communication Services Email JavaScript SDK",
+        url: "https://learn.microsoft.com/en-us/javascript/api/@azure/communication-email/",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Azure Communication Services service limits",
+        url: "https://learn.microsoft.com/en-us/azure/communication-services/concepts/service-limits",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Azure Communication Services Email Event Grid events",
+        url: "https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Azure Communication Services custom verified domains",
+        url: "https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/email/add-custom-verified-domains",
+        checked_at: "2026-07-29",
+      },
+    ],
+    limitations: [
+      "The adapter and deployment combination remain experimental until exact hosted conformance, terminal delivery, controlled receipt, rollback, backup/restore, and cleanup evidence pass.",
+      "A provider acceptance followed by a crash before the attempt update remains an explicit duplicate-send ambiguity.",
+      "Event Grid engagement reports omit the recipient, so multi-recipient open and click events never mutate an exact recipient state.",
+      "Complaint events and provider-side send idempotency are unsupported.",
+      "Azure sender display names are not represented separately by the current ACS Email SDK message contract.",
+      "HayaSend does not create, mutate, or delete the operator-owned Azure email domain through its Resend-shaped domain API.",
+    ],
+  }) satisfies ProviderCapabilityDocument;
