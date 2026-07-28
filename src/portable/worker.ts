@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { createPortableAttachmentStorage } from "../adapters/portable-attachment-storage.js";
 import { createPostgresPool } from "../adapters/postgres/postgres-pool.js";
 import type {
   PostgresFailureDisposition,
@@ -354,7 +355,11 @@ async function runPortableWorkerProcess(): Promise<void> {
     throw new Error("The portable worker requires HAYASEND_MODE=portable.");
   }
   const pool = createPostgresPool(config, "hayasend-worker");
-  const runtime: PortableRuntime = createPortableRuntime(config, pool);
+  const runtime: PortableRuntime = createPortableRuntime(
+    config,
+    pool,
+    createPortableAttachmentStorage(config),
+  );
   await runtime.checkReadiness();
   const worker = new PortableWorker(
     runtime,

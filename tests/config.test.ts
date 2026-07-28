@@ -252,12 +252,14 @@ describe("loadConfig", () => {
     );
     const databaseFile = join(directory, "database-url");
     const apiKeyFile = join(directory, "api-key");
+    const oversizedFile = join(directory, "oversized");
     try {
       await writeFile(
         databaseFile,
         "postgresql://database.internal/hayasend?sslmode=require\n",
       );
       await writeFile(apiKeyFile, "re_portable_bootstrap_key\n");
+      await writeFile(oversizedFile, "x".repeat(16 * 1024 + 1));
 
       expect(
         loadConfig({
@@ -282,6 +284,14 @@ describe("loadConfig", () => {
           HAYASEND_TRANSPORT: "aws-ses",
         }),
       ).toThrow("may not both be set");
+      expect(() =>
+        loadConfig({
+          HAYASEND_MODE: "portable",
+          HAYASEND_DATABASE_URL_FILE: databaseFile,
+          HAYASEND_API_KEY_FILE: oversizedFile,
+          HAYASEND_TRANSPORT: "aws-ses",
+        }),
+      ).toThrow("at most 16384 bytes");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

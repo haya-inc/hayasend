@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { AppServices } from "./app.js";
 import {
+  DisabledAttachmentStorage,
   MemoryAttachmentStorage,
   S3AttachmentStorage,
 } from "./adapters/attachment-storage.js";
@@ -30,7 +31,6 @@ import {
   LocalDomainProvider,
   SesDomainProvider,
 } from "./adapters/ses-domain-provider.js";
-import { createPortableAttachmentStorage } from "./adapters/portable-attachment-storage.js";
 import {
   ConsoleMailTransport,
   SesMailTransport,
@@ -39,6 +39,7 @@ import { LocalJobQueue, SqsJobQueue } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
+import type { AttachmentStorage } from "./ports/attachment-storage.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
 import { HAYASEND_VERSION } from "./version.js";
 import {
@@ -310,6 +311,7 @@ export function createAwsRuntime(
 export function createPortableRuntime(
   config: Config,
   pool: Pool = createPostgresPool(config, "hayasend"),
+  attachmentStorage: AttachmentStorage = new DisabledAttachmentStorage(),
 ): PortableRuntime {
   if (
     config.mode !== "portable" ||
@@ -340,7 +342,6 @@ export function createPortableRuntime(
     },
   );
   const suppressions = new SuppressionService(store);
-  const attachmentStorage = createPortableAttachmentStorage(config);
   const attachmentService = new AttachmentService(
     store,
     attachmentStorage,
@@ -455,12 +456,17 @@ export function createPortableRuntime(
 export function createRuntime(
   config = loadConfig(),
   bootstrapKey?: string | BootstrapKeyProvider,
+  portableAttachmentStorage?: AttachmentStorage,
 ): Runtime {
   if (config.mode === "local") {
     return createLocalRuntime(config);
   }
   if (config.mode === "portable") {
-    return createPortableRuntime(config);
+    return createPortableRuntime(
+      config,
+      undefined,
+      portableAttachmentStorage,
+    );
   }
   if (!bootstrapKey) {
     throw new Error("AWS API runtime requires a bootstrap key provider.");

@@ -1,4 +1,10 @@
-import { readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+} from "node:fs";
 import { isAbsolute } from "node:path";
 import { ValidationError } from "./core/errors.js";
 
@@ -72,9 +78,11 @@ function secretSetting(env: NodeJS.ProcessEnv, name: string) {
       `${fileName} must be an absolute secret-file path.`,
     );
   }
+  let descriptor: number | undefined;
   let value: string;
   try {
-    const metadata = statSync(path);
+    descriptor = openSync(path, constants.O_RDONLY);
+    const metadata = fstatSync(descriptor);
     if (
       !metadata.isFile() ||
       metadata.size < 1 ||
@@ -82,11 +90,33 @@ function secretSetting(env: NodeJS.ProcessEnv, name: string) {
     ) {
       throw new Error("invalid secret file");
     }
-    value = readFileSync(path, "utf8");
+    const content = Buffer.allocUnsafe(MAX_SECRET_FILE_BYTES + 1);
+    let offset = 0;
+    while (offset < content.byteLength) {
+      const bytesRead = readSync(
+        descriptor,
+        content,
+        offset,
+        content.byteLength - offset,
+        null,
+      );
+      if (bytesRead === 0) {
+        break;
+      }
+      offset += bytesRead;
+    }
+    if (offset > MAX_SECRET_FILE_BYTES) {
+      throw new Error("invalid secret file");
+    }
+    value = content.subarray(0, offset).toString("utf8");
   } catch {
     throw new ValidationError(
       `${fileName} must reference a readable regular file of at most ${MAX_SECRET_FILE_BYTES} bytes.`,
     );
+  } finally {
+    if (descriptor !== undefined) {
+      closeSync(descriptor);
+    }
   }
   value = value.replace(/\r?\n$/, "");
   if (!value || /[\r\n\0]/.test(value)) {
