@@ -1,7 +1,6 @@
 import type { Pool } from "pg";
 import type { AppServices } from "./app.js";
 import {
-  DisabledAttachmentStorage,
   MemoryAttachmentStorage,
   S3AttachmentStorage,
 } from "./adapters/attachment-storage.js";
@@ -31,6 +30,7 @@ import {
   LocalDomainProvider,
   SesDomainProvider,
 } from "./adapters/ses-domain-provider.js";
+import { createPortableAttachmentStorage } from "./adapters/portable-attachment-storage.js";
 import {
   ConsoleMailTransport,
   SesMailTransport,
@@ -340,9 +340,10 @@ export function createPortableRuntime(
     },
   );
   const suppressions = new SuppressionService(store);
+  const attachmentStorage = createPortableAttachmentStorage(config);
   const attachmentService = new AttachmentService(
     store,
-    new DisabledAttachmentStorage(),
+    attachmentStorage,
   );
   const scheduler = new QueueEmailScheduler(queue);
   const apiKeys = new ApiKeyService(store, config.apiKey);
@@ -421,7 +422,12 @@ export function createPortableRuntime(
     jobQueue: queue,
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
-    checkReadiness: () => assertPostgresReady(pool),
+    checkReadiness: async () => {
+      await Promise.all([
+        assertPostgresReady(pool),
+        attachmentStorage.checkReadiness?.(),
+      ]);
+    },
     close: () => pool.end(),
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {

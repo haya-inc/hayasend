@@ -4,6 +4,7 @@ import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
+import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
 import {
   CONFORMANCE_CASES,
   conformanceCaseCatalogSchema,
@@ -50,6 +51,8 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
   "conformance/runtimes/aws-native.v1.json": AWS_RUNTIME_CAPABILITIES,
   "conformance/runtimes/cloudflare-native.v1.json":
     CLOUDFLARE_RUNTIME_CAPABILITIES,
+  "conformance/runtimes/portable-postgres.v1.json":
+    PORTABLE_RUNTIME_CAPABILITIES,
   "conformance/deployments/aws-ses.v1.json":
     AWS_SES_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloudflare-email.v1.json":

@@ -2,8 +2,8 @@
 
 The portable runtime is the shared container foundation for Cloud Run, Azure
 Container Apps, Render, Railway, and Fly.io. It is executable, but is not yet
-a supported Beta deployment: object-storage adapters, provider event ingress,
-backup/restore evidence, and each platform deployment proof remain open.
+a supported Beta deployment: provider event ingress, backup/restore evidence,
+and each platform deployment proof remain open.
 
 ## Process model
 
@@ -40,9 +40,63 @@ Set these on the migration, API, and worker processes:
 chain and optional `HAYASEND_CONFIGURATION_SET`. Cross-cloud identity and
 terminal SES event ingress are not yet certified.
 
+`HAYASEND_DATABASE_URL_FILE` and `HAYASEND_API_KEY_FILE` are mutually
+exclusive alternatives to their unsuffixed variables. They must point to an
+absolute, readable regular file of at most 16 KiB containing exactly one
+value. This supports Cloud Run, Azure Container Apps, Kubernetes, and other
+platforms that mount a secret rather than resolving it directly into an
+environment variable. Secret contents and credential-bearing paths are never
+included in diagnostics.
+
+## Attachment object storage
+
+Direct attachment uploads are enabled by selecting one provider:
+
+| Variable | Values / meaning |
+| --- | --- |
+| `HAYASEND_OBJECT_STORAGE` | `disabled` (default), `s3`, `gcs`, or `azure-blob` |
+| `HAYASEND_OBJECT_STORAGE_BUCKET` | Private bucket or Azure Blob container |
+| `HAYASEND_S3_ENDPOINT` | Optional HTTPS origin for an S3-compatible service |
+| `HAYASEND_S3_FORCE_PATH_STYLE` | `true` only when the S3-compatible service requires path-style requests |
+| `GOOGLE_CLOUD_PROJECT` | Optional explicit GCP project; ADC remains authoritative |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Required for `azure-blob` |
+| `HAYASEND_AZURE_BLOB_ENDPOINT` | Optional HTTPS service origin for a sovereign cloud or emulator |
+
+The API issues a 15-minute, create/write-only upload URL. The signed contract
+binds the declared SHA-256 as a native S3 checksum or provider metadata.
+HayaSend verifies stored size and metadata when resolving the attachment, then
+downloads and re-hashes the actual bytes immediately before transport
+submission. A mismatched object never reaches the mail provider.
+
+Provider identity requirements are:
+
+- **S3-compatible:** use the AWS SDK credential chain and grant only bucket
+  listing/readiness plus object create, read, and metadata access for the
+  attachment prefix. Portable mode uses checksum metadata for compatibility;
+  require private access and encryption through bucket policy/defaults.
+- **Google Cloud Storage:** Application Default Credentials access the bucket.
+  V4 signing also requires the runtime service account to sign blobs (normally
+  `iam.serviceAccounts.signBlob`) in addition to scoped object access.
+- **Azure Blob:** `DefaultAzureCredential` uses Managed Identity or the normal
+  developer credential chain. The identity must have scoped Blob data access
+  and permission to generate a user delegation key. HayaSend caches the
+  one-hour delegation key and issues only HTTPS `cw` SAS tokens.
+
+Create the bucket/container ahead of the processes, keep public access
+disabled, and apply provider lifecycle retention intentionally. Browser-based
+direct uploads also need provider CORS allowing `PUT`, the documented checksum
+metadata header, and the exact application origin. HayaSend never exports the
+object, signed URL, body, or attachment to a Haya management plane.
+
+The CLI trusts AWS S3, Google Cloud Storage, and Azure Blob upload hosts by
+default. For a custom S3-compatible origin, set the exact comma-separated
+HTTPS origins in `HAYASEND_ATTACHMENT_UPLOAD_ORIGINS`; redirects remain
+disabled and only the documented upload headers are forwarded.
+
 The API binds to `0.0.0.0:$HAYASEND_PORT` in portable mode. `/healthz` is a
-process liveness check. `/readyz` verifies that PostgreSQL is reachable and all
-three packaged migrations are present.
+process liveness check. `/readyz` verifies that PostgreSQL is reachable, all
+three packaged migrations are present, and the selected object-storage
+bucket/container is accessible.
 
 ## Start order
 
@@ -97,9 +151,9 @@ do not log the URL because it may contain credentials.
 
 ## Current limitations
 
-- Inline base64 attachments work. Direct attachment uploads fail with an
-  explicit `503 attachment_storage_not_configured` until an object-storage
-  adapter is selected.
+- Inline base64 attachments always work. Direct attachment uploads fail with
+  explicit `503 attachment_storage_not_configured` when
+  `HAYASEND_OBJECT_STORAGE=disabled`.
 - Inbound receiving is disabled.
 - `console` records an acceptance for development and must not be treated as
   real delivery.
@@ -110,3 +164,13 @@ do not log the URL because it may contain credentials.
   backup/restore, terminal-delivery, and cleanup evidence pass.
 
 See [runtime portability](runtime-portability.md) for the full provider matrix.
+
+## Official storage references
+
+Checked on 2026-07-28:
+
+- [Google Cloud Storage V4 signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers)
+- [Google Cloud Storage IAM permissions for signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers#required-permissions)
+- [Azure Blob user delegation SAS](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript)
+- [Authorize access with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory)
+- [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)

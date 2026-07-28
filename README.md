@@ -67,8 +67,9 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 - local in-memory development mode
 - an executable PostgreSQL 18 portable foundation with separate migration,
   API, and horizontally scalable worker processes, durable delayed jobs,
-  lease-loss recovery, readiness checks, and graceful shutdown (platform
-  deployment proofs and object storage still pending)
+  lease-loss recovery, readiness checks, graceful shutdown, GCS/Azure
+  Blob/S3-compatible attachment storage, and mounted-file secret injection
+  (exact platform deployment and lifecycle proofs still pending)
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official Resend Node and Python SDKs plus

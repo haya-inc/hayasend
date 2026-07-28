@@ -524,7 +524,7 @@ describe("production email send CLI", () => {
           io: capturingIo().io,
         },
       ),
-    ).rejects.toThrow("outside its API origin or AWS S3");
+    ).rejects.toThrow("trusted object-storage origins");
     expect(outsideFetch).toHaveBeenCalledOnce();
 
     const mismatchedFetch = vi.fn<typeof fetch>(async () =>
@@ -558,6 +558,118 @@ describe("production email send CLI", () => {
       ),
     ).rejects.toThrow("invalid attachment upload");
     expect(mismatchedFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      name: "Google Cloud Storage",
+      uploadUrl:
+        "https://storage.googleapis.com/portable-attachments/object?signed=true",
+      uploadHeaders: (checksum: string) => ({
+        "content-type": "text/plain",
+        "x-goog-meta-hayasend-sha256": checksum,
+      }),
+      env: {},
+    },
+    {
+      name: "Azure Blob",
+      uploadUrl:
+        "https://portableaccount.blob.core.windows.net/attachments/object?signed=true",
+      uploadHeaders: (checksum: string) => ({
+        "content-type": "text/plain",
+        "if-none-match": "*",
+        "x-ms-blob-type": "BlockBlob",
+        "x-ms-meta-hayasend_sha256": checksum,
+      }),
+      env: {},
+    },
+    {
+      name: "explicit S3-compatible origin",
+      uploadUrl: "https://objects.example.com/bucket/object?signed=true",
+      uploadHeaders: (checksum: string) => ({
+        "content-type": "text/plain",
+        "x-amz-meta-hayasend-sha256": checksum,
+      }),
+      env: {
+        HAYASEND_ATTACHMENT_UPLOAD_ORIGINS:
+          "https://objects.example.com",
+      },
+    },
+  ])("uploads to $name without relaxing redirect safety", async ({
+    uploadUrl,
+    uploadHeaders,
+    env,
+  }) => {
+    const cwd = await temporaryDirectory();
+    const content = Buffer.from("portable attachment");
+    await writeFile(join(cwd, "portable.txt"), content);
+    const checksum = createHash("sha256").update(content).digest("hex");
+    const requests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      requests.push(url);
+      if (url === "http://localhost:8787/attachments") {
+        return jsonResponse({
+          id: "att_77777777777777777777777777777777",
+          filename: "portable.txt",
+          content_type: "text/plain",
+          size_bytes: content.byteLength,
+          checksum_sha256: checksum,
+          upload_method: "PUT",
+          upload_url: uploadUrl,
+          upload_headers: uploadHeaders(checksum),
+        });
+      }
+      if (url === uploadUrl) {
+        expect(init?.method).toBe("PUT");
+        expect(init?.redirect).toBe("error");
+        expect(
+          Buffer.from(init?.body as Uint8Array).toString(),
+        ).toBe(content.toString());
+        return new Response(null, { status: 200 });
+      }
+      expect(url).toBe("http://localhost:8787/emails");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        attachments: [
+          {
+            attachment_id:
+              "att_77777777777777777777777777777777",
+          },
+        ],
+      });
+      return jsonResponse({
+        id: "email_77777777777777777777777777777777",
+      });
+    });
+
+    await runCli(
+      [
+        "emails",
+        "send",
+        "--from",
+        "sender@example.com",
+        "--to",
+        "recipient@example.net",
+        "--subject",
+        "portable",
+        "--text",
+        "body",
+        "--attachment",
+        "portable.txt",
+      ],
+      {
+        cwd,
+        env,
+        fetch: fetchMock,
+        io: capturingIo().io,
+      },
+    );
+
+    expect(requests).toEqual([
+      "http://localhost:8787/attachments",
+      uploadUrl,
+      "http://localhost:8787/emails",
+    ]);
   });
 
   it("does not create an email when an attachment PUT fails", async () => {

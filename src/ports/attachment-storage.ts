@@ -6,6 +6,7 @@ import type {
 
 export interface AttachmentStorage {
   assertConfigured?(): void;
+  checkReadiness?(): Promise<void>;
   createUploadTarget(
     record: AttachmentUploadRecord,
     uploadToken: string,

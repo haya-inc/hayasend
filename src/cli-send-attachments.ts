@@ -40,6 +40,7 @@ interface AttachmentUpload {
 export interface AttachmentUploadContext {
   baseUrl: string;
   fetch: typeof fetch;
+  allowedUploadOrigins?: ReadonlySet<string>;
   request(path: string, init?: RequestInit): Promise<unknown>;
 }
 
@@ -156,7 +157,78 @@ function isAwsS3Hostname(hostname: string) {
     .some((label) => label === "s3" || label.startsWith("s3-"));
 }
 
-function safeUploadUrl(value: unknown, baseUrl: string) {
+function isGoogleCloudStorageHostname(hostname: string) {
+  return (
+    hostname === "storage.googleapis.com" ||
+    hostname.endsWith(".storage.googleapis.com")
+  );
+}
+
+function isAzureBlobHostname(hostname: string) {
+  return [
+    ".blob.core.windows.net",
+    ".blob.core.chinacloudapi.cn",
+    ".blob.core.usgovcloudapi.net",
+    ".blob.core.cloudapi.de",
+  ].some(
+    (suffix) =>
+      hostname.endsWith(suffix) &&
+      hostname.length > suffix.length,
+  );
+}
+
+function isBuiltInObjectStorageHostname(hostname: string) {
+  return (
+    isAwsS3Hostname(hostname) ||
+    isGoogleCloudStorageHostname(hostname) ||
+    isAzureBlobHostname(hostname)
+  );
+}
+
+export function parseAttachmentUploadOrigins(value: string | undefined) {
+  const origins = new Set<string>();
+  if (!value) {
+    return origins;
+  }
+  const entries = value.split(",");
+  if (entries.length > 20) {
+    throw new Error(
+      "HAYASEND_ATTACHMENT_UPLOAD_ORIGINS accepts at most 20 origins.",
+    );
+  }
+  for (const entry of entries) {
+    let url: URL;
+    try {
+      url = new URL(entry.trim());
+    } catch {
+      throw new Error(
+        "HAYASEND_ATTACHMENT_UPLOAD_ORIGINS must contain comma-separated absolute origins.",
+      );
+    }
+    const loopback = isLoopback(url.hostname);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      (url.protocol === "http:" && !loopback) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !["", "/"].includes(url.pathname)
+    ) {
+      throw new Error(
+        "HAYASEND_ATTACHMENT_UPLOAD_ORIGINS must contain HTTPS origins (HTTP is allowed only for loopback emulators).",
+      );
+    }
+    origins.add(url.origin);
+  }
+  return origins;
+}
+
+function safeUploadUrl(
+  value: unknown,
+  baseUrl: string,
+  allowedUploadOrigins: ReadonlySet<string> = new Set(),
+) {
   if (typeof value !== "string") {
     throw new Error("HayaSend returned an invalid attachment upload URL.");
   }
@@ -184,10 +256,12 @@ function safeUploadUrl(value: unknown, baseUrl: string) {
   if (
     url.origin !== api.origin &&
     !loopbackUpload &&
-    (url.protocol !== "https:" || !isAwsS3Hostname(url.hostname))
+    (url.protocol !== "https:" ||
+      (!isBuiltInObjectStorageHostname(url.hostname) &&
+        !allowedUploadOrigins.has(url.origin)))
   ) {
     throw new Error(
-      "HayaSend returned an attachment upload URL outside its API origin or AWS S3.",
+      "HayaSend returned an attachment upload URL outside its API origin or trusted object-storage origins.",
     );
   }
   return url.toString();
@@ -202,6 +276,16 @@ function uploadHeaders(
     throw new Error("HayaSend returned invalid attachment upload headers.");
   }
   const headers = new Headers();
+  const allowedHeaders = new Set([
+    "content-type",
+    "if-none-match",
+    "x-amz-checksum-sha256",
+    "x-amz-meta-hayasend-sha256",
+    "x-amz-server-side-encryption",
+    "x-goog-meta-hayasend-sha256",
+    "x-ms-blob-type",
+    "x-ms-meta-hayasend_sha256",
+  ]);
   for (const [name, headerValue] of Object.entries(value)) {
     if (
       typeof headerValue !== "string" ||
@@ -210,11 +294,7 @@ function uploadHeaders(
     ) {
       throw new Error("HayaSend returned invalid attachment upload headers.");
     }
-    if (
-      ["authorization", "content-length", "cookie", "host"].includes(
-        name.toLowerCase(),
-      )
-    ) {
+    if (!allowedHeaders.has(name.toLowerCase())) {
       throw new Error(
         `HayaSend returned a forbidden attachment upload header: ${name}.`,
       );
@@ -233,6 +313,36 @@ function uploadHeaders(
   ) {
     throw new Error(
       "HayaSend returned an unexpected attachment checksum header.",
+    );
+  }
+  for (const name of [
+    "x-amz-meta-hayasend-sha256",
+    "x-goog-meta-hayasend-sha256",
+    "x-ms-meta-hayasend_sha256",
+  ]) {
+    const value = headers.get(name);
+    if (value !== null && value !== checksum) {
+      throw new Error(
+        "HayaSend returned an unexpected attachment checksum header.",
+      );
+    }
+  }
+  const blobType = headers.get("x-ms-blob-type");
+  if (blobType !== null && blobType !== "BlockBlob") {
+    throw new Error(
+      "HayaSend returned an unexpected Azure Blob upload type.",
+    );
+  }
+  const ifNoneMatch = headers.get("if-none-match");
+  if (ifNoneMatch !== null && ifNoneMatch !== "*") {
+    throw new Error(
+      "HayaSend returned an unsafe conditional upload header.",
+    );
+  }
+  const encryption = headers.get("x-amz-server-side-encryption");
+  if (encryption !== null && encryption !== "AES256") {
+    throw new Error(
+      "HayaSend returned an unsupported object-storage encryption header.",
     );
   }
   return headers;
@@ -260,7 +370,11 @@ function parseUpload(
   }
   return {
     id: upload.id,
-    url: safeUploadUrl(upload.upload_url, context.baseUrl),
+    url: safeUploadUrl(
+      upload.upload_url,
+      context.baseUrl,
+      context.allowedUploadOrigins,
+    ),
     headers: uploadHeaders(
       upload.upload_headers,
       attachment.contentType,

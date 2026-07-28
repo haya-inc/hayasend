@@ -32,6 +32,7 @@ export interface SendCommandContext {
   baseUrl: string;
   cwd: string;
   fetch: typeof fetch;
+  allowedUploadOrigins?: ReadonlySet<string>;
   log(message: string): void;
   readStdin(maximumBytes: number): Promise<Uint8Array>;
   request(path: string, init?: RequestInit): Promise<unknown>;

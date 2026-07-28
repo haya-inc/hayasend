@@ -296,7 +296,9 @@ describe("R2 integrity, retention, and orphan recovery", () => {
 
     const result = await storage.sweepOrphans({
       referenced_keys: referencedKeys,
-      now: new Date("2026-07-28T14:00:00.000Z"),
+      now: new Date(
+        orphanPage.objects[0]!.uploaded.getTime() + 1_000,
+      ),
       prefix,
     });
     expect(result).toMatchObject({

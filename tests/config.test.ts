@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
@@ -123,6 +126,8 @@ describe("loadConfig", () => {
       workerOutboxIntervalMs: 1_000,
       jobMaxAttempts: 10,
       jobRetentionDays: 7,
+      portableObjectStorage: "disabled",
+      s3ForcePathStyle: false,
     });
     expect(() =>
       loadConfig({
@@ -144,6 +149,142 @@ describe("loadConfig", () => {
         HAYASEND_TRANSPORT: "console",
       }),
     ).toThrow("not supported in production");
+  });
+
+  it("loads provider-native portable object-storage settings", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "aws-ses",
+    };
+
+    expect(
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "s3",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "portable-attachments",
+        HAYASEND_S3_ENDPOINT: "https://objects.example.com",
+        HAYASEND_S3_FORCE_PATH_STYLE: "true",
+      }),
+    ).toMatchObject({
+      portableObjectStorage: "s3",
+      objectStorageBucket: "portable-attachments",
+      s3Endpoint: "https://objects.example.com",
+      s3ForcePathStyle: true,
+    });
+
+    expect(
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "gcs",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "portable-attachments",
+        GOOGLE_CLOUD_PROJECT: "hayasend-test",
+      }),
+    ).toMatchObject({
+      portableObjectStorage: "gcs",
+      objectStorageBucket: "portable-attachments",
+      gcsProjectId: "hayasend-test",
+    });
+
+    expect(
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "azure-blob",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "attachments",
+        AZURE_STORAGE_ACCOUNT_NAME: "portableaccount",
+      }),
+    ).toMatchObject({
+      portableObjectStorage: "azure-blob",
+      objectStorageBucket: "attachments",
+      azureStorageAccount: "portableaccount",
+    });
+  });
+
+  it("fails closed on incomplete or unsafe object-storage settings", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL: "postgresql://database.internal/hayasend",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "aws-ses",
+    };
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "gcs",
+      }),
+    ).toThrow("HAYASEND_OBJECT_STORAGE_BUCKET");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE_BUCKET: "portable-attachments",
+      }),
+    ).toThrow("requires an enabled");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "s3",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "portable-attachments",
+        HAYASEND_S3_ENDPOINT: "http://objects.example.com",
+      }),
+    ).toThrow("HTTPS service origin");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "azure-blob",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "Invalid_Container",
+        AZURE_STORAGE_ACCOUNT_NAME: "portableaccount",
+      }),
+    ).toThrow("safe provider bucket");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_OBJECT_STORAGE: "azure-blob",
+        HAYASEND_OBJECT_STORAGE_BUCKET: "attachments",
+      }),
+    ).toThrow("AZURE_STORAGE_ACCOUNT_NAME");
+  });
+
+  it("loads portable secrets from bounded mounted files", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "hayasend-config-secrets-"),
+    );
+    const databaseFile = join(directory, "database-url");
+    const apiKeyFile = join(directory, "api-key");
+    try {
+      await writeFile(
+        databaseFile,
+        "postgresql://database.internal/hayasend?sslmode=require\n",
+      );
+      await writeFile(apiKeyFile, "re_portable_bootstrap_key\n");
+
+      expect(
+        loadConfig({
+          HAYASEND_MODE: "portable",
+          HAYASEND_DATABASE_URL_FILE: databaseFile,
+          HAYASEND_API_KEY_FILE: apiKeyFile,
+          HAYASEND_TRANSPORT: "aws-ses",
+        }),
+      ).toMatchObject({
+        databaseUrl:
+          "postgresql://database.internal/hayasend?sslmode=require",
+        apiKey: "re_portable_bootstrap_key",
+      });
+
+      expect(() =>
+        loadConfig({
+          HAYASEND_MODE: "portable",
+          HAYASEND_DATABASE_URL:
+            "postgresql://database.internal/hayasend",
+          HAYASEND_DATABASE_URL_FILE: databaseFile,
+          HAYASEND_API_KEY_FILE: apiKeyFile,
+          HAYASEND_TRANSPORT: "aws-ses",
+        }),
+      ).toThrow("may not both be set");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects unknown runtime modes and credential-bearing non-PostgreSQL URLs", () => {
