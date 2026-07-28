@@ -156,6 +156,71 @@ jobs:
             deploy/railway/verify.sh \
             deploy/railway/cleanup.sh
 
+  flyio-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify the pinned flyctl and deployment pack
+        env:
+          FLYCTL_SHA256: 000edf4711de7b1a854a11f8148912dc63b30fba99ae52d3bbce98627015ec26
+          FLYCTL_VERSION: 0.4.75
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/flyctl"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/flyctl.tar.gz" \
+            "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_Linux_x86_64.tar.gz"
+          printf '%s  %s\n' \
+            "$FLYCTL_SHA256" \
+            "$cli_directory/flyctl.tar.gz" \
+            | sha256sum --check
+          tar -xzf "$cli_directory/flyctl.tar.gz" -C "$cli_directory"
+          test "$("$cli_directory/flyctl" version | sed -n '1s/ .*//p')" = \
+            "flyctl"
+          test "$(
+            "$cli_directory/flyctl" version |
+              sed -n '1s/^flyctl v\([^ ]*\).*/\1/p'
+          )" = "$FLYCTL_VERSION"
+          "$cli_directory/flyctl" config validate --help > /dev/null
+          "$cli_directory/flyctl" mpg create --help > /dev/null
+          "$cli_directory/flyctl" storage create --help > /dev/null
+          test "$(< deploy/flyio/.flyctl-version)" = "$FLYCTL_VERSION"
+          test "$(< deploy/flyio/.flyctl-linux-x86_64-sha256)" = \
+            "$FLYCTL_SHA256"
+          image="$(
+            sed -n 's/^  image = "\(.*\)"/\1/p' \
+              deploy/flyio/fly.toml
+          )"
+          machine_digest="$(
+            docker buildx imagetools inspect --raw "$image" |
+              jq --raw-output '
+                [
+                  .manifests[] |
+                  select(
+                    .platform.os == "linux" and
+                    .platform.architecture == "amd64"
+                  )
+                ] |
+                if length == 1 then
+                  .[0].digest
+                else
+                  error("ambiguous Linux/amd64 manifest")
+                end
+              '
+          )"
+          test "$(< deploy/flyio/.image-linux-amd64-sha256)" = \
+            "$machine_digest"
+          node scripts/validate-flyio-config.mjs
+          shellcheck -x \
+            deploy/flyio/lib.sh \
+            deploy/flyio/provision.sh \
+            deploy/flyio/deploy.sh \
+            deploy/flyio/verify.sh \
+            deploy/flyio/rollback.sh \
+            deploy/flyio/cleanup.sh
+
   postgres-substrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -208,6 +273,7 @@ jobs:
       - run: npm run check
       - run: npm run check:workers
       - run: npm run check:conformance
+      - run: npm run validate:flyio
       - run: npm run validate:railway
       - run: npm run validate:render
       - run: npm test
@@ -450,9 +516,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 440 and
-            .size < 590000 and
-            .unpackedSize < 3000000 and
+            .entryCount <= 460 and
+            .size < 620000 and
+            .unpackedSize < 3150000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -499,6 +565,14 @@ jobs:
               index("deploy/railway/.railway-cli-version") != null) and
             ([.files[].path] |
               index("deploy/railway/.railway-cli-linux-x86_64-sha256") != null) and
+            ([.files[].path] |
+              index("deploy/flyio/fly.toml") != null) and
+            ([.files[].path] |
+              index("deploy/flyio/.flyctl-version") != null) and
+            ([.files[].path] |
+              index("deploy/flyio/.flyctl-linux-x86_64-sha256") != null) and
+            ([.files[].path] |
+              index("deploy/flyio/.image-linux-amd64-sha256") != null) and
             ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
@@ -574,6 +648,17 @@ jobs:
           test -x "$package_root/deploy/railway/deploy.sh"
           test -x "$package_root/deploy/railway/verify.sh"
           test -x "$package_root/deploy/railway/cleanup.sh"
+          test -f "$package_root/deploy/flyio/fly.toml"
+          test -f "$package_root/deploy/flyio/.flyctl-version"
+          test -f \
+            "$package_root/deploy/flyio/.flyctl-linux-x86_64-sha256"
+          test -f \
+            "$package_root/deploy/flyio/.image-linux-amd64-sha256"
+          test -x "$package_root/deploy/flyio/provision.sh"
+          test -x "$package_root/deploy/flyio/deploy.sh"
+          test -x "$package_root/deploy/flyio/verify.sh"
+          test -x "$package_root/deploy/flyio/rollback.sh"
+          test -x "$package_root/deploy/flyio/cleanup.sh"
           test -x "$consumer/node_modules/.bin/railway-iac-ts"
           (
             cd "$consumer"

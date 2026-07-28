@@ -1,0 +1,63 @@
+app = "hayasend-flyio"
+primary_region = "nrt"
+kill_signal = "SIGTERM"
+kill_timeout = "120s"
+
+[build]
+  image = "ghcr.io/haya-inc/hayasend@sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96"
+
+[deploy]
+  release_command = "node dist/portable/migrate.js"
+  release_command_timeout = "10m"
+  strategy = "rolling"
+
+[env]
+  AWS_REGION = "auto"
+  HAYASEND_HOST = "0.0.0.0"
+  HAYASEND_MODE = "portable"
+  HAYASEND_OBJECT_STORAGE = "s3"
+  HAYASEND_PORT = "8080"
+  HAYASEND_POSTGRES_POOL_MAX = "8"
+  HAYASEND_S3_ENDPOINT = "https://t3.storage.dev"
+  HAYASEND_S3_FORCE_PATH_STYLE = "false"
+  HAYASEND_TRANSPORT = "console"
+  HAYASEND_WORKER_CONCURRENCY = "4"
+  PRIMARY_REGION = "nrt"
+
+[processes]
+  api = "node dist/server.js"
+  worker = "node dist/portable/worker.js"
+
+[http_service]
+  processes = ["api"]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 100
+    hard_limit = 150
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/readyz"
+
+[[restart]]
+  processes = ["worker"]
+  policy = "always"
+
+[[vm]]
+  processes = ["api"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-1x"
+  memory = "512mb"

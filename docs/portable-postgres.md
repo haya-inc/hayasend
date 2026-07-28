@@ -164,14 +164,16 @@ do not log the URL because it may contain credentials.
   backup/restore, terminal-delivery, and cleanup evidence pass. The
   [experimental Cloud Run pack](../deploy/cloud-run/README.md) is published,
   as are the [experimental Render pack](../deploy/render/README.md) and
-  [experimental Railway pack](../deploy/railway/README.md), but their hosted
-  evidence is still pending.
+  [experimental Railway pack](../deploy/railway/README.md) and
+  [experimental Fly.io pack](../deploy/flyio/README.md), but their hosted
+  evidence is still pending. Fly Managed Postgres currently uses PostgreSQL
+  17 rather than the PostgreSQL 18 primary test substrate.
 
 See [runtime portability](runtime-portability.md) for the full provider matrix.
 
 ## Official storage references
 
-Checked on 2026-07-28:
+Checked on 2026-07-29:
 
 - [Google Cloud Storage V4 signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers)
 - [Google Cloud Storage IAM permissions for signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers#required-permissions)
@@ -184,6 +186,9 @@ Checked on 2026-07-28:
 - [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
 - [Railway Storage Buckets](https://docs.railway.com/storage-buckets)
 - [Railway volume backups](https://docs.railway.com/volumes/backups)
+- [Fly.io app configuration](https://fly.io/docs/reference/configuration/)
+- [Fly.io Managed Postgres](https://fly.io/docs/mpg/)
+- [Fly.io Tigris object storage](https://fly.io/docs/tigris/)
 - [Azure Blob user delegation SAS](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript)
 - [Authorize access with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory)
 - [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)

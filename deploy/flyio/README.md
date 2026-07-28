@@ -1,0 +1,262 @@
+# Fly.io deployment pack
+
+This experimental pack binds HayaSend's shared `portable-postgres` runtime to:
+
+- one Fly App with separate API and continuously running worker process groups;
+- Fly.io Managed Postgres;
+- one private Tigris S3-compatible bucket; and
+- Fly secrets for the API key, database URL, and bucket credentials.
+
+The default `console` transport sends no mail. This pack is an implementation
+starting point, not a Beta or production-readiness claim.
+
+## Pinned inputs
+
+Validated on 2026-07-29 with:
+
+- `flyctl 0.4.75`;
+- HayaSend `0.2.0` OCI index digest
+  `sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96`;
+- its Linux/amd64 manifest digest
+  `sha256:59de1435b05e09bbcf96cec805af8bdb4fb9919807f0f7a8dc3f1d965860c0cd`;
+- the latest Fly.io Managed Postgres major accepted by that CLI, PostgreSQL
+  `17`; and
+- the Tokyo Fly region `nrt`.
+
+Repository CI verifies the Linux x86_64 release archive against GitHub's
+published SHA-256 digest, checks the installed command surface, statically
+validates the reviewed `fly.toml`, verifies its recorded Linux/amd64 manifest
+against the live immutable OCI index, and ShellChecks every lifecycle script.
+The authenticated deploy path additionally runs `fly config validate
+--strict`.
+
+Fly Managed Postgres does not yet expose PostgreSQL 18. That version gap is
+explicit: HayaSend's PostgreSQL 18 CI remains the primary substrate proof,
+while the hosted Fly composition must separately pass the same conformance
+catalog on PostgreSQL 17.
+
+## Resource names and cost guard
+
+Choose a globally unique app name beginning with `hayasend-flyio-`. The pack
+derives two exact names:
+
+- Managed Postgres: `<app>-mpg`
+- Tigris bucket: `<app>-attachments`
+
+Provisioning creates billable resources. Review current Fly.io and Tigris
+pricing, choose a Managed Postgres plan explicitly, and use only an isolated
+test app:
+
+```bash
+export HAYASEND_FLY_APP="hayasend-flyio-example"
+export HAYASEND_FLY_ORG="your-org"
+export HAYASEND_FLY_MPG_PLAN="basic"
+export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
+export HAYASEND_FLY_CREATE="confirmed"
+./provision.sh
+```
+
+`provision.sh` refuses an existing app, database name, or bucket. Fly's
+Managed Postgres create command currently prints a connection URI and Tigris
+prints access keys. The script captures that output in a mode-700 temporary
+directory, never echoes it, overwrites the temporary files, and removes the
+directory. The resulting values are available only as encrypted Fly secrets;
+`fly secrets list` returns names and digests, not values.
+
+Store the API key in an operator password/secrets system. If operators need
+direct bucket access for backup or cleanup evidence, create a separately
+scoped Tigris key in the Tigris console instead of trying to recover the
+application secret.
+
+Record the non-secret Managed Postgres cluster ID printed at the end:
+
+```bash
+export HAYASEND_FLY_MPG_CLUSTER_ID="replace-with-exact-id"
+export HAYASEND_FLY_BUCKET="${HAYASEND_FLY_APP}-attachments"
+```
+
+## Deploy and verify
+
+Export the reviewed immutable image and deploy:
+
+```bash
+export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:..."
+export HAYASEND_FLY_MACHINE_IMAGE_DIGEST="sha256:..."
+./deploy.sh
+```
+
+Fly can mirror an external image under a Fly Registry deployment tag, so the
+Machine's `config.image` string is not a reliable copy of the original GHCR
+reference. Derive and independently record the Linux/amd64 child manifest
+from the reviewed OCI index before deployment. For example, with a current
+Docker Buildx installation:
+
+```bash
+docker buildx imagetools inspect --raw "$HAYASEND_IMAGE" |
+  jq --raw-output '
+    [
+      .manifests[] |
+      select(
+        .platform.os == "linux" and
+        .platform.architecture == "amd64"
+      )
+    ] |
+    if length == 1 then .[0].digest else error("ambiguous manifest") end
+  '
+```
+
+The shipped `0.2.0` value is also recorded in
+`.image-linux-amd64-sha256`. `verify.sh` requires both process groups to
+report that exact runtime digest through the Machine API, the official
+HayaSend OCI source/title labels, and one shared non-empty Fly image
+reference.
+
+The config uses:
+
+- `release_command = "node dist/portable/migrate.js"` before Machine updates;
+- an API process running `node dist/server.js`;
+- a worker process running `node dist/portable/worker.js`;
+- the default rolling strategy;
+- no application-attached volume;
+- one always-on API Machine and one always-on worker Machine for the initial
+  experimental proof;
+- `/readyz` Fly health checks; and
+- the canonical new-code Tigris endpoint `https://t3.storage.dev`.
+
+`--ha=false` makes initial cost and inventory deterministic. It is not an HA
+claim. Before promotion, size and prove multiple API and worker Machines,
+regional placement, connection-pool totals, worker lease takeover, and failure
+recovery.
+
+`verify.sh` fails unless:
+
+- exactly one named app exists in the selected organization;
+- exactly one ready Managed Postgres cluster is attached only to that app;
+- exactly one active private Tigris bucket is attached to that app;
+- all required secret names exist with exact `Deployed` status;
+- exactly one started API Machine and one started worker Machine use the
+  expected immutable image and have no volumes;
+- every reported Fly health check passes; and
+- `/healthz` and `/readyz` respond successfully over HTTPS.
+
+The default API origin is:
+
+```text
+https://<app>.fly.dev
+```
+
+Custom-domain certificates and DNS are a separate hosted acceptance step.
+
+## Storage boundary
+
+Tigris is private by default, S3-compatible, globally placed, and integrated
+with Fly secrets. HayaSend uses the canonical endpoint, region `auto`, virtual
+host addressing, checksum-bound presigned uploads, and final byte-level
+SHA-256 verification before provider submission.
+
+Buckets created by `fly storage create` do **not** have Tigris snapshots
+enabled. Snapshots must be enabled when a bucket is created and cannot be
+enabled later. Production evaluation therefore needs one of:
+
+- a new snapshot-enabled bucket created with the authenticated Tigris CLI,
+  followed by migration and a restore/fork drill; or
+- an independently proven shadow/write-through or backup destination.
+
+Cross-region caching/replication is not a substitute for a recoverable
+point-in-time backup. Do not promote this pack until database plus object
+storage restoration produces the same ledger/payload state and recovers due
+work without an external send.
+
+Tigris credentials occupy the standard AWS credential variables for S3.
+They are storage credentials, not Amazon SES credentials.
+
+## Managed Postgres boundary
+
+Fly.io describes Managed Postgres as providing automatic backups and recovery,
+high availability with automatic failover, private networking, monitoring,
+scaling, and encryption at rest and in transit. Those provider statements are
+not HayaSend evidence by themselves. A hosted proof must exercise backup
+creation/listing, isolated restore, connection cutover, ledger integrity, and
+due-work recovery.
+
+Current Fly documentation also lists security patches and version upgrades as
+still under development. Treat engine upgrade and major-version migration as
+open operational blockers, and record the exact plan, retention, recovery
+window, replica count, and support terms observed during the proof.
+
+## Rollback
+
+Fly.io rollback is a deployment of a previous image, not database time travel.
+Use a reviewed GHCR digest so rollback does not depend on Fly registry
+retention:
+
+```bash
+export HAYASEND_ROLLBACK_IMAGE="ghcr.io/haya-inc/hayasend@sha256:..."
+export HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST="sha256:..."
+./rollback.sh
+```
+
+The script uses a rolling deployment and deliberately skips the release
+command. The database remains on its forward-compatible additive schema.
+Fly configuration and secrets also remain current. Prove that the immediately
+previous application revision works against that schema before relying on
+rollback.
+
+## Transport boundary
+
+`HAYASEND_TRANSPORT=console` records synthetic acceptance for lifecycle tests
+and sends no mail. Deployment success, API acceptance, or a running worker is
+not terminal delivery evidence.
+
+A certified external HTTP transport still needs submission limits, custom
+domain checks, retry classification, provider identity, recipient-level
+terminal events, duplicate/out-of-order convergence, bounce/complaint
+behavior, controlled receipt, and exact combined maturity evidence.
+
+## Cleanup
+
+First delete every object and use an authenticated S3 `ListObjectsV2` against
+the exact bucket to prove zero objects. Then set all guards:
+
+```bash
+export HAYASEND_ALLOW_DESTROY="flyio"
+export HAYASEND_FLY_DEDICATED_APP="true"
+export HAYASEND_FLY_TIGRIS_EMPTY="true"
+./cleanup.sh
+```
+
+The final flag is an operator attestation backed by the separate authenticated
+zero-object result; `flyctl storage status` does not expose an object count.
+The script independently verifies the exact app, only-attached database,
+private bucket, secret names, immutable image, two process groups, and absence
+of Machine volumes before deletion. It destroys the empty bucket first, the
+app second, and Managed Postgres last, then requires all three names/IDs to be
+absent from active inventory.
+
+Also verify custom domains/certificates, separately created Tigris keys,
+snapshot forks, retained database backups, organization tokens, and billing.
+The script cannot prove deletion of resources created outside its exact
+inventory.
+
+## Promotion gates
+
+Keep the Fly.io composition experimental until an isolated hosted run proves:
+
+- PostgreSQL 17 conformance parity;
+- queue-loss, process-loss, and 30-day due-row recovery;
+- upgrade and compatible application rollback;
+- Managed Postgres failover and isolated restore;
+- Tigris snapshot/backup restore and payload integrity;
+- multi-Machine API/worker behavior and capacity;
+- an exact external transport with terminal recipient evidence; and
+- zero active and retained residue with a billing check.
+
+## Official references
+
+- [Install flyctl](https://fly.io/docs/flyctl/install/)
+- [App configuration](https://fly.io/docs/reference/configuration/)
+- [Deploy an app](https://fly.io/docs/launch/deploy/)
+- [Process groups](https://fly.io/docs/launch/processes/)
+- [Rollback guide](https://fly.io/docs/blueprints/rollback-guide/)
+- [Managed Postgres](https://fly.io/docs/mpg/)
+- [Tigris object storage](https://fly.io/docs/tigris/)
