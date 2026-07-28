@@ -70,7 +70,7 @@
     "site:verify": "node scripts/verify-site.mjs",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "test:postgres": "vitest run tests/postgres/postgres-delivery-store.test.ts --pool=threads --maxWorkers=1",
+    "test:postgres": "vitest run tests/postgres --pool=threads --maxWorkers=1",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest"
   },

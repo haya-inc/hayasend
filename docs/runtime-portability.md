@@ -68,9 +68,9 @@ non-production until
 [issue #122](https://github.com/haya-inc/hayasend/issues/122) proves a terminal
 event and controlled receipt.
 
-### `portable-postgres` (planned)
+### `portable-postgres` (foundation in progress)
 
-The next shared foundation is one API container and one worker container with:
+The shared foundation is one API container and one worker container with:
 
 - PostgreSQL transactions for messages, recipient ledger, attempts, events,
   idempotency claims, and outbox rows;
@@ -85,6 +85,16 @@ The next shared foundation is one API container and one worker container with:
 This single runtime is the intended path to Cloud Run, Azure Container Apps,
 Render, Railway, and Fly.io. Each platform gets a deployment pack and exact
 operational evidence, not a fork of core delivery logic.
+
+The PostgreSQL 18 substrate now implements the complete application `Store`
+contract: the delivery ledger and transactional outbox, emails, templates and
+immutable publication history, attachments, inbound claims, domains,
+webhooks and delivery history, API keys, and suppressions. Forward-only
+migrations are serialized with a PostgreSQL advisory lock and each applied
+migration is pinned by SHA-256 checksum. Runtime wiring, the durable job
+worker, object-storage adapters, backup/restore drills, and platform
+deployment evidence remain prerequisites before this profile can be claimed
+as a supported Beta deployment.
 
 ### `vercel-serverless` (planned experimental)
 
