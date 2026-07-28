@@ -18,8 +18,8 @@ Validated on 2026-07-29 with:
 
 - Railway CLI `5.30.1`;
 - Railway IaC SDK `railway@3.6.0`;
-- HayaSend `0.2.0` OCI index digest
-  `sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96`;
+- HayaSend `0.3.0` OCI index digest
+  `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`;
 - PostgreSQL `18`;
 - the Singapore Railway compute region
   `asia-southeast1-eqsg3a`; and
@@ -61,7 +61,7 @@ From `deploy/railway`, export the non-secret identifiers and immutable image:
 ```bash
 export HAYASEND_RAILWAY_PROJECT_ID="00000000-0000-4000-8000-000000000000"
 export HAYASEND_RAILWAY_ENVIRONMENT_ID="00000000-0000-4000-8000-000000000000"
-export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:..."
+export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519"
 ./deploy.sh
 ```
 

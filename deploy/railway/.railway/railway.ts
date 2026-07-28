@@ -11,7 +11,7 @@ import {
 
 const railwayRegion = "asia-southeast1-eqsg3a";
 const releasedImage =
-  "ghcr.io/haya-inc/hayasend@sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96";
+  "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519";
 const imageReference = process.env.HAYASEND_IMAGE ?? releasedImage;
 const apiKey = process.env.HAYASEND_API_KEY;
 const sendGridApiKey = process.env.SENDGRID_API_KEY;
