@@ -70,6 +70,7 @@ From `deploy/railway`, export the non-secret identifiers and immutable image:
 ```bash
 export HAYASEND_RAILWAY_PROJECT_ID="00000000-0000-4000-8000-000000000000"
 export HAYASEND_RAILWAY_ENVIRONMENT_ID="00000000-0000-4000-8000-000000000000"
+export HAYASEND_RAILWAY_WORKSPACE_ID="00000000-0000-4000-8000-000000000000"
 export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979"
 ./deploy.sh
 ```
@@ -170,6 +171,14 @@ export HAYASEND_RAILWAY_DEDICATED_PROJECT=true
 ./cleanup.sh
 ```
 
+If a deployment failed before the full graph was created, the integration
+workflow may additionally set
+`HAYASEND_RAILWAY_ALLOW_PARTIAL=true`. This still requires the exact project
+and environment UUIDs, the exact `hayasend-railway` project name, a single
+non-ephemeral `production` environment, and only a subset of the three
+HayaSend services and one HayaSend bucket. It refuses any unexpected resource
+or non-empty bucket before deleting the whole dedicated project.
+
 If Railway requires MFA for non-interactive deletion, additionally provide the
 current six-digit `RAILWAY_2FA_CODE`. The script validates the exact project
 name, project/environment UUIDs, resource inventory, and zero bucket objects
@@ -180,6 +189,31 @@ protective delay. Independently verify final project absence, retained
 database/volume backups, bucket deletion, custom domains, variables, tokens,
 external transport resources, and billing. The script alone is not
 zero-residue evidence.
+
+## GitHub-hosted console proof
+
+`.github/workflows/railway-integration.yml` runs the first non-sending hosted
+proof from the protected `railway-integration` environment. Before dispatch,
+create the empty dedicated project and configure these environment values:
+
+- `RAILWAY_TEST_PROJECT_ID`;
+- `RAILWAY_TEST_ENVIRONMENT_ID`;
+- `RAILWAY_TEST_WORKSPACE_ID`;
+- `RAILWAY_TEST_PROJECT_NAME=hayasend-railway`;
+- `RAILWAY_TEST_ACCOUNT_KIND=general-purpose-test`;
+- `RAILWAY_TEST_PLAN=hobby`;
+- `RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD=10`; and
+- an account- or workspace-scoped secret `RAILWAY_API_TOKEN`.
+
+The workflow requires the exact project UUID as a dispatch confirmation,
+refuses non-empty or multi-environment projects, downloads and verifies the
+pinned CLI, creates a masked one-run HayaSend API key, applies the reviewed
+console-only graph, runs the semantic proof inside the API container, checks
+drift, and always requests guarded deletion of the dedicated project. It does
+not configure Railway billing or usage limits; the environment values are an
+operator assertion and the current plan and hard limit must be checked in the
+Railway Usage screen before approval and dispatch. The final provider
+inventory and billing page still require independent verification.
 
 ## Official references
 

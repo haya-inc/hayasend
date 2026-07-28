@@ -1,0 +1,227 @@
+name: Railway integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_project:
+        description: Exact approved dedicated Railway project UUID
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-railway-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-proof-delete:
+    name: Deploy, prove, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: railway-integration
+    env:
+      HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_TEST_ENVIRONMENT_ID }}
+      HAYASEND_RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_TEST_PROJECT_ID }}
+      HAYASEND_RAILWAY_WORKSPACE_ID: ${{ vars.RAILWAY_TEST_WORKSPACE_ID }}
+      HAYASEND_TRANSPORT: console
+      RAILWAY_CLI_SHA256: c6169e27e87d95d73fb7a30ec2c6b6c767c042f8a3ba9aa98c92deccda8db10c
+      RAILWAY_CLI_VERSION: 5.30.1
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate dedicated-project and cost assertions
+        id: account_guard
+        shell: bash
+        env:
+          RAILWAY_TEST_ACCOUNT_KIND: ${{ vars.RAILWAY_TEST_ACCOUNT_KIND }}
+          RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD: ${{ vars.RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD }}
+          RAILWAY_TEST_PLAN: ${{ vars.RAILWAY_TEST_PLAN }}
+          RAILWAY_TEST_PROJECT_NAME: ${{ vars.RAILWAY_TEST_PROJECT_NAME }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::The Railway hosted proof must run from protected main."
+            exit 1
+          fi
+          uuid_pattern='^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$'
+          if [[ ! "$HAYASEND_RAILWAY_PROJECT_ID" =~ $uuid_pattern ]] ||
+            [[ ! "$HAYASEND_RAILWAY_ENVIRONMENT_ID" =~ $uuid_pattern ]] ||
+            [[ ! "$HAYASEND_RAILWAY_WORKSPACE_ID" =~ $uuid_pattern ]]; then
+            echo "::error::Exact lowercase workspace, project, and environment UUIDs are required."
+            exit 1
+          fi
+          if [[ "${{ inputs.confirm_project }}" != "$HAYASEND_RAILWAY_PROJECT_ID" ]]; then
+            echo "::error::Dispatch confirmation does not match the dedicated project."
+            exit 1
+          fi
+          if [[ "$RAILWAY_TEST_PROJECT_NAME" != "hayasend-railway" ]] ||
+            [[ "$RAILWAY_TEST_ACCOUNT_KIND" != "general-purpose-test" ]]; then
+            echo "::error::The environment must identify the dedicated general-purpose test project."
+            exit 1
+          fi
+          if [[ "$RAILWAY_TEST_PLAN" != "hobby" ]] ||
+            [[ "$RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD" != "10" ]]; then
+            echo "::error::The reviewed Hobby plan and USD 10 Compute hard limit assertions are required."
+            exit 1
+          fi
+          if [[ -z "$RAILWAY_API_TOKEN" ]]; then
+            echo "::error::RAILWAY_API_TOKEN is required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - name: Install npm and dependencies
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts npm@12.0.1
+          npm ci
+
+      - name: Download and verify the pinned Railway CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/railway-cli"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/railway.tar.gz" \
+            "https://github.com/railwayapp/cli/releases/download/v${RAILWAY_CLI_VERSION}/railway-v${RAILWAY_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          printf '%s  %s\n' \
+            "$RAILWAY_CLI_SHA256" \
+            "$cli_directory/railway.tar.gz" \
+            | sha256sum --check
+          tar -xzf "$cli_directory/railway.tar.gz" -C "$cli_directory"
+          test "$("$cli_directory/railway" --version)" = \
+            "railway ${RAILWAY_CLI_VERSION}"
+          echo "RAILWAY_CLI=$cli_directory/railway" >> "$GITHUB_ENV"
+
+      - name: Verify the empty isolated project
+        id: inventory_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          link_directory="$(mktemp -d "$RUNNER_TEMP/hayasend-railway-preflight.XXXXXX")"
+          cd "$link_directory"
+          "$RAILWAY_CLI" whoami >/dev/null
+          "$RAILWAY_CLI" link \
+            --project "$HAYASEND_RAILWAY_PROJECT_ID" \
+            --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+            --workspace "$HAYASEND_RAILWAY_WORKSPACE_ID" \
+            --json >/dev/null
+          environments="$("$RAILWAY_CLI" environment list --json)"
+          jq --exit-status \
+            --arg environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+            '.environments | length == 1 and
+              .[0].id == $environment and
+              .[0].name == "production" and
+              .[0].isEphemeral == false' \
+            <<<"$environments" >/dev/null
+          status="$(
+            "$RAILWAY_CLI" status \
+              --project "$HAYASEND_RAILWAY_PROJECT_ID" \
+              --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+              --json
+          )"
+          jq --exit-status \
+            --arg project "$HAYASEND_RAILWAY_PROJECT_ID" \
+            '.id == $project and
+              .name == "hayasend-railway" and
+              ([.services.edges[].node.name] | length == 0) and
+              ([.buckets.edges[].node.name] | length == 0)' \
+            <<<"$status" >/dev/null
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate a masked one-run API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_key="re_$(openssl rand -hex 32)"
+          echo "::add-mask::$api_key"
+          echo "HAYASEND_API_KEY=$api_key" >> "$GITHUB_ENV"
+
+      - name: Deploy the reviewed console-only graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAILWAY_CLI="$RAILWAY_CLI" \
+            deploy/railway/deploy.sh \
+            | tee "$RUNNER_TEMP/railway-deploy.txt"
+          api_url="$(
+            sed -n 's/^HayaSend Railway API: //p' \
+              "$RUNNER_TEMP/railway-deploy.txt"
+          )"
+          if [[ ! "$api_url" =~ ^https://[a-zA-Z0-9.-]+$ ]]; then
+            echo "::error::The deployed Railway API origin is missing or invalid."
+            exit 1
+          fi
+          echo "HAYASEND_RAILWAY_API_URL=$api_url" >> "$GITHUB_ENV"
+
+      - name: Run the portable semantic proof inside Railway
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RAILWAY_CLI" ssh \
+            --project "$HAYASEND_RAILWAY_PROJECT_ID" \
+            --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+            --service "hayasend-api" \
+            -- \
+            env \
+              "HAYASEND_HOSTED_PROOF_API_URL=$HAYASEND_RAILWAY_API_URL" \
+              "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS=30" \
+              "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS=300" \
+              node dist/portable/hosted-proof.js \
+            | tee "$RUNNER_TEMP/railway-portable-proof.json"
+          jq --exit-status \
+            '.object == "portable_hosted_semantic_proof" and
+              .hayasend_version == "0.3.1" and
+              .database.major_version == 18 and
+              .checks.scheduled_horizon_seconds == 2592000 and
+              .checks.atomic_delivery_commit == true and
+              .checks.idempotency_replay == true and
+              .checks.periodic_sweeper_recovered == true and
+              .checks.provider_acceptance_only == true and
+              .checks.terminal_delivery_claimed == false and
+              .checks.external_send_performed == false and
+              .cleanup.complete == true and
+              .cleanup.fixture_rows_remaining == 0' \
+            "$RUNNER_TEMP/railway-portable-proof.json" >/dev/null
+
+      - name: Verify final drift and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAILWAY_CLI="$RAILWAY_CLI" \
+            deploy/railway/verify.sh
+
+      - name: Delete the dedicated project
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: railway
+          HAYASEND_RAILWAY_ALLOW_PARTIAL: "true"
+          HAYASEND_RAILWAY_DEDICATED_PROJECT: "true"
+        run: |
+          set -euo pipefail
+          RAILWAY_CLI="$RAILWAY_CLI" \
+            deploy/railway/cleanup.sh \
+            | tee "$RUNNER_TEMP/railway-cleanup.txt"
+
+      - name: Upload privacy-safe proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: railway-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/railway-portable-proof.json
+            ${{ runner.temp }}/railway-cleanup.txt
+          if-no-files-found: warn
+          retention-days: 7
