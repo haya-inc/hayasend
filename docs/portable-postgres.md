@@ -161,7 +161,9 @@ do not log the URL because it may contain credentials.
   cross-cloud credential evidence are not complete.
 - No Cloud Run, Azure Container Apps, Render, Railway, or Fly.io deployment is
   claimed supported until its pinned deployment pack and lifecycle,
-  backup/restore, terminal-delivery, and cleanup evidence pass.
+  backup/restore, terminal-delivery, and cleanup evidence pass. The
+  [experimental Cloud Run pack](../deploy/cloud-run/README.md) is published,
+  but its hosted evidence is still pending.
 
 See [runtime portability](runtime-portability.md) for the full provider matrix.
 
@@ -171,6 +173,9 @@ Checked on 2026-07-28:
 
 - [Google Cloud Storage V4 signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers)
 - [Google Cloud Storage IAM permissions for signed URLs](https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers#required-permissions)
+- [Cloud Run resource model](https://docs.cloud.google.com/run/docs/resource-model)
+- [Cloud Run Worker Pools](https://docs.cloud.google.com/run/docs/deploy-worker-pools)
+- [Cloud Run with Cloud SQL for PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/connect-run)
 - [Azure Blob user delegation SAS](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript)
 - [Authorize access with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory)
 - [Amazon S3 presigned uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)

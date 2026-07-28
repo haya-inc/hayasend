@@ -38,7 +38,7 @@ describe("runtime and deployment capability contracts", () => {
     }
   });
 
-  it("keeps the portable runtime experimental until platform evidence exists", () => {
+  it("keeps the portable runtime experimental while Cloud Run evidence is pending", () => {
     expect(
       runtimeCapabilityDocumentSchema.parse(
         PORTABLE_RUNTIME_CAPABILITIES,
@@ -55,7 +55,7 @@ describe("runtime and deployment capability contracts", () => {
         backup_restore: { status: "unsupported" },
       },
       lifecycle: {
-        safe_deploy: { status: "unsupported" },
+        safe_deploy: { status: "conditional" },
         cleanup: { status: "unsupported" },
       },
     });
