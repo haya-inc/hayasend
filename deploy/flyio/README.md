@@ -18,10 +18,10 @@ point, not a Beta or production-readiness claim.
 Validated on 2026-07-29 with:
 
 - `flyctl 0.4.75`;
-- HayaSend `0.3.0` OCI index digest
-  `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`;
+- HayaSend `0.3.1` OCI index digest
+  `sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979`;
 - its Linux/amd64 manifest digest
-  `sha256:4731fbc644c55088399f6a8c11105d9c3b300acb2b3beda71b581289327f2a4b`;
+  `sha256:79a2e9221ad8e395490cf342be9247f5c92013cd5657cdb1dbe7910392567ec6`;
 - the latest Fly.io Managed Postgres major accepted by that CLI, PostgreSQL
   `17`; and
 - the Tokyo Fly region `nrt`.
@@ -84,7 +84,7 @@ export HAYASEND_FLY_BUCKET="${HAYASEND_FLY_APP}-attachments"
 Export the reviewed immutable image and deploy:
 
 ```bash
-export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519"
+export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979"
 export HAYASEND_FLY_MACHINE_IMAGE_DIGEST="sha256:..."
 ./deploy.sh
 ```
@@ -109,7 +109,7 @@ docker buildx imagetools inspect --raw "$HAYASEND_IMAGE" |
   '
 ```
 
-The shipped `0.3.0` value is also recorded in
+The shipped `0.3.1` value is also recorded in
 `.image-linux-amd64-sha256`. `verify.sh` requires both process groups to
 report that exact runtime digest through the Machine API, the official
 HayaSend OCI source/title labels, and one shared non-empty Fly image

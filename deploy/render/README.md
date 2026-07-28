@@ -22,8 +22,8 @@ evidence remain required.
 Validated on 2026-07-29 with:
 
 - Render CLI `2.22.0`;
-- HayaSend `0.3.0` OCI index digest
-  `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`;
+- HayaSend `0.3.1` OCI index digest
+  `sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979`;
 - Render Postgres `18`;
 - `starter` Web Service and Background Worker plans; and
 - the `basic-256mb` paid database plan with an explicit 1 GB disk and storage
@@ -83,7 +83,7 @@ Then export only non-secret resource identifiers and the released digest:
 export RENDER_API_SERVICE_ID="srv-..."
 export RENDER_WORKER_SERVICE_ID="srv-..."
 export HAYASEND_RENDER_API_URL="https://hayasend-api.onrender.com"
-export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519"
+export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979"
 ./deploy.sh
 ./verify.sh
 ```

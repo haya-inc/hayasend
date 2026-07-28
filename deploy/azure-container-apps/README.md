@@ -77,8 +77,8 @@ Validated on 2026-07-29 with:
 - Azure CLI `2.88.0`;
 - Event Grid control-plane API `2025-02-15`;
 - PostgreSQL Flexible Server `18`; and
-- HayaSend `0.3.0` Node.js 24 OCI index digest
-  `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`.
+- HayaSend `0.3.1` Node.js 24 OCI index digest
+  `sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979`.
 
 Exact provider constraints and multi-platform checksums are committed.
 
@@ -111,7 +111,7 @@ arguments:
 export TF_VAR_subscription_id="$(az account show --query id -o tsv)"
 export TF_VAR_tenant_id="$(az account show --query tenantId -o tsv)"
 export TF_VAR_deployer_object_id="$(az ad signed-in-user show --query id -o tsv)"
-export TF_VAR_image="ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519"
+export TF_VAR_image="ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979"
 export TF_VAR_api_key="re_$(openssl rand -hex 32)"
 export TF_VAR_database_password="$(openssl rand -base64 48 | tr -d '\n')"
 export TF_VAR_event_grid_secret="$(openssl rand -base64 48 | tr -d '\n')"
