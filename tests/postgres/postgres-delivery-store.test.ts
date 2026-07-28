@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import postgresDeliveryMigration from "../../migrations/postgres/0001_delivery.sql?raw";
 import { PostgresDeliveryStore } from "../../src/adapters/postgres/postgres-delivery-store.js";
+import { migratePostgres } from "../../src/adapters/postgres/postgres-migrations.js";
 import {
   runDeliverySubstrateContract,
   substrateDelivery,
@@ -19,17 +19,15 @@ if (!databaseUrl) {
     max: 12,
   });
   beforeAll(async () => {
-    const existing = await pool.query<{ table_name: string | null }>(
-      "SELECT to_regclass('public.delivery_messages')::text AS table_name",
-    );
-    if (!existing.rows[0]?.table_name) {
-      await pool.query(postgresDeliveryMigration);
-    }
+    await migratePostgres(pool);
   });
 
   beforeEach(async () => {
     await pool.query(
       `TRUNCATE TABLE
+         received_email_claims,
+         template_aliases,
+         app_entities,
          provider_events,
          delivery_attempts,
          outbox_items,

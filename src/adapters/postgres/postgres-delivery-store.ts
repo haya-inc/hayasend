@@ -104,7 +104,7 @@ function validateLeaseInput(input: LeaseDueOutboxInput): void {
 export class PostgresDeliveryStore
   implements DeliveryOutboxStore, DeliveryLedgerStore
 {
-  constructor(private readonly pool: Pool) {}
+  constructor(protected readonly pool: Pool) {}
 
   async commitDelivery(
     input: DeliveryCommit,
@@ -837,7 +837,7 @@ export class PostgresDeliveryStore
     };
   }
 
-  private async withTransaction<T>(
+  protected async withTransaction<T>(
     operation: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
     const client = await this.pool.connect();
