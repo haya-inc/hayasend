@@ -142,6 +142,14 @@ if (
     "console" ||
   environmentValue(worker, "HAYASEND_TRANSPORT")?.value !==
     "console" ||
+  environmentValue(
+    api,
+    "HAYASEND_CONSOLE_PROOF_CONFIRM",
+  )?.value !== "isolated-non-sending" ||
+  environmentValue(
+    worker,
+    "HAYASEND_CONSOLE_PROOF_CONFIRM",
+  )?.value !== "isolated-non-sending" ||
   environmentValue(api, "HAYASEND_OBJECT_STORAGE")?.value !==
     "disabled" ||
   environmentValue(worker, "HAYASEND_OBJECT_STORAGE")?.value !==

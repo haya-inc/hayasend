@@ -69,6 +69,18 @@ assert.match(
   deployScript,
   /--env "HAYASEND_TRANSPORT=\$HAYASEND_TRANSPORT"/,
 );
+assert.match(
+  deployScript,
+  /export HAYASEND_CONSOLE_PROOF_CONFIRM="isolated-non-sending"/,
+);
+assert.match(
+  deployScript,
+  /--env[\s\\]*\n[\s\\]*"HAYASEND_CONSOLE_PROOF_CONFIRM=\$HAYASEND_CONSOLE_PROOF_CONFIRM"/,
+);
+assert.match(
+  deployScript,
+  /sendgrid\)[\s\S]*unset HAYASEND_CONSOLE_PROOF_CONFIRM/,
+);
 assert.doesNotMatch(
   deployScript,
   /HAYASEND_TRANSPORT=sendgrid[\s\\]*\n[\s\\]*HAYASEND_OBJECT_STORAGE=vercel-blob/,

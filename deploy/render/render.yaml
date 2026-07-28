@@ -30,6 +30,8 @@ services:
         sync: false
       - key: HAYASEND_TRANSPORT
         value: console
+      - key: HAYASEND_CONSOLE_PROOF_CONFIRM
+        value: isolated-non-sending
       - key: HAYASEND_OBJECT_STORAGE
         value: disabled
       - key: HAYASEND_POSTGRES_POOL_MAX
@@ -61,6 +63,8 @@ services:
           envVarKey: HAYASEND_API_KEY
       - key: HAYASEND_TRANSPORT
         value: console
+      - key: HAYASEND_CONSOLE_PROOF_CONFIRM
+        value: isolated-non-sending
       - key: HAYASEND_OBJECT_STORAGE
         value: disabled
       - key: HAYASEND_POSTGRES_POOL_MAX

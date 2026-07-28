@@ -22,8 +22,16 @@ if [[ "$HAYASEND_DATABASE_URL" != postgres://* ]] &&
   exit 1
 fi
 case "$HAYASEND_TRANSPORT" in
-  console) ;;
+  console)
+    if [[ -n "${HAYASEND_CONSOLE_PROOF_CONFIRM:-}" ]] &&
+      [[ "$HAYASEND_CONSOLE_PROOF_CONFIRM" != "isolated-non-sending" ]]; then
+      echo "HAYASEND_CONSOLE_PROOF_CONFIRM must equal isolated-non-sending." >&2
+      exit 1
+    fi
+    export HAYASEND_CONSOLE_PROOF_CONFIRM="isolated-non-sending"
+    ;;
   sendgrid)
+    unset HAYASEND_CONSOLE_PROOF_CONFIRM
     : "${SENDGRID_API_KEY:?Export the same scoped SendGrid API key configured in production.}"
     : "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Export the same SendGrid verification key configured in production.}"
     if [[ "$SENDGRID_API_KEY" != SG.* ]] ||
@@ -72,6 +80,14 @@ fi
     npm run migrate:postgres
 )
 
+console_proof_environment=()
+if [[ "$HAYASEND_TRANSPORT" == "console" ]]; then
+  console_proof_environment=(
+    --env
+    "HAYASEND_CONSOLE_PROOF_CONFIRM=$HAYASEND_CONSOLE_PROOF_CONFIRM"
+  )
+fi
+
 deployment="$(
   VERCEL_ORG_ID="$HAYASEND_VERCEL_ORG_ID" \
     VERCEL_PROJECT_ID="$HAYASEND_VERCEL_PROJECT_ID" \
@@ -79,6 +95,7 @@ deployment="$(
       --prod \
       --yes \
       --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
+      "${console_proof_environment[@]}" \
       --project "$HAYASEND_VERCEL_PROJECT_ID"
 )"
 require_https_origin "Vercel deployment URL" "$deployment"

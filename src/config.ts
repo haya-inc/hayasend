@@ -8,6 +8,8 @@ import {
 import { isAbsolute } from "node:path";
 import { ValidationError } from "./core/errors.js";
 
+export const CONSOLE_PROOF_CONFIRMATION = "isolated-non-sending";
+
 export interface Config {
   mode: "local" | "aws" | "portable";
   apiKey?: string;
@@ -607,10 +609,12 @@ export function loadConfig(env = process.env): Config {
   if (
     mode === "portable" &&
     portableTransport === "console" &&
-    env.NODE_ENV === "production"
+    env.NODE_ENV === "production" &&
+    env.HAYASEND_CONSOLE_PROOF_CONFIRM !==
+      CONSOLE_PROOF_CONFIRMATION
   ) {
     throw new ValidationError(
-      "The console transport is not supported in production portable mode.",
+      `Production portable console mode is non-sending and requires HAYASEND_CONSOLE_PROOF_CONFIRM=${CONSOLE_PROOF_CONFIRMATION}.`,
     );
   }
   const host =

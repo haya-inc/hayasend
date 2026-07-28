@@ -53,6 +53,7 @@ assert.match(
   /HAYASEND_S3_ENDPOINT = "https:\/\/t3\.storage\.dev"/,
 );
 assert.match(source, /HAYASEND_TRANSPORT = "console"/);
+assert.doesNotMatch(source, /HAYASEND_CONSOLE_PROOF_CONFIRM\s*=/);
 assert.doesNotMatch(source, /HAYASEND_API_KEY\s*=/);
 assert.doesNotMatch(source, /SENDGRID_API_KEY\s*=/);
 assert.doesNotMatch(
@@ -63,6 +64,26 @@ assert.doesNotMatch(source, /HAYASEND_DATABASE_URL\s*=/);
 assert.doesNotMatch(source, /AWS_ACCESS_KEY_ID\s*=/);
 assert.doesNotMatch(source, /AWS_SECRET_ACCESS_KEY\s*=/);
 assert.doesNotMatch(source, /\$\{/);
+
+for (const scriptPath of ["deploy.sh", "rollback.sh"]) {
+  const script = await readFile(
+    new URL(`../deploy/flyio/${scriptPath}`, import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    script,
+    /HAYASEND_CONSOLE_PROOF_CONFIRM=\$HAYASEND_CONSOLE_PROOF_CONFIRM/,
+  );
+}
+const library = await readFile(
+  new URL("../deploy/flyio/lib.sh", import.meta.url),
+  "utf8",
+);
+assert.match(
+  library,
+  /export HAYASEND_CONSOLE_PROOF_CONFIRM="isolated-non-sending"/,
+);
+assert.match(library, /unset HAYASEND_CONSOLE_PROOF_CONFIRM/);
 
 console.log(
   "Fly.io config defines the expected immutable API, worker, migration, readiness, and secret boundaries.",

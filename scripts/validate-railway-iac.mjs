@@ -86,6 +86,10 @@ for (const name of ["hayasend-api", "hayasend-worker"]) {
     "console",
   );
   assert.equal(
+    resource?.variables?.HAYASEND_CONSOLE_PROOF_CONFIRM?.value,
+    "isolated-non-sending",
+  );
+  assert.equal(
     resource?.variables?.SENDGRID_API_KEY,
     undefined,
   );
@@ -150,6 +154,10 @@ for (const name of ["hayasend-api", "hayasend-worker"]) {
   assert.equal(
     resource?.variables?.SENDGRID_API_KEY?.value,
     process.env.SENDGRID_API_KEY,
+  );
+  assert.equal(
+    resource?.variables?.HAYASEND_CONSOLE_PROOF_CONFIRM,
+    undefined,
   );
 }
 assert.equal(

@@ -86,6 +86,13 @@ export default defineRailway(() => {
           SENDGRID_API_KEY: sendGridApiKey as string,
         }
       : {};
+  const consoleProofEnvironment =
+    transport === "console"
+      ? {
+          HAYASEND_CONSOLE_PROOF_CONFIRM:
+            "isolated-non-sending",
+        }
+      : {};
   const sharedEnvironment = {
     AWS_ACCESS_KEY_ID: ref(attachments, "ACCESS_KEY_ID"),
     AWS_REGION: ref(attachments, "REGION"),
@@ -99,6 +106,7 @@ export default defineRailway(() => {
     HAYASEND_S3_ENDPOINT: ref(attachments, "ENDPOINT"),
     HAYASEND_S3_FORCE_PATH_STYLE: "false",
     HAYASEND_TRANSPORT: transport,
+    ...consoleProofEnvironment,
     ...sendGridEnvironment,
   } as const;
 

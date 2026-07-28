@@ -162,7 +162,9 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(commands).toContain(
         `deploy --app ${app} --config ${deploymentDirectory}/fly.toml ` +
-          `--image ${image} --env HAYASEND_TRANSPORT=console --strategy rolling ` +
+          `--image ${image} --env HAYASEND_TRANSPORT=console ` +
+          "--env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending " +
+          "--strategy rolling " +
           "--release-command-timeout 10m --ha=false --yes",
       );
       expect(commands).not.toContain("--skip-release-command");
@@ -235,12 +237,27 @@ describe.skipIf(process.platform === "win32")(
       expect(result.status).toBe(0);
       expect(commands).toContain(
         `--image ${rollbackImage} --env HAYASEND_TRANSPORT=console ` +
+          "--env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending " +
           "--strategy rolling " +
           "--skip-release-command --ha=false --yes",
       );
       expect(result.stdout).toContain(
         "rolled back to the reviewed immutable image",
       );
+    });
+
+    it("rejects an invented console proof confirmation", async () => {
+      const fixture = await fakeCommands();
+      const result = run("deploy.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_CONSOLE_PROOF_CONFIRM: "sending-disabled",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "must equal isolated-non-sending",
+      );
+      expect(await readFile(fixture.log, "utf8")).toBe("version\n");
     });
 
     it("deletes only the exact guarded app, empty bucket, and attached database", async () => {

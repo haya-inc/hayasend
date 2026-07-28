@@ -109,6 +109,7 @@ Configure at least these Vercel production variables:
 | `HAYASEND_DATABASE_URL` | secret pooled PostgreSQL URL with provider-required TLS |
 | `HAYASEND_API_KEY` | independent secret `re_...` bootstrap key |
 | `HAYASEND_TRANSPORT` | `console` for the first lifecycle proof |
+| `HAYASEND_CONSOLE_PROOF_CONFIRM` | `isolated-non-sending` for the console lifecycle only |
 | `HAYASEND_OBJECT_STORAGE` | `vercel-blob` |
 | `BLOB_READ_WRITE_TOKEN` | token automatically connected from the private store |
 | `CRON_SECRET` | independently generated random secret of 32–512 characters |
@@ -121,6 +122,13 @@ route. HayaSend validates it in constant time. The Queue trigger makes
 `api/queue.ts` air-gapped from the public internet.
 
 The lifecycle profile contains no `SENDGRID_*` values and cannot submit mail.
+The deploy script requires and passes the exact console proof confirmation;
+SendGrid deployments omit it. Run the
+[shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
+from an approved private database execution path. Vercel Cron or Queue
+reconciliation must recover the deliberately lost wake-up within the selected
+proof timeout.
+
 After it passes recovery, interruption, long-delay, restore, rollback, and
 cleanup tests, set `HAYASEND_TRANSPORT=sendgrid`, add the customer-owned scoped
 `SENDGRID_API_KEY` and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY`, and redeploy for the
