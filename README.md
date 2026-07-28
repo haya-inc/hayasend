@@ -582,8 +582,12 @@ Please report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 ## Public roadmap
 
-The [v0.1 beta milestone](https://github.com/haya-inc/hayasend/milestone/1)
-tracks the evidence required for the first non-critical evaluation release.
+The completed
+[v0.1 beta milestone](https://github.com/haya-inc/hayasend/milestone/1)
+records the evidence for the first non-critical evaluation release. The open
+[production-qualification milestone](https://github.com/haya-inc/hayasend/milestone/2)
+tracks terminal provider delivery, controlled dogfood, commercial-support,
+and domain-operations gates that must pass before supported production use.
 Accepted follow-on work carries the
 [`roadmap` label](https://github.com/haya-inc/hayasend/issues?q=state%3Aopen%20label%3Aroadmap),
 and bounded starter tasks carry the
@@ -601,9 +605,16 @@ deliverability reviews, operational support, and future managed services.
 Self-hosting and community use do not require a commercial agreement.
 
 See [SUPPORT.md](SUPPORT.md) and
-[the commercial boundary](docs/commercial.md). The
-[project site](https://hayasend.com/) provides a concise
-overview suitable for technical evaluators.
+[the commercial boundary](docs/commercial.md). Commercial inquiries can use
+the private [Haya contact form](https://www.haya.company/contact); do not send
+credentials, account identifiers, recipient data, or message content in the
+initial inquiry. Current availability and contractual boundaries are defined
+in [commercial support and service levels](docs/support-service-levels.md).
+The [project site](https://hayasend.com/) provides a concise overview suitable
+for technical evaluators.
+
+Operators responsible for the public project domain should also follow the
+[hayasend.com domain-operations runbook](docs/domain-operations.md).
 
 ## Contributing
 

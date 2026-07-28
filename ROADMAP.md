@@ -4,7 +4,7 @@ The roadmap is ordered by user risk, not by feature count.
 The evidence gates, adapter contract, and current draft disposition are in the
 [production semantics and Cloudflare proof](docs/execution-plan.md) plan.
 
-## Release gate — AWS beta
+## Completed release gate — AWS beta
 
 - [x] Resend-compatible single and batch send endpoints
 - [x] official Resend Node SDK contract test
@@ -22,8 +22,6 @@ The evidence gates, adapter contract, and current draft disposition are in the
 - [x] protected-main merge, exact-main CodeQL, signed release, provenance, and
       live project site
 
-No post-v0.1 draft merges into the frozen release candidate.
-
 ## Now — Production semantics
 
 - versioned provider capability and compatibility contract
@@ -35,14 +33,34 @@ No post-v0.1 draft merges into the frozen release candidate.
 - safe deploy, doctor, upgrade, rollback, and recovery evidence
 - scoped credentials, cost/rate controls, and content-private operations
 - [x] searchable API reference generated from the versioned OpenAPI contract
-- [ ] first attestable, version-pinned CLI package publication (release
-      automation is ready)
+- [x] attestable, version-pinned CLI package publication with npm provenance
 - [x] secret-safe scoped API key lifecycle management
 - [x] safe sending-domain onboarding CLI and official SDK lifecycle gate
 - [x] secret-safe webhook lifecycle, delivery inspection, and replay CLI
 - [x] privacy-aware suppression operations CLI
 - [x] privacy-safe sent-email lifecycle CLI
 - [x] production-capable non-interactive email send CLI
+
+## Production qualification
+
+- [ ] exact-main AWS SES terminal delivery, SNS event correlation, controlled
+      mailbox receipt, and zero-residue cleanup
+      ([#126](https://github.com/haya-inc/hayasend/issues/126))
+- [ ] exact-main Cloudflare terminal delivery and controlled mailbox receipt
+      while the provider remains explicitly Beta
+      ([#122](https://github.com/haya-inc/hayasend/issues/122))
+- [ ] 1,000-message, 14-day controlled provider-switch dogfood proof
+      ([#105](https://github.com/haya-inc/hayasend/issues/105))
+- [ ] private commercial intake and supported-production service boundary
+      ([#129](https://github.com/haya-inc/hayasend/issues/129))
+- [ ] DNSSEC, renewal, registrar-lock, and administrative-MFA evidence for
+      `hayasend.com`
+      ([#130](https://github.com/haya-inc/hayasend/issues/130))
+
+The
+[production-qualification milestone](https://github.com/haya-inc/hayasend/milestone/2)
+is the public gate. Green CI alone does not satisfy these operational
+requirements.
 
 ## Next — Cloudflare and FolioMCP proof
 

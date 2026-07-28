@@ -35,6 +35,14 @@ source restrictions:
 - compliance evidence and support commitments;
 - a future hosted control plane that never needs to inspect message content.
 
+Commercial inquiries use the private
+[Haya contact form](https://www.haya.company/contact) or
+`info@haya.company`. The initial request must not contain secrets, account
+identifiers, recipient data, message content, or private logs. See
+[commercial support and service levels](support-service-levels.md) for the
+current availability gate, service catalog, response targets, responsibilities,
+and exclusions.
+
 ## Management-plane data boundary
 
 An optional Haya service may receive deployment identity, software and adapter

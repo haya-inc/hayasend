@@ -28,9 +28,22 @@ delivery:
 - multi-account, regulated-environment, and private-roadmap work.
 
 Commercial terms cover services and warranties, not access to the
-Apache-2.0 source code. A public commercial contact and service levels will
-be published before the first supported production release. Until then,
-start a GitHub Discussion without confidential information.
+Apache-2.0 source code. Use the private
+[Haya contact form](https://www.haya.company/contact) or email
+`info@haya.company` for commercial inquiries. The public contact policy targets
+a reply within two Japanese business days.
+
+Do not include credentials, API keys, cloud account identifiers, recipient
+data, message content, raw provider payloads, signed URLs, or private logs in
+the initial inquiry. Haya will establish an agreed secure exchange if
+diagnostic material is needed. The contact form is covered by
+[Haya's privacy policy](https://www.haya.company/legal).
+
+HayaSend remains early beta. Commercial evaluation and fixed-scope services
+are available now, but supported-production service levels do not start until
+the production-qualification evidence is complete and an executed agreement
+names the supported release and provider. See
+[commercial support and service levels](docs/support-service-levels.md).
 
 ## Support boundary
 
