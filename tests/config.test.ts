@@ -153,7 +153,33 @@ describe("loadConfig", () => {
         HAYASEND_API_KEY: "re_portable_bootstrap_key",
         HAYASEND_TRANSPORT: "console",
       }),
-    ).toThrow("not supported in production");
+    ).toThrow(
+      "HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending",
+    );
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "console",
+        HAYASEND_CONSOLE_PROOF_CONFIRM: "sending-disabled",
+      }),
+    ).toThrow(
+      "HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending",
+    );
+    expect(
+      loadConfig({
+        NODE_ENV: "production",
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "console",
+        HAYASEND_CONSOLE_PROOF_CONFIRM: "isolated-non-sending",
+      }).portableTransport,
+    ).toBe("console");
   });
 
   it("separates Pub/Sub publisher and subscriber process settings", () => {

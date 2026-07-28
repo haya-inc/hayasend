@@ -51,7 +51,9 @@ locals {
     HAYASEND_OBJECT_STORAGE_BUCKET = google_storage_bucket.attachments.name
     GOOGLE_CLOUD_PROJECT           = var.project_id
     AWS_REGION                     = var.aws_region
-    }, var.transport == "sendgrid" ? {
+    }, var.transport == "console" ? {
+    HAYASEND_CONSOLE_PROOF_CONFIRM = "isolated-non-sending"
+    } : {}, var.transport == "sendgrid" ? {
     SENDGRID_API_KEY_FILE = local.sendgrid_api_key_file
     SENDGRID_API_BASE_URL = "https://api.sendgrid.com"
   } : {})

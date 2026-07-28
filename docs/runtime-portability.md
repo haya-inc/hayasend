@@ -175,6 +175,15 @@ function interruption, deploy interruption, retry exhaustion, long-delay
 recovery, terminal provider events, and cleanup all have exact-version
 evidence.
 
+Every production-built console profile requires the exact
+`HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard. Deployment packs
+set it only for their non-sending lifecycle profile and omit it from SendGrid
+or native-provider transports. The
+[portable hosted semantic proof](portable-hosted-proof.md) verifies the API,
+PostgreSQL authority, idempotency, a schedule beyond seven days, lost wake-up
+recovery, provider-acceptance ledger, and fixture cleanup without claiming
+terminal delivery.
+
 ## Transport direction
 
 Amazon SES remains the first production candidate. Cloudflare Email Sending

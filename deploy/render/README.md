@@ -46,7 +46,9 @@ silently create a new runtime or billable data plane.
    worker references the API service value instead of creating a duplicate
    credential.
 5. Confirm both services have `HAYASEND_TRANSPORT=console` and no
-   `SENDGRID_*` variables before the first deploy.
+   `SENDGRID_*` variables before the first deploy. Also confirm both carry the
+   committed
+   `HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard.
 6. Record the exact `srv-*` API and worker IDs, the `dpg-*` database ID, and the
    API's `https://*.onrender.com` origin in your password/operations system.
 
@@ -118,7 +120,13 @@ rotation design is part of the combination evidence.
 ## Transport boundary
 
 The committed lifecycle profile uses `HAYASEND_TRANSPORT=console` and cannot
-submit mail. After the lifecycle, recovery, upgrade, rollback, and restore
+submit mail. Production-built console mode refuses to start unless the exact
+`HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard is present.
+Run the
+[shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
+from an approved private path before moving to the transport phase.
+
+After the lifecycle, recovery, upgrade, rollback, and restore
 proofs pass, an independently reviewed transport phase may set
 `HAYASEND_TRANSPORT=sendgrid`, add a scoped `SENDGRID_API_KEY` to both
 services, and add `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` to the API only. Configure

@@ -18,6 +18,14 @@ assert_app_inventory
 assert_mpg_inventory
 assert_bucket_inventory
 
+console_proof_environment=()
+if [[ "$HAYASEND_TRANSPORT" == "console" ]]; then
+  console_proof_environment=(
+    --env
+    "HAYASEND_CONSOLE_PROOF_CONFIRM=$HAYASEND_CONSOLE_PROOF_CONFIRM"
+  )
+fi
+
 "$fly_cli" config validate \
   --strict \
   --app "$HAYASEND_FLY_APP" \
@@ -28,6 +36,7 @@ assert_bucket_inventory
   --config "$pack_directory/fly.toml" \
   --image "$HAYASEND_IMAGE" \
   --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
+  "${console_proof_environment[@]}" \
   --strategy rolling \
   --skip-release-command \
   --ha=false \

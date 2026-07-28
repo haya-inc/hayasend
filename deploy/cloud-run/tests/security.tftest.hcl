@@ -54,6 +54,22 @@ run "secure_foundation_defaults" {
     condition     = length(google_pubsub_topic.wakeup) == 0 && length(google_pubsub_subscription.wakeup) == 0
     error_message = "The optional Pub/Sub accelerator must provision no resources by default."
   }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_service.api.template[0].containers[0].env :
+      setting.value if setting.name == "HAYASEND_CONSOLE_PROOF_CONFIRM"
+    ]) == "isolated-non-sending"
+    error_message = "The console API must carry the exact non-sending proof guard."
+  }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_worker_pool.worker.template[0].containers[0].env :
+      setting.value if setting.name == "HAYASEND_CONSOLE_PROOF_CONFIRM"
+    ]) == "isolated-non-sending"
+    error_message = "The console worker must carry the exact non-sending proof guard."
+  }
 }
 
 run "workloads_use_pinned_identity_and_manual_worker" {
@@ -264,5 +280,16 @@ run "sendgrid_uses_write_only_secrets_and_api_only_verification_key" {
       setting if setting.name == "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE"
     ]) == 0
     error_message = "The worker must not receive the SendGrid verification key setting."
+  }
+
+  assert {
+    condition = length([
+      for setting in google_cloud_run_v2_service.api.template[0].containers[0].env :
+      setting if setting.name == "HAYASEND_CONSOLE_PROOF_CONFIRM"
+      ]) == 0 && length([
+      for setting in google_cloud_run_v2_worker_pool.worker.template[0].containers[0].env :
+      setting if setting.name == "HAYASEND_CONSOLE_PROOF_CONFIRM"
+    ]) == 0
+    error_message = "The non-sending proof guard must be absent from SendGrid workloads."
   }
 }

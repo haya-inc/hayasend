@@ -351,6 +351,70 @@ jobs:
           HAYASEND_POSTGRES_TEST_URL: >-
             postgres://hayasend:hayasend-test@127.0.0.1:5432/hayasend_test
         run: npm run test:postgres
+      - name: Smoke-test production console proof in the built image
+        env:
+          HAYASEND_POSTGRES_TEST_URL: >-
+            postgres://hayasend:hayasend-test@127.0.0.1:5432/hayasend_test
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg VERSION=ci \
+            --build-arg REVISION=${{ github.sha }} \
+            --tag hayasend:portable-ci \
+            .
+          if docker run --rm \
+            --network host \
+            --env HAYASEND_MODE=portable \
+            --env HAYASEND_DATABASE_URL="$HAYASEND_POSTGRES_TEST_URL" \
+            --env HAYASEND_API_KEY=re_portable_container_ci \
+            --env HAYASEND_TRANSPORT=console \
+            hayasend:portable-ci \
+            node dist/portable/migrate.js \
+            > "$RUNNER_TEMP/portable-console-without-guard.log" 2>&1; then
+            echo "Production console mode started without its proof guard."
+            exit 1
+          fi
+          grep --fixed-strings --quiet \
+            '"error_type":"validation_error"' \
+            "$RUNNER_TEMP/portable-console-without-guard.log"
+          docker run --rm \
+            --network host \
+            --env HAYASEND_MODE=portable \
+            --env HAYASEND_DATABASE_URL="$HAYASEND_POSTGRES_TEST_URL" \
+            --env HAYASEND_API_KEY=re_portable_container_ci \
+            --env HAYASEND_TRANSPORT=console \
+            --env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
+            hayasend:portable-ci \
+            node dist/portable/migrate.js
+          docker run --detach \
+            --name hayasend-portable-ci \
+            --network host \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --env HAYASEND_MODE=portable \
+            --env HAYASEND_DATABASE_URL="$HAYASEND_POSTGRES_TEST_URL" \
+            --env HAYASEND_API_KEY=re_portable_container_ci \
+            --env HAYASEND_TRANSPORT=console \
+            --env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
+            --env HAYASEND_PORT=8790 \
+            hayasend:portable-ci
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8790/readyz > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              docker logs hayasend-portable-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(
+            docker inspect --format '{{.Config.User}}' hayasend-portable-ci
+          )" = "node"
+      - name: Stop portable container
+        if: always()
+        run: docker rm --force hayasend-portable-ci || true
 
   test:
     runs-on: ubuntu-latest
@@ -618,9 +682,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 550 and
-            .size < 690000 and
-            .unpackedSize < 3500000 and
+            .entryCount <= 552 and
+            .size < 720000 and
+            .unpackedSize < 3600000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -635,6 +699,8 @@ jobs:
               index("dist/portable/migrate.js") != null) and
             ([.files[].path] |
               index("dist/portable/worker.js") != null) and
+            ([.files[].path] |
+              index("dist/portable/hosted-proof.js") != null) and
             ([.files[].path] |
               index("scripts/cloudflare-cost-model.mjs") != null) and
             ([.files[].path] | index("src/aws/api.ts") != null) and

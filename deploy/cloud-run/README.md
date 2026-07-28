@@ -124,7 +124,15 @@ revision to support rollback.
 ## Mail transport boundary
 
 `transport = "console"` is the safe default and records acceptance without
-sending. It is suitable only for deployment and lifecycle proof.
+sending. It is suitable only for deployment and lifecycle proof. Terraform
+adds `HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` to the API and
+worker only in this profile; the runtime refuses production-built console mode
+without that exact guard.
+
+After the isolated deployment is ready, run the
+[shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
+from an approved private execution path. It verifies the PostgreSQL-owned long
+schedule and recovery semantics, not external or terminal delivery.
 
 `transport = "sendgrid"` uses the portable signed SendGrid adapter. Supply the
 scoped key and Event Webhook verification key through write-only Terraform

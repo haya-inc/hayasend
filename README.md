@@ -78,7 +78,9 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   lease-loss recovery, readiness checks, graceful shutdown, GCS/Azure
   Blob/S3-compatible/Vercel Blob attachment storage, and mounted-file secret injection
   (experimental Cloud Run, Render, Railway, and Fly.io packs are published;
-  hosted lifecycle proofs are still pending)
+  the shared non-sending
+  [hosted semantic proof](docs/portable-hosted-proof.md) is executable, while
+  billable hosted lifecycle proofs are still pending)
 - an executable experimental Vercel serverless profile using Hono Functions,
   content-free Queue wakeups, authenticated Cron reconciliation, private Blob
   direct uploads, and external PostgreSQL scheduling authority

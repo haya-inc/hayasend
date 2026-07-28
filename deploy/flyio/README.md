@@ -129,7 +129,15 @@ The config uses:
 
 `deploy.sh` passes the reviewed `HAYASEND_TRANSPORT` explicitly on every
 deployment and rollback. When omitted it resolves to `console`, matching the
-committed `fly.toml`.
+committed `fly.toml`, and also passes the exact
+`HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard. An operator cannot
+replace that guard with a lookalike value, and SendGrid deployments omit it.
+
+Run the
+[shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
+from an approved private path after the API and worker pass inventory checks.
+It validates the database-owned long schedule and lost-wake-up recovery but
+does not substitute for the separate Fly backup, rollback, or delivery gates.
 
 `--ha=false` makes initial cost and inventory deterministic. It is not an HA
 claim. Before promotion, size and prove multiple API and worker Machines,

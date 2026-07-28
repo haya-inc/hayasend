@@ -22,7 +22,17 @@ require_flyctl() {
 require_transport() {
   export HAYASEND_TRANSPORT="${HAYASEND_TRANSPORT:-console}"
   case "$HAYASEND_TRANSPORT" in
-    console | sendgrid) ;;
+    console)
+      if [[ -n "${HAYASEND_CONSOLE_PROOF_CONFIRM:-}" ]] &&
+        [[ "$HAYASEND_CONSOLE_PROOF_CONFIRM" != "isolated-non-sending" ]]; then
+        echo "HAYASEND_CONSOLE_PROOF_CONFIRM must equal isolated-non-sending." >&2
+        exit 1
+      fi
+      export HAYASEND_CONSOLE_PROOF_CONFIRM="isolated-non-sending"
+      ;;
+    sendgrid)
+      unset HAYASEND_CONSOLE_PROOF_CONFIRM
+      ;;
     *)
       echo "HAYASEND_TRANSPORT must be console or sendgrid for the Fly.io pack." >&2
       exit 1
