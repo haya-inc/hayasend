@@ -1,0 +1,158 @@
+# Railway deployment pack
+
+This experimental Railway Infrastructure as Code pack binds HayaSend's shared
+`portable-postgres` runtime to:
+
+- one public API service;
+- one continuously running worker;
+- one Railway PostgreSQL 18 service; and
+- one private, S3-compatible Railway Bucket for direct-upload attachments.
+
+Only the mail transport remains external. The default `console` transport is a
+lifecycle proof and sends no email. Railway IaC is itself experimental, so this
+pack is not a Beta or production-readiness claim.
+
+## Pinned inputs
+
+Validated on 2026-07-29 with:
+
+- Railway CLI `5.30.1`;
+- Railway IaC SDK `railway@3.6.0`;
+- HayaSend `0.2.0` OCI index digest
+  `sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96`;
+- PostgreSQL `18`;
+- the Singapore Railway compute region
+  `asia-southeast1-eqsg3a`; and
+- the Singapore Bucket region `sin`.
+
+The reviewed image uses an immutable digest and disables Railway image
+auto-updates. Repository CI downloads the current pinned CLI release, verifies
+its GitHub-published SHA-256 digest, evaluates the TypeScript graph with the
+official SDK, and checks every shell guard.
+
+## Create the isolated project
+
+Create a new empty Railway project named exactly `hayasend-railway`. Do not use
+a project that contains another application: cleanup intentionally deletes the
+whole project and refuses any unexpected service or bucket.
+
+Install and authenticate the pinned CLI:
+
+```bash
+railway login
+```
+
+Record the exact lowercase project and environment UUIDs. Generate an API key
+outside source control:
+
+```bash
+export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
+```
+
+Keep the key in a password/operations system. Do not place it in the IaC file,
+shell history, logs, issue comments, or evidence.
+
+## Deploy
+
+From `deploy/railway`, export the non-secret identifiers and immutable image:
+
+```bash
+export HAYASEND_RAILWAY_PROJECT_ID="00000000-0000-4000-8000-000000000000"
+export HAYASEND_RAILWAY_ENVIRONMENT_ID="00000000-0000-4000-8000-000000000000"
+export HAYASEND_IMAGE="ghcr.io/haya-inc/hayasend@sha256:..."
+./deploy.sh
+```
+
+The script links through a temporary directory, obtains a redacted plan,
+refuses destructive changes, applies only the reviewed graph, waits for both
+deployments, creates a Railway service domain, and runs `verify.sh`. It never
+uses `--show-values`; Railway redacts variables in the plan by default.
+
+Both services run the checksum-pinned PostgreSQL migration command before
+starting. PostgreSQL advisory locking makes concurrent first deployment safe.
+Forward migrations must remain compatible with the immediately previous API
+and worker revisions.
+
+Run later drift and health verification with the same API key:
+
+```bash
+export HAYASEND_RAILWAY_API_URL="https://your-service.up.railway.app"
+./verify.sh
+```
+
+## Storage boundary
+
+The pack uses a private Railway Bucket through HayaSend's S3 adapter.
+Credentials are Railway resource references, not literals in source. The
+bucket supports presigned URLs and is encrypted at rest.
+
+Current Railway Bucket limitations are material:
+
+- no object versioning, object locks, lifecycle configuration, or
+  customer-selected server-side encryption mode;
+- no automatic bucket snapshots/backups; and
+- public-network access only.
+
+HayaSend uses virtual-hosted S3 URLs (`HAYASEND_S3_FORCE_PATH_STYLE=false`).
+The bucket-provided AWS credential variables are storage credentials, not SES
+credentials.
+
+## Transport boundary
+
+`HAYASEND_TRANSPORT=console` records provider acceptance but sends no mail.
+Changing this pack directly to `aws-ses` is not sufficient: Railway Bucket
+credentials occupy the default AWS credential variables and cannot authorize
+SES. A certified external HTTP transport or an explicit split-credential
+design must be implemented and proven before production mail.
+
+Terminal recipient delivery, bounce, complaint, suppression, and controlled
+receipt evidence remain mandatory. A successful Railway deployment or API
+submission is not terminal delivery evidence.
+
+## Backups, availability, and rollback
+
+Railway PostgreSQL is customer-operated infrastructure. Configure native
+volume backup schedules and prove a restore. Current schedules retain daily
+backups for six days, weekly backups for one month, and monthly backups for
+three months. This is not point-in-time recovery.
+
+Railway offers a PostgreSQL 18 HA conversion using Patroni, etcd, and HAProxy,
+but that is a separate topology and acceptance exercise. The base pack starts
+with one database and one replica of each HayaSend service. Prove sizing,
+failure recovery, upgrade, rollback, and database restoration before
+promotion.
+
+## Cleanup
+
+Delete all attachment objects first. Then verify that the project contains
+only the three named services and one named bucket:
+
+```bash
+export HAYASEND_ALLOW_DESTROY=railway
+export HAYASEND_RAILWAY_DEDICATED_PROJECT=true
+./cleanup.sh
+```
+
+If Railway requires MFA for non-interactive deletion, additionally provide the
+current six-digit `RAILWAY_2FA_CODE`. The script validates the exact project
+name, project/environment UUIDs, resource inventory, and zero bucket objects
+before requesting permanent project deletion.
+
+Railway may report deletion as scheduled, and Bucket deletion has a two-day
+protective delay. Independently verify final project absence, retained
+database/volume backups, bucket deletion, custom domains, variables, tokens,
+external transport resources, and billing. The script alone is not
+zero-residue evidence.
+
+## Official references
+
+Checked on 2026-07-29:
+
+- [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
+- [Railway IaC reference](https://docs.railway.com/infrastructure-as-code/reference)
+- [Railway CLI](https://docs.railway.com/cli)
+- [Railway regions](https://docs.railway.com/deployments/regions)
+- [Railway PostgreSQL](https://docs.railway.com/databases/postgresql)
+- [Railway volume backups](https://docs.railway.com/volumes/backups)
+- [Railway PostgreSQL HA](https://docs.railway.com/databases/postgresql-ha)
+- [Railway Buckets](https://docs.railway.com/storage-buckets)

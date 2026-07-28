@@ -114,6 +114,48 @@ jobs:
             'YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], permitted_symbols: [], aliases: false)' \
             deploy/render/render.yaml
 
+  railway-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
+      - name: Verify the pinned Railway CLI and deployment pack
+        env:
+          HAYASEND_API_KEY: re_RAILWAY_CI_VALIDATION_DO_NOT_USE
+          RAILWAY_CLI_SHA256: c6169e27e87d95d73fb7a30ec2c6b6c767c042f8a3ba9aa98c92deccda8db10c
+          RAILWAY_CLI_VERSION: 5.30.1
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/railway-cli"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/railway.tar.gz" \
+            "https://github.com/railwayapp/cli/releases/download/v${RAILWAY_CLI_VERSION}/railway-v${RAILWAY_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          printf '%s  %s\n' \
+            "$RAILWAY_CLI_SHA256" \
+            "$cli_directory/railway.tar.gz" \
+            | sha256sum --check
+          tar -xzf "$cli_directory/railway.tar.gz" -C "$cli_directory"
+          test "$("$cli_directory/railway" --version)" = \
+            "railway ${RAILWAY_CLI_VERSION}"
+          "$cli_directory/railway" config plan --help > /dev/null
+          test "$(< deploy/railway/.railway-cli-version)" = \
+            "$RAILWAY_CLI_VERSION"
+          test "$(< deploy/railway/.railway-cli-linux-x86_64-sha256)" = \
+            "$RAILWAY_CLI_SHA256"
+          npm ci
+          npm run validate:railway
+          shellcheck \
+            deploy/railway/deploy.sh \
+            deploy/railway/verify.sh \
+            deploy/railway/cleanup.sh
+
   postgres-substrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -166,6 +208,7 @@ jobs:
       - run: npm run check
       - run: npm run check:workers
       - run: npm run check:conformance
+      - run: npm run validate:railway
       - run: npm run validate:render
       - run: npm test
       - run: npm run build
@@ -407,9 +450,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 425 and
-            .size < 550000 and
-            .unpackedSize < 2900000 and
+              .entryCount <= 440 and
+            .size < 590000 and
+            .unpackedSize < 3000000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -450,6 +493,12 @@ jobs:
               index("deploy/render/.render-cli-version") != null) and
             ([.files[].path] |
               index("deploy/render/.render-schema-sha256") != null) and
+            ([.files[].path] |
+              index("deploy/railway/.railway/railway.ts") != null) and
+            ([.files[].path] |
+              index("deploy/railway/.railway-cli-version") != null) and
+            ([.files[].path] |
+              index("deploy/railway/.railway-cli-linux-x86_64-sha256") != null) and
             ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
@@ -517,6 +566,26 @@ jobs:
           test -x "$package_root/deploy/render/deploy.sh"
           test -x "$package_root/deploy/render/verify.sh"
           test -x "$package_root/deploy/render/cleanup.sh"
+          test -f \
+            "$package_root/deploy/railway/.railway/railway.ts"
+          test -f "$package_root/deploy/railway/.railway-cli-version"
+          test -f \
+            "$package_root/deploy/railway/.railway-cli-linux-x86_64-sha256"
+          test -x "$package_root/deploy/railway/deploy.sh"
+          test -x "$package_root/deploy/railway/verify.sh"
+          test -x "$package_root/deploy/railway/cleanup.sh"
+          test -x "$consumer/node_modules/.bin/railway-iac-ts"
+          (
+            cd "$consumer"
+            HAYASEND_API_KEY=re_RAILWAY_PACKAGE_VALIDATION_DO_NOT_USE \
+              node --input-type=module --eval '
+                import { evaluateRailwayFile } from "railway/iac";
+                const result = await evaluateRailwayFile(process.argv[1]);
+                if (result.graph.project.name !== "hayasend-railway") {
+                  process.exit(1);
+                }
+              ' "$package_root/deploy/railway/.railway/railway.ts"
+          )
           test -f "$package_root/conformance/readiness.v1.json"
           test -f \
             "$package_root/schemas/readiness-matrix.v1.schema.json"
