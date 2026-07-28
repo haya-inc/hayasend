@@ -559,7 +559,10 @@ export class PostgresDeliveryStore
              AND lease_expires_at IS NOT NULL
              AND lease_expires_at <= $1
          )::text AS stuck_leases,
-         COUNT(*) FILTER (WHERE dispatched_at IS NULL)::text AS undispatched,
+         COUNT(*) FILTER (
+           WHERE outbox_items.id IS NOT NULL
+             AND dispatched_at IS NULL
+         )::text AS undispatched,
          EXTRACT(
            EPOCH FROM (
              $1::timestamptz
