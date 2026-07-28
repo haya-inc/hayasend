@@ -8,7 +8,7 @@ import {
   vercelQueueRetryDecision,
 } from "../src/vercel/functions.js";
 
-const cronSecret = "vercel_cron_secret_0123456789abcdef";
+const cronSecret = "cron-".repeat(8);
 
 function metadata(deliveryCount: number): MessageMetadata {
   return {

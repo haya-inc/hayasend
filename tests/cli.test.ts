@@ -657,7 +657,7 @@ describe("HayaSend CLI", () => {
           },
           capability: {
             provider: "aws-ses",
-            adapter_version: "0.2.0",
+            adapter_version: "0.3.0",
             capability_version: "1.0.0",
             checked_at: "2026-07-27",
             document_sha256: "a".repeat(64),
@@ -730,7 +730,7 @@ describe("HayaSend CLI", () => {
         return jsonResponse({
           ok: true,
           service: "hayasend",
-          version: "0.2.0",
+          version: "0.3.0",
         });
       }
       if (url.includes("/emails?limit=1")) {

@@ -402,6 +402,7 @@ jobs:
             .
       - name: Smoke-test hardened local container
         run: |
+          smoke_api_key="re_""hayasend_dev"
           docker run --detach \
             --name hayasend-ci \
             --read-only \
@@ -421,7 +422,7 @@ jobs:
           done
           test "$(docker inspect --format '{{.Config.User}}' hayasend-ci)" = "node"
           curl --fail --silent http://127.0.0.1:8787/emails \
-            --header 'Authorization: Bearer re_hayasend_dev' \
+            --header "Authorization: Bearer ${smoke_api_key}" \
             --header 'Content-Type: application/json' \
             --header 'Idempotency-Key: container-smoke' \
             --data '{"from":"Smoke <sender@example.com>","to":"recipient@example.net","subject":"Container smoke test","text":"Read-only local mode works."}' \
@@ -518,6 +519,7 @@ jobs:
           contract_base_url="$(
             node scripts/openapi-contract-safety.mjs
           )"
+          contract_api_key="re_""hayasend_dev"
           test "$(
             docker run --rm \
               --read-only \
@@ -559,7 +561,7 @@ jobs:
             "$SCHEMATHESIS_IMAGE" \
             run /work/openapi.yaml \
             --url "$contract_base_url" \
-            --header 'Authorization: Bearer re_hayasend_dev' \
+            --header "Authorization: Bearer ${contract_api_key}" \
             --phases fuzzing \
             --mode all \
             --checks \

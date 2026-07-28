@@ -6,6 +6,32 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-29
+
+- Define independent, versioned runtime, transport, and combined-deployment
+  capability contracts so HayaSend can preserve one Resend-compatible API and
+  recipient ledger while changing clouds and mail providers.
+- Add the portable PostgreSQL data plane with atomic ledger/outbox commits,
+  migrations, API and worker processes, bounded leases and retries, durable
+  due-row reconciliation, health/readiness/doctor surfaces, and recovery of
+  long schedules without treating a queue as the source of truth.
+- Add private S3-compatible, Google Cloud Storage, Azure Blob, Railway Bucket,
+  Vercel Blob, and Cloudflare R2 attachment backends with checksum-bound direct
+  uploads and customer-controlled credential boundaries.
+- Add experimental deployment packs for Cloud Run, Render, Railway, Fly.io,
+  Azure Container Apps, and Vercel, including migration-first rollout,
+  immutable-image checks, guarded rollback/cleanup, and explicit
+  backup/restore and zero-residue evidence gates.
+- Add an optional least-privilege Google Pub/Sub wake-up accelerator for Cloud
+  Run. PostgreSQL remains authoritative, delayed work never depends on Pub/Sub,
+  and publication fails open only after durable enqueue succeeds.
+- Add Azure Communication Services Email submission, domain/quota capability
+  reporting, acceptance-ambiguous handling, and recipient-level Event Grid
+  delivery-event convergence.
+- Add a signed SendGrid HTTP transport with provider-message correlation,
+  custom-domain capability reporting, pre-submission limits, privacy-safe
+  errors, and duplicate/out-of-order Signed Event Webhook convergence for
+  portable runtimes.
 - Add an explicitly non-production Cloudflare Workers runtime skeleton, a
   Node/AWS dependency boundary, Web Worker type-checking, and a Wrangler
   dry-run bundle gate while preserving the existing AWS runtime behavior.
@@ -30,6 +56,12 @@ minor releases before v1.0.
 - Expose privacy-safe recipient summaries from the Cloudflare Worker so hosted
   delivery proof can distinguish provider acceptance from terminal recipient
   state.
+- Publish HayaSend at `hayasend.com` with the customer-owned deployment and
+  paid-support boundary made explicit.
+
+All new runtime and transport combinations retain their documented
+experimental or Beta maturity until their exact hosted lifecycle, terminal
+delivery, backup/restore, rollback, and zero-residue evidence passes.
 
 ## 0.2.0 - 2026-07-27
 
