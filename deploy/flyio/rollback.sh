@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 
 require_flyctl
+require_transport
 require_resource_inputs
 : "${HAYASEND_ROLLBACK_IMAGE:?Set HAYASEND_ROLLBACK_IMAGE to the reviewed previous immutable digest.}"
 : "${HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST:?Set HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST to the Linux/amd64 manifest digest for that image.}"
@@ -26,6 +27,7 @@ assert_bucket_inventory
   --app "$HAYASEND_FLY_APP" \
   --config "$pack_directory/fly.toml" \
   --image "$HAYASEND_IMAGE" \
+  --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
   --strategy rolling \
   --skip-release-command \
   --ha=false \

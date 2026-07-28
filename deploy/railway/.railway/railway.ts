@@ -14,9 +14,17 @@ const releasedImage =
   "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519";
 const imageReference = process.env.HAYASEND_IMAGE ?? releasedImage;
 const apiKey = process.env.HAYASEND_API_KEY;
+const transport = process.env.HAYASEND_TRANSPORT ?? "console";
 const sendGridApiKey = process.env.SENDGRID_API_KEY;
 const sendGridEventWebhookPublicKey =
   process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY;
+const proofResourceLimits = {
+  containers: {
+    cpu: 0.5,
+    memoryBytes: 512 * 1024 * 1024,
+    diskBytes: 1024 * 1024 * 1024,
+  },
+} as const;
 
 if (
   !/^ghcr\.io\/haya-inc\/hayasend@sha256:[a-f0-9]{64}$/.test(
@@ -27,25 +35,32 @@ if (
     "HAYASEND_IMAGE must be an immutable official HayaSend GHCR digest.",
   );
 }
-if (
-  !sendGridApiKey ||
-  sendGridApiKey.length < 32 ||
-  sendGridApiKey.length > 512 ||
-  !sendGridApiKey.startsWith("SG.")
-) {
+if (transport !== "console" && transport !== "sendgrid") {
   throw new Error(
-    "SENDGRID_API_KEY must be a 32 to 512 character SG. key.",
+    "HAYASEND_TRANSPORT must be console or sendgrid for the Railway pack.",
   );
 }
-if (
-  !sendGridEventWebhookPublicKey ||
-  sendGridEventWebhookPublicKey.length < 64 ||
-  sendGridEventWebhookPublicKey.length > 16_384 ||
-  sendGridEventWebhookPublicKey.includes("\0")
-) {
-  throw new Error(
-    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key.",
-  );
+if (transport === "sendgrid") {
+  if (
+    !sendGridApiKey ||
+    sendGridApiKey.length < 32 ||
+    sendGridApiKey.length > 512 ||
+    !sendGridApiKey.startsWith("SG.")
+  ) {
+    throw new Error(
+      "SENDGRID_API_KEY must be a 32 to 512 character SG. key.",
+    );
+  }
+  if (
+    !sendGridEventWebhookPublicKey ||
+    sendGridEventWebhookPublicKey.length < 64 ||
+    sendGridEventWebhookPublicKey.length > 16_384 ||
+    sendGridEventWebhookPublicKey.includes("\0")
+  ) {
+    throw new Error(
+      "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key.",
+    );
+  }
 }
 if (
   !apiKey ||
@@ -65,6 +80,12 @@ export default defineRailway(() => {
   const attachments = bucket("hayasend-attachments", {
     region: "sin",
   });
+  const sendGridEnvironment =
+    transport === "sendgrid"
+      ? {
+          SENDGRID_API_KEY: sendGridApiKey as string,
+        }
+      : {};
   const sharedEnvironment = {
     AWS_ACCESS_KEY_ID: ref(attachments, "ACCESS_KEY_ID"),
     AWS_REGION: ref(attachments, "REGION"),
@@ -77,8 +98,8 @@ export default defineRailway(() => {
     HAYASEND_POSTGRES_POOL_MAX: "8",
     HAYASEND_S3_ENDPOINT: ref(attachments, "ENDPOINT"),
     HAYASEND_S3_FORCE_PATH_STYLE: "false",
-    HAYASEND_TRANSPORT: "sendgrid",
-    SENDGRID_API_KEY: sendGridApiKey,
+    HAYASEND_TRANSPORT: transport,
+    ...sendGridEnvironment,
   } as const;
 
   const api = service("hayasend-api", {
@@ -96,6 +117,7 @@ export default defineRailway(() => {
     },
     deploy: {
       drainingSeconds: 120,
+      limitOverride: proofResourceLimits,
       overlapSeconds: 30,
       restartPolicyMaxRetries: 10,
       restartPolicyType: "ALWAYS",
@@ -104,8 +126,12 @@ export default defineRailway(() => {
       ...sharedEnvironment,
       HAYASEND_HOST: "0.0.0.0",
       HAYASEND_PORT: "8787",
-      SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
-        sendGridEventWebhookPublicKey,
+      ...(transport === "sendgrid"
+        ? {
+            SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
+              sendGridEventWebhookPublicKey as string,
+          }
+        : {}),
     },
   });
 
@@ -122,6 +148,7 @@ export default defineRailway(() => {
     },
     deploy: {
       drainingSeconds: 120,
+      limitOverride: proofResourceLimits,
       restartPolicyMaxRetries: 10,
       restartPolicyType: "ALWAYS",
     },

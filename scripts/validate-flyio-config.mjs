@@ -52,7 +52,7 @@ assert.match(
   source,
   /HAYASEND_S3_ENDPOINT = "https:\/\/t3\.storage\.dev"/,
 );
-assert.match(source, /HAYASEND_TRANSPORT = "sendgrid"/);
+assert.match(source, /HAYASEND_TRANSPORT = "console"/);
 assert.doesNotMatch(source, /HAYASEND_API_KEY\s*=/);
 assert.doesNotMatch(source, /SENDGRID_API_KEY\s*=/);
 assert.doesNotMatch(

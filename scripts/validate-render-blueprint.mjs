@@ -122,11 +122,14 @@ if (
 }
 if (
   database.postgresMajorVersion !== "18" ||
+  database.plan !== "basic-256mb" ||
+  database.diskSizeGB !== 1 ||
+  database.storageAutoscalingEnabled !== false ||
   !Array.isArray(database.ipAllowList) ||
   database.ipAllowList.length !== 0
 ) {
   throw new Error(
-    "Render PostgreSQL must use version 18 with no public IP allow list.",
+    "Render PostgreSQL must use the minimum explicit PostgreSQL 18 plan and one-GB non-autoscaling private storage.",
   );
 }
 
@@ -136,16 +139,16 @@ function environmentValue(service, key) {
 
 if (
   environmentValue(api, "HAYASEND_TRANSPORT")?.value !==
-    "sendgrid" ||
+    "console" ||
   environmentValue(worker, "HAYASEND_TRANSPORT")?.value !==
-    "sendgrid" ||
+    "console" ||
   environmentValue(api, "HAYASEND_OBJECT_STORAGE")?.value !==
     "disabled" ||
   environmentValue(worker, "HAYASEND_OBJECT_STORAGE")?.value !==
     "disabled"
 ) {
   throw new Error(
-    "The Blueprint must use the signed SendGrid transport and start with disabled direct-upload storage.",
+    "The Blueprint must start with the non-sending console transport and disabled direct-upload storage.",
   );
 }
 if (
@@ -158,20 +161,15 @@ if (
   );
 }
 if (
-  environmentValue(api, "SENDGRID_API_KEY")?.sync !== false ||
-  environmentValue(worker, "SENDGRID_API_KEY")?.fromService
-    ?.envVarKey !== "SENDGRID_API_KEY" ||
-  environmentValue(
-    api,
-    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY",
-  )?.sync !== false ||
-  environmentValue(
-    worker,
-    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY",
-  ) !== undefined
+  environmentValue(api, "SENDGRID_API_KEY") !== undefined ||
+  environmentValue(worker, "SENDGRID_API_KEY") !== undefined ||
+  environmentValue(api, "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY") !==
+    undefined ||
+  environmentValue(worker, "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY") !==
+    undefined
 ) {
   throw new Error(
-    "SendGrid secrets must be prompted on the API, with only the scoped API key shared to the worker.",
+    "The lifecycle-only Blueprint must not request SendGrid credentials.",
   );
 }
 

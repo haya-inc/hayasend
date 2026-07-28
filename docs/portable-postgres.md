@@ -71,8 +71,11 @@ that the requested sender domain is verified and linked, and reports its
 SPF/DKIM records. It never creates, changes, or deletes operator-owned Azure
 resources or DNS.
 
-The experimental SendGrid adapter is the shared HTTP transport for Cloud Run,
-Render, Railway, Fly.io, and Vercel. Set:
+The first hosted lifecycle pass on Cloud Run, Render, Railway, Fly.io, and
+Vercel must use `HAYASEND_TRANSPORT=console`. That profile exercises durable
+runtime semantics without external mail submission and does not require
+SendGrid credentials. The experimental SendGrid adapter is the shared HTTP
+transport for the separately approved terminal-delivery phase. Set:
 
 | Variable | Meaning |
 | --- | --- |

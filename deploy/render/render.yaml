@@ -29,11 +29,7 @@ services:
       - key: HAYASEND_API_KEY
         sync: false
       - key: HAYASEND_TRANSPORT
-        value: sendgrid
-      - key: SENDGRID_API_KEY
-        sync: false
-      - key: SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY
-        sync: false
+        value: console
       - key: HAYASEND_OBJECT_STORAGE
         value: disabled
       - key: HAYASEND_POSTGRES_POOL_MAX
@@ -64,12 +60,7 @@ services:
           type: web
           envVarKey: HAYASEND_API_KEY
       - key: HAYASEND_TRANSPORT
-        value: sendgrid
-      - key: SENDGRID_API_KEY
-        fromService:
-          name: hayasend-api
-          type: web
-          envVarKey: SENDGRID_API_KEY
+        value: console
       - key: HAYASEND_OBJECT_STORAGE
         value: disabled
       - key: HAYASEND_POSTGRES_POOL_MAX
@@ -85,4 +76,5 @@ databases:
     plan: basic-256mb
     region: singapore
     ipAllowList: []
-    storageAutoscalingEnabled: true
+    diskSizeGB: 1
+    storageAutoscalingEnabled: false

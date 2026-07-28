@@ -20,7 +20,7 @@ kill_timeout = "120s"
   HAYASEND_POSTGRES_POOL_MAX = "8"
   HAYASEND_S3_ENDPOINT = "https://t3.storage.dev"
   HAYASEND_S3_FORCE_PATH_STYLE = "false"
-  HAYASEND_TRANSPORT = "sendgrid"
+  HAYASEND_TRANSPORT = "console"
   HAYASEND_WORKER_CONCURRENCY = "4"
   PRIMARY_REGION = "nrt"
 

@@ -15,10 +15,9 @@ const expectedImage =
   "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519";
 process.env.HAYASEND_API_KEY ??=
   "re_RAILWAY_STATIC_VALIDATION_DO_NOT_USE";
-process.env.SENDGRID_API_KEY ??=
-  "SG.RAILWAY_STATIC_VALIDATION_DO_NOT_USE_000000";
-process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY ??=
-  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==";
+process.env.HAYASEND_TRANSPORT = "console";
+delete process.env.SENDGRID_API_KEY;
+delete process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY;
 
 const result = await evaluateRailwayFile(railwayFile, {
   context: {
@@ -63,6 +62,13 @@ for (const name of ["hayasend-api", "hayasend-worker"]) {
     ]?.numReplicas,
     1,
   );
+  assert.deepEqual(resource?.deploy?.limitOverride, {
+    containers: {
+      cpu: 0.5,
+      memoryBytes: 512 * 1024 * 1024,
+      diskBytes: 1024 * 1024 * 1024,
+    },
+  });
   assert.equal(
     resource?.variables?.HAYASEND_DATABASE_URL?.type,
     "reference",
@@ -77,11 +83,11 @@ for (const name of ["hayasend-api", "hayasend-worker"]) {
   );
   assert.equal(
     resource?.variables?.HAYASEND_TRANSPORT?.value,
-    "sendgrid",
+    "console",
   );
   assert.equal(
-    resource?.variables?.SENDGRID_API_KEY?.value,
-    process.env.SENDGRID_API_KEY,
+    resource?.variables?.SENDGRID_API_KEY,
+    undefined,
   );
 }
 
@@ -90,8 +96,8 @@ assert.equal(api?.deploy?.startCommand, "node dist/server.js");
 assert.equal(api?.deploy?.healthcheckPath, "/readyz");
 assert.equal(api?.deploy?.healthcheckTimeout, 120);
 assert.equal(
-  api?.variables?.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY?.value,
-  process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY,
+  api?.variables?.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY,
+  undefined,
 );
 
 const worker = resources.get("hayasend-worker");
@@ -116,6 +122,47 @@ const attachments = resources.get("hayasend-attachments");
 assert.equal(attachments?.type, "bucket");
 assert.equal(attachments?.config?.region, "sin");
 
+process.env.HAYASEND_TRANSPORT = "sendgrid";
+process.env.SENDGRID_API_KEY =
+  "SG.RAILWAY_STATIC_VALIDATION_DO_NOT_USE_000000";
+process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY =
+  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==";
+const sendGridResult = await evaluateRailwayFile(railwayFile, {
+  context: {
+    command: "plan",
+    environment: "production",
+    environmentName: "production",
+  },
+});
+assert.deepEqual(validateGraph(sendGridResult.graph), []);
+const sendGridResources = new Map(
+  sendGridResult.graph.resources.map((resource) => [
+    resource.name,
+    resource,
+  ]),
+);
+for (const name of ["hayasend-api", "hayasend-worker"]) {
+  const resource = sendGridResources.get(name);
+  assert.equal(
+    resource?.variables?.HAYASEND_TRANSPORT?.value,
+    "sendgrid",
+  );
+  assert.equal(
+    resource?.variables?.SENDGRID_API_KEY?.value,
+    process.env.SENDGRID_API_KEY,
+  );
+}
+assert.equal(
+  sendGridResources.get("hayasend-api")?.variables
+    ?.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY?.value,
+  process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY,
+);
+assert.equal(
+  sendGridResources.get("hayasend-worker")?.variables
+    ?.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY,
+  undefined,
+);
+
 console.log(
-  "Railway IaC defines the expected immutable API, worker, PostgreSQL, and bucket topology.",
+  "Railway IaC defines the expected console-first topology and explicit SendGrid opt-in.",
 );

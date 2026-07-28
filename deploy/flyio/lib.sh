@@ -19,6 +19,17 @@ require_flyctl() {
   fi
 }
 
+require_transport() {
+  export HAYASEND_TRANSPORT="${HAYASEND_TRANSPORT:-console}"
+  case "$HAYASEND_TRANSPORT" in
+    console | sendgrid) ;;
+    *)
+      echo "HAYASEND_TRANSPORT must be console or sendgrid for the Fly.io pack." >&2
+      exit 1
+      ;;
+  esac
+}
+
 require_resource_inputs() {
   : "${HAYASEND_FLY_APP:?Set HAYASEND_FLY_APP to the isolated Fly App name.}"
   : "${HAYASEND_FLY_ORG:?Set HAYASEND_FLY_ORG to the exact organization slug.}"
@@ -150,6 +161,7 @@ assert_bucket_inventory() {
 assert_secret_names() {
   local require_deployed="${1:-false}"
   local secrets
+  require_transport
   secrets="$(
     "$fly_cli" secrets list \
       --app "$HAYASEND_FLY_APP" \
@@ -157,6 +169,7 @@ assert_secret_names() {
   )"
   if ! jq --exit-status \
     --argjson require_deployed "$require_deployed" \
+    --arg transport "$HAYASEND_TRANSPORT" \
     '
       def required:
         [
@@ -167,10 +180,18 @@ assert_secret_names() {
           "BUCKET_NAME",
           "HAYASEND_API_KEY",
           "HAYASEND_DATABASE_URL",
-          "HAYASEND_OBJECT_STORAGE_BUCKET",
-          "SENDGRID_API_KEY",
-          "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
-        ];
+          "HAYASEND_OBJECT_STORAGE_BUCKET"
+        ] +
+        (
+          if $transport == "sendgrid" then
+            [
+              "SENDGRID_API_KEY",
+              "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY"
+            ]
+          else
+            []
+          end
+        );
       ([.[].name] | sort) as $names |
       (required | all(. as $name | $names | index($name) != null)) and
       (

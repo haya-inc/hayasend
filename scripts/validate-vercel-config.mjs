@@ -12,6 +12,10 @@ const functionsSource = await readFile(
   new URL("src/vercel/functions.ts", root),
   "utf8",
 );
+const deployScript = await readFile(
+  new URL("deploy/vercel/deploy.sh", root),
+  "utf8",
+);
 
 assert.equal(config.$schema, "https://openapi.vercel.sh/vercel.json");
 assert.equal(config.framework, "hono");
@@ -57,6 +61,18 @@ assert.match(
 assert.equal(packageJson.dependencies?.["@vercel/blob"], "2.6.1");
 assert.equal(packageJson.dependencies?.["@vercel/functions"], "3.7.6");
 assert.equal(packageJson.dependencies?.["@vercel/queue"], "0.4.0");
+assert.match(
+  deployScript,
+  /export HAYASEND_TRANSPORT="\$\{HAYASEND_TRANSPORT:-console\}"/,
+);
+assert.match(
+  deployScript,
+  /--env "HAYASEND_TRANSPORT=\$HAYASEND_TRANSPORT"/,
+);
+assert.doesNotMatch(
+  deployScript,
+  /HAYASEND_TRANSPORT=sendgrid[\s\\]*\n[\s\\]*HAYASEND_OBJECT_STORAGE=vercel-blob/,
+);
 
 for (const path of ["app.ts", "api/queue.ts", "api/reconcile.ts"]) {
   const source = await readFile(new URL(path, root), "utf8");
