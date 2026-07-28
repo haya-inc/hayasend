@@ -28,7 +28,7 @@ describe("Cloudflare hosted lifecycle workflow", () => {
       "node scripts/cloudflare-backup-restore-seed.mjs",
     );
     expect(workflow).toContain(
-      "src/workers/cloudflare-backup-restore-probe.ts",
+      '$GITHUB_WORKSPACE/src/workers/cloudflare-backup-restore-probe.ts',
     );
     expect(workflow).toContain("wrangler@4.114.0 d1 export");
     expect(workflow).toContain(

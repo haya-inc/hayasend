@@ -276,13 +276,14 @@ jobs:
           proof_secrets="$RUNNER_TEMP/backup-restore-secrets.json"
           jq -n \
             --arg name "$RESTORE_WORKER" \
+            --arg main "$GITHUB_WORKSPACE/src/workers/cloudflare-backup-restore-probe.ts" \
             --arg database_name "$SOURCE_DATABASE" \
             --arg database_id "$INITIAL_CF_DATABASE_ID" \
             --arg source_bucket "$SOURCE_BUCKET" \
             --arg restore_bucket "$RESTORE_BUCKET" \
             '{
               name: $name,
-              main: "src/workers/cloudflare-backup-restore-probe.ts",
+              main: $main,
               compatibility_date: "2026-07-27",
               workers_dev: true,
               vars: {HAYASEND_PROOF_MODE: "source"},
@@ -384,13 +385,14 @@ jobs:
           proof_secrets="$RUNNER_TEMP/backup-restore-secrets.json"
           jq -n \
             --arg name "$RESTORE_WORKER" \
+            --arg main "$GITHUB_WORKSPACE/src/workers/cloudflare-backup-restore-probe.ts" \
             --arg database_name "$RESTORE_DATABASE" \
             --arg database_id "$RESTORE_DATABASE_ID" \
             --arg restore_bucket "$RESTORE_BUCKET" \
             --arg recovery_queue "$RESTORE_QUEUE" \
             '{
               name: $name,
-              main: "src/workers/cloudflare-backup-restore-probe.ts",
+              main: $main,
               compatibility_date: "2026-07-27",
               workers_dev: true,
               vars: {HAYASEND_PROOF_MODE: "restore"},
