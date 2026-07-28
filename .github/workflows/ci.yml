@@ -10,6 +10,58 @@ permissions:
   contents: read
 
 jobs:
+  azure-container-apps-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.72.0
+          cache: true
+      - name: Validate the Azure Container Apps deployment pack
+        working-directory: deploy/azure-container-apps
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test -no-color | tee "$RUNNER_TEMP/azure-terraform-test.txt"
+          shellcheck deploy.sh verify.sh rollback.sh cleanup.sh
+          node --check event-grid.mjs
+          node --check event-grid-ensure.mjs
+          node --check event-grid-verify.mjs
+          node --check event-grid-delete.mjs
+          trivy config \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --skip-version-check \
+            .
+          terraform providers schema -json \
+            > "$RUNNER_TEMP/azure-provider-schema.json"
+          jq --exit-status '
+            .provider_schemas[
+              "registry.terraform.io/hashicorp/azurerm"
+            ].resource_schemas as $resources
+            | $resources.azurerm_key_vault_secret.block.attributes.value_wo.write_only
+            and $resources.azurerm_postgresql_flexible_server.block.attributes.administrator_password_wo.write_only
+          ' "$RUNNER_TEMP/azure-provider-schema.json" >/dev/null
+          if grep --recursive --fixed-strings --quiet \
+            'resource "azurerm_eventgrid_event_subscription"' .; then
+            echo "Event Grid secret delivery must remain outside Terraform state."
+            exit 1
+          fi
+          if grep --fixed-strings --quiet \
+            'event-grid-test-test-test-test-test' \
+            "$RUNNER_TEMP/azure-terraform-test.txt"; then
+            echo "Terraform test output exposed the Event Grid test secret."
+            exit 1
+          fi
+
   cloud-run-pack:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -516,7 +568,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 460 and
+            .entryCount <= 500 and
             .size < 620000 and
             .unpackedSize < 3150000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -561,6 +613,22 @@ jobs:
               index("deploy/cloud-run/.terraform-version") != null) and
             ([.files[].path] |
               index("deploy/cloud-run/backend.tf.example") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/main.tf") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.terraform.lock.hcl") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.terraform-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.azure-cli-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-ensure.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-verify.mjs") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/event-grid-delete.mjs") != null) and
             ([.files[].path] |
               index("deploy/render/render.yaml") != null) and
             ([.files[].path] |
@@ -650,6 +718,24 @@ jobs:
           test -f "$package_root/deploy/cloud-run/backend.tf.example"
           test -x "$package_root/deploy/cloud-run/deploy.sh"
           test -x "$package_root/deploy/cloud-run/cleanup.sh"
+          test -f "$package_root/deploy/azure-container-apps/main.tf"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.terraform.lock.hcl"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.terraform-version"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.azure-cli-version"
+          test -x "$package_root/deploy/azure-container-apps/deploy.sh"
+          test -x "$package_root/deploy/azure-container-apps/verify.sh"
+          test -x "$package_root/deploy/azure-container-apps/rollback.sh"
+          test -x "$package_root/deploy/azure-container-apps/cleanup.sh"
+          test -x "$package_root/deploy/azure-container-apps/event-grid.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-ensure.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-verify.mjs"
+          test -x \
+            "$package_root/deploy/azure-container-apps/event-grid-delete.mjs"
           test -f "$package_root/deploy/render/render.yaml"
           test -f "$package_root/deploy/render/.render-cli-version"
           test -f "$package_root/deploy/render/.render-schema-sha256"

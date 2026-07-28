@@ -1,0 +1,24 @@
+subscription_id   = "00000000-0000-0000-0000-000000000000"
+tenant_id         = "00000000-0000-0000-0000-000000000000"
+deployer_object_id = "00000000-0000-0000-0000-000000000000"
+
+resource_group_name = "hayasend-azure"
+location            = "japaneast"
+image               = "ghcr.io/haya-inc/hayasend@sha256:replace-with-a-release-digest"
+
+# Existing, verified, and linked Azure Communication Services resources.
+acs_resource_group_name          = "hayasend-email"
+acs_communication_service_name   = "hayasend-communication"
+acs_email_service_name           = "hayasend-email"
+acs_email_domain_resource_name   = "example.com"
+acs_email_endpoint               = "https://hayasend-communication.communication.azure.com"
+
+# Permit only the Terraform runner's exact public address. A VNet-connected
+# runner can instead set terraform_runner_has_private_vnet_access = true.
+key_vault_operator_ip_cidrs = [
+  "203.0.113.10/32",
+]
+
+attachment_cors_origins = [
+  "https://app.example.com",
+]

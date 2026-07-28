@@ -25,6 +25,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Render](deploy/render/README.md) ·
 [Railway](deploy/railway/README.md) ·
 [Fly.io](deploy/flyio/README.md) ·
+[Azure Container Apps](deploy/azure-container-apps/README.md) ·
 [Azure ACS Email](docs/provider-capabilities.md#azure-communication-services-email-evidence) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
