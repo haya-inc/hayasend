@@ -78,8 +78,10 @@ The shared foundation is one API container and one worker container with:
 - a periodic due-row reconciler;
 - optional managed queues as latency accelerators;
 - pluggable S3-compatible, Google Cloud Storage, or Azure Blob payload
-  storage;
-- platform-native secret injection; and
+  storage with checksum-bound direct uploads and final byte-level SHA-256
+  verification;
+- platform-native environment or mounted-file secret injection plus storage
+  workload identity; and
 - OpenTelemetry-compatible operational signals.
 
 This single runtime is the intended path to Cloud Run, Azure Container Apps,
@@ -98,10 +100,10 @@ bounded retention. Forward-only migrations are serialized with a PostgreSQL
 advisory lock and each applied migration is pinned by SHA-256 checksum.
 
 [The portable runtime runbook](portable-postgres.md) documents its exact
-settings and process model. Object-storage adapters, portable provider event
-ingress, backup/restore drills, platform deployment packs, and exact platform
-evidence remain prerequisites before this profile can be claimed as a
-supported Beta deployment.
+settings, storage bindings, identity requirements, and process model. Portable
+provider event ingress, backup/restore drills, platform deployment packs, and
+exact platform evidence remain prerequisites before this profile can be
+claimed as a supported Beta deployment.
 
 ### `vercel-serverless` (planned experimental)
 
@@ -150,6 +152,7 @@ Runtime documents:
 
 - [`conformance/runtimes/aws-native.v1.json`](../conformance/runtimes/aws-native.v1.json)
 - [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json)
+- [`conformance/runtimes/portable-postgres.v1.json`](../conformance/runtimes/portable-postgres.v1.json)
 
 Combined deployment documents:
 

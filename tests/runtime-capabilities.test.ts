@@ -3,6 +3,7 @@ import { AWS_RUNTIME_CAPABILITIES } from "../src/adapters/aws-runtime-capabiliti
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
+import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
 import {
   buildReadinessMatrix,
   readinessMatrixSchema,
@@ -35,6 +36,29 @@ describe("runtime and deployment capability contracts", () => {
         },
       });
     }
+  });
+
+  it("keeps the portable runtime experimental until platform evidence exists", () => {
+    expect(
+      runtimeCapabilityDocumentSchema.parse(
+        PORTABLE_RUNTIME_CAPABILITIES,
+      ),
+    ).toMatchObject({
+      runtime: "portable-postgres",
+      service_maturity: "experimental",
+      runtime_class: "portable-container",
+      components: {
+        atomic_store: { status: "supported" },
+        payload_store: { status: "supported" },
+        secret_injection: { status: "supported" },
+        provider_event_ingress: { status: "unsupported" },
+        backup_restore: { status: "unsupported" },
+      },
+      lifecycle: {
+        safe_deploy: { status: "unsupported" },
+        cleanup: { status: "unsupported" },
+      },
+    });
   });
 
   it("binds current deployments to separate runtime and transport documents", () => {
@@ -205,6 +229,7 @@ describe("runtime and deployment capability contracts", () => {
     const serialized = JSON.stringify([
       AWS_RUNTIME_CAPABILITIES,
       CLOUDFLARE_RUNTIME_CAPABILITIES,
+      PORTABLE_RUNTIME_CAPABILITIES,
       AWS_SES_DEPLOYMENT_CAPABILITIES,
       CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
     ]);

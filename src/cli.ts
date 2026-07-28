@@ -27,6 +27,9 @@ import {
 } from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
 import { emailCommand } from "./cli-emails.js";
+import {
+  parseAttachmentUploadOrigins,
+} from "./cli-send-attachments.js";
 import { readStandardInput, sendEmail } from "./cli-send.js";
 import {
   loadTemplateManifest,
@@ -1161,6 +1164,9 @@ function sendContext(args: string[], dependencies: CliDependencies) {
     baseUrl: endpoint(args, dependencies.env),
     cwd: dependencies.cwd,
     fetch: dependencies.fetch,
+    allowedUploadOrigins: parseAttachmentUploadOrigins(
+      dependencies.env.HAYASEND_ATTACHMENT_UPLOAD_ORIGINS,
+    ),
     log: dependencies.io.log,
     readStdin: dependencies.readStdin,
     request: (path: string, init?: RequestInit) =>
@@ -1718,6 +1724,9 @@ Commands:
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
+  HAYASEND_ATTACHMENT_UPLOAD_ORIGINS
+                       Comma-separated HTTPS origins for custom S3-compatible
+                       direct attachment uploads
   AWS_REGION            Default Region for deploy aws
 `);
 }

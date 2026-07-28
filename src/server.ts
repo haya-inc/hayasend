@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
+import { createPortableAttachmentStorage } from "./adapters/portable-attachment-storage.js";
 import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
@@ -11,7 +12,13 @@ export async function startServer(config: Config = loadConfig()) {
     config.mode === "aws" && config.apiKeySecretArn
       ? createSecretValueProvider(config.apiKeySecretArn)
       : config.apiKey;
-  const runtime = createRuntime(config, bootstrapKey);
+  const runtime = createRuntime(
+    config,
+    bootstrapKey,
+    config.mode === "portable"
+      ? createPortableAttachmentStorage(config)
+      : undefined,
+  );
   try {
     await runtime.checkReadiness();
   } catch (error) {

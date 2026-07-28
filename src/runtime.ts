@@ -39,6 +39,7 @@ import { LocalJobQueue, SqsJobQueue } from "./adapters/sqs-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
+import type { AttachmentStorage } from "./ports/attachment-storage.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
 import { HAYASEND_VERSION } from "./version.js";
 import {
@@ -310,6 +311,7 @@ export function createAwsRuntime(
 export function createPortableRuntime(
   config: Config,
   pool: Pool = createPostgresPool(config, "hayasend"),
+  attachmentStorage: AttachmentStorage = new DisabledAttachmentStorage(),
 ): PortableRuntime {
   if (
     config.mode !== "portable" ||
@@ -342,7 +344,7 @@ export function createPortableRuntime(
   const suppressions = new SuppressionService(store);
   const attachmentService = new AttachmentService(
     store,
-    new DisabledAttachmentStorage(),
+    attachmentStorage,
   );
   const scheduler = new QueueEmailScheduler(queue);
   const apiKeys = new ApiKeyService(store, config.apiKey);
@@ -421,7 +423,12 @@ export function createPortableRuntime(
     jobQueue: queue,
     dispatchOutbox: (now) => outbox.sweep(now),
     getOutboxMetrics: (now) => outbox.metrics(now),
-    checkReadiness: () => assertPostgresReady(pool),
+    checkReadiness: async () => {
+      await Promise.all([
+        assertPostgresReady(pool),
+        attachmentStorage.checkReadiness?.(),
+      ]);
+    },
     close: () => pool.end(),
     async processJob(job: Job, attempt = 1) {
       if (job.type === "send_email") {
@@ -449,12 +456,17 @@ export function createPortableRuntime(
 export function createRuntime(
   config = loadConfig(),
   bootstrapKey?: string | BootstrapKeyProvider,
+  portableAttachmentStorage?: AttachmentStorage,
 ): Runtime {
   if (config.mode === "local") {
     return createLocalRuntime(config);
   }
   if (config.mode === "portable") {
-    return createPortableRuntime(config);
+    return createPortableRuntime(
+      config,
+      undefined,
+      portableAttachmentStorage,
+    );
   }
   if (!bootstrapKey) {
     throw new Error("AWS API runtime requires a bootstrap key provider.");

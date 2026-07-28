@@ -84,7 +84,9 @@ describe("S3AttachmentStorage", () => {
       url: "https://bucket.example/upload",
       headers: {
         "content-type": "text/plain",
+        "if-none-match": "*",
         "x-amz-checksum-sha256": checksumBase64,
+        "x-amz-server-side-encryption": "AES256",
       },
       expires_at: record.upload_expires_at,
     });
@@ -99,7 +101,13 @@ describe("S3AttachmentStorage", () => {
     expect(
       (presignOptions as { unhoistableHeaders: Set<string> })
         .unhoistableHeaders,
-    ).toEqual(new Set(["x-amz-checksum-sha256"]));
+    ).toEqual(
+      new Set([
+        "x-amz-checksum-sha256",
+        "x-amz-server-side-encryption",
+        "if-none-match",
+      ]),
+    );
 
     await storage.verify(record);
     expect(commands[0]).toBeInstanceOf(HeadObjectCommand);
@@ -128,5 +136,70 @@ describe("S3AttachmentStorage", () => {
     await expect(
       storage.read({ ...record, checksum_sha256: "0".repeat(64) }),
     ).rejects.toThrow("integrity verification");
+  });
+
+  it("supports checksum-bound metadata for S3-compatible services", async () => {
+    const commands: unknown[] = [];
+    const client = {
+      async send(command: unknown) {
+        commands.push(command);
+        if (command instanceof GetObjectCommand) {
+          return {
+            Body: {
+              async transformToByteArray() {
+                return content;
+              },
+            },
+          };
+        }
+        return {
+          ContentLength: content.byteLength,
+          Metadata: {
+            "hayasend-sha256": checksumHex,
+          },
+        };
+      },
+    } as unknown as S3Client;
+    let presignCommand: unknown;
+    const presign = (async (
+      _client: unknown,
+      command: unknown,
+    ) => {
+      presignCommand = command;
+      return "https://objects.example/upload";
+    }) as typeof getSignedUrl;
+    const storage = new S3AttachmentStorage(
+      "portable-attachments",
+      client,
+      presign,
+      { checksumMode: "metadata" },
+    );
+
+    const target = await storage.createUploadTarget(
+      record,
+      "unused",
+      "https://api.example",
+    );
+    expect(target.headers).toEqual({
+      "content-type": "text/plain",
+      "if-none-match": "*",
+      "x-amz-meta-hayasend-sha256": checksumHex,
+    });
+    expect(presignCommand).toMatchObject({
+      input: {
+        Metadata: {
+          "hayasend-sha256": checksumHex,
+        },
+      },
+    });
+
+    await storage.verify(record);
+    expect((commands[0] as HeadObjectCommand).input).not.toHaveProperty(
+      "ChecksumMode",
+    );
+    await expect(storage.read(record)).resolves.toEqual(content);
+    expect((commands[1] as GetObjectCommand).input).not.toHaveProperty(
+      "ChecksumMode",
+    );
   });
 });

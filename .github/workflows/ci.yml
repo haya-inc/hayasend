@@ -302,9 +302,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 385 and
-            .size < 525000 and
-            .unpackedSize < 2750000 and
+              .entryCount <= 405 and
+            .size < 545000 and
+            .unpackedSize < 2850000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -327,6 +327,10 @@ jobs:
               index("schemas/deployment-capabilities.v1.schema.json") != null) and
             ([.files[].path] |
               index("conformance/deployments/aws-ses.v1.json") != null) and
+            ([.files[].path] |
+              index("conformance/runtimes/portable-postgres.v1.json") != null) and
+            ([.files[].path] |
+              index("dist/adapters/portable-attachment-storage.js") != null) and
             ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
@@ -378,6 +382,10 @@ jobs:
             "$package_root/schemas/deployment-capabilities.v1.schema.json"
           test -f \
             "$package_root/conformance/deployments/aws-ses.v1.json"
+          test -f \
+            "$package_root/conformance/runtimes/portable-postgres.v1.json"
+          test -f \
+            "$package_root/dist/adapters/portable-attachment-storage.js"
           test -f "$package_root/conformance/readiness.v1.json"
           test -f \
             "$package_root/schemas/readiness-matrix.v1.schema.json"

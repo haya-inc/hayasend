@@ -10,7 +10,7 @@ migration path. It does not claim full Resend API coverage.
 | Emails              | update/cancel                                   |        Implemented | queued or scheduled only; CLI requires explicit confirmation       |
 | Batch               | send                                            |        Implemented | 1–100 messages; strict validation only, without permissive mode    |
 | Attachments         | base64 content                                  |        Implemented | constrained by the 9 MiB serialized request guardrail              |
-| Attachments         | direct upload                                   | HayaSend extension | checksum-bound S3 PUT; CLI automates it; 25 MiB decoded aggregate  |
+| Attachments         | direct upload                                   | HayaSend extension | checksum-bound S3-compatible/GCS/Azure Blob PUT; CLI automates it; 25 MiB decoded aggregate |
 | Attachments         | remote path                                     |           Rejected | avoids server-side URL fetching                                    |
 | Scheduling          | ISO 8601                                        |        Implemented | durable outbox; SQS wake up to 15 minutes, Scheduler beyond        |
 | Scheduling          | relative English                                |            Partial | `in N minutes/hours/days`                                          |

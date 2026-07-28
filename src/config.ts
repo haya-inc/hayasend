@@ -1,3 +1,11 @@
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+} from "node:fs";
+import { isAbsolute } from "node:path";
 import { ValidationError } from "./core/errors.js";
 
 export interface Config {
@@ -27,6 +35,13 @@ export interface Config {
   templateHistoryLimit: number;
   databaseUrl?: string;
   portableTransport?: "console" | "aws-ses";
+  portableObjectStorage?: "disabled" | "s3" | "gcs" | "azure-blob";
+  objectStorageBucket?: string;
+  s3Endpoint?: string;
+  s3ForcePathStyle?: boolean;
+  gcsProjectId?: string;
+  azureStorageAccount?: string;
+  azureBlobEndpoint?: string;
   postgresPoolMax?: number;
   postgresIdleTimeoutMs?: number;
   postgresConnectionTimeoutMs?: number;
@@ -38,6 +53,78 @@ export interface Config {
   workerOutboxIntervalMs?: number;
   jobMaxAttempts?: number;
   jobRetentionDays?: number;
+}
+
+const MAX_SECRET_FILE_BYTES = 16 * 1024;
+
+function secretSetting(env: NodeJS.ProcessEnv, name: string) {
+  const direct = env[name];
+  const fileName = `${name}_FILE`;
+  const path = env[fileName];
+  if (direct !== undefined && path !== undefined) {
+    throw new ValidationError(
+      `${name} and ${fileName} may not both be set.`,
+    );
+  }
+  if (path === undefined) {
+    return direct;
+  }
+  if (
+    !isAbsolute(path) ||
+    path.length > 4_096 ||
+    path.includes("\0")
+  ) {
+    throw new ValidationError(
+      `${fileName} must be an absolute secret-file path.`,
+    );
+  }
+  let descriptor: number | undefined;
+  let value: string;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY);
+    const metadata = fstatSync(descriptor);
+    if (
+      !metadata.isFile() ||
+      metadata.size < 1 ||
+      metadata.size > MAX_SECRET_FILE_BYTES
+    ) {
+      throw new Error("invalid secret file");
+    }
+    const content = Buffer.allocUnsafe(MAX_SECRET_FILE_BYTES + 1);
+    let offset = 0;
+    while (offset < content.byteLength) {
+      const bytesRead = readSync(
+        descriptor,
+        content,
+        offset,
+        content.byteLength - offset,
+        null,
+      );
+      if (bytesRead === 0) {
+        break;
+      }
+      offset += bytesRead;
+    }
+    if (offset > MAX_SECRET_FILE_BYTES) {
+      throw new Error("invalid secret file");
+    }
+    value = content.subarray(0, offset).toString("utf8");
+  } catch {
+    throw new ValidationError(
+      `${fileName} must reference a readable regular file of at most ${MAX_SECRET_FILE_BYTES} bytes.`,
+    );
+  } finally {
+    if (descriptor !== undefined) {
+      closeSync(descriptor);
+    }
+  }
+  value = value.replace(/\r?\n$/, "");
+  if (!value || /[\r\n\0]/.test(value)) {
+    throw new ValidationError(
+      `${fileName} must contain exactly one non-empty secret value.`,
+    );
+  }
+  return value;
 }
 
 function integerSetting(
@@ -60,6 +147,47 @@ function integerSetting(
   return value;
 }
 
+function booleanSetting(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: boolean,
+) {
+  const value = env[name];
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!["true", "false"].includes(value)) {
+    throw new ValidationError(`${name} must be true or false.`);
+  }
+  return value === "true";
+}
+
+function secureServiceEndpoint(value: string, name: string) {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new ValidationError(`${name} must be an absolute URL.`);
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+    endpoint.hostname,
+  );
+  if (
+    !["http:", "https:"].includes(endpoint.protocol) ||
+    (endpoint.protocol === "http:" && !loopback) ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash ||
+    !["", "/"].includes(endpoint.pathname)
+  ) {
+    throw new ValidationError(
+      `${name} must be an HTTPS service origin (HTTP is allowed only for loopback emulators).`,
+    );
+  }
+  return endpoint.origin;
+}
+
 export function loadConfig(env = process.env): Config {
   const requestedMode = env.HAYASEND_MODE ?? "local";
   if (!["local", "aws", "portable"].includes(requestedMode)) {
@@ -68,8 +196,9 @@ export function loadConfig(env = process.env): Config {
     );
   }
   const mode = requestedMode as Config["mode"];
+  const configuredApiKey = secretSetting(env, "HAYASEND_API_KEY");
   const apiKey =
-    env.HAYASEND_API_KEY ??
+    configuredApiKey ??
     (mode === "local" ? "re_hayasend_dev" : undefined);
   const apiKeySecretArn = env.HAYASEND_API_KEY_SECRET_ARN;
   if (mode === "aws" && !apiKeySecretArn) {
@@ -82,7 +211,7 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_API_KEY is not supported in AWS mode; use Secrets Manager.",
     );
   }
-  const databaseUrl = env.HAYASEND_DATABASE_URL;
+  const databaseUrl = secretSetting(env, "HAYASEND_DATABASE_URL");
   if (mode === "portable") {
     if (!databaseUrl) {
       throw new ValidationError(
@@ -120,6 +249,83 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_TRANSPORT must be console or aws-ses in portable mode.",
     );
   }
+  const portableObjectStorage = env.HAYASEND_OBJECT_STORAGE ?? "disabled";
+  if (
+    mode === "portable" &&
+    !["disabled", "s3", "gcs", "azure-blob"].includes(
+      portableObjectStorage,
+    )
+  ) {
+    throw new ValidationError(
+      "HAYASEND_OBJECT_STORAGE must be disabled, s3, gcs, or azure-blob in portable mode.",
+    );
+  }
+  const objectStorageBucket = env.HAYASEND_OBJECT_STORAGE_BUCKET;
+  if (
+    mode === "portable" &&
+    portableObjectStorage !== "disabled" &&
+    !objectStorageBucket
+  ) {
+    throw new ValidationError(
+      "HAYASEND_OBJECT_STORAGE_BUCKET is required when portable object storage is enabled.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    portableObjectStorage === "disabled" &&
+    objectStorageBucket
+  ) {
+    throw new ValidationError(
+      "HAYASEND_OBJECT_STORAGE_BUCKET requires an enabled HAYASEND_OBJECT_STORAGE provider.",
+    );
+  }
+  if (
+    objectStorageBucket &&
+    (objectStorageBucket.length < 3 ||
+      objectStorageBucket.length > 222 ||
+      !/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/.test(objectStorageBucket))
+  ) {
+    throw new ValidationError(
+      "HAYASEND_OBJECT_STORAGE_BUCKET must be a safe provider bucket or container name.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    portableObjectStorage === "azure-blob" &&
+    objectStorageBucket &&
+    (objectStorageBucket.length > 63 ||
+      objectStorageBucket.includes("--") ||
+      !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(
+        objectStorageBucket,
+      ))
+  ) {
+    throw new ValidationError(
+      "Azure Blob container names must be 3 to 63 lowercase letters, numbers, or single hyphens.",
+    );
+  }
+  const s3Endpoint = env.HAYASEND_S3_ENDPOINT
+    ? secureServiceEndpoint(
+        env.HAYASEND_S3_ENDPOINT,
+        "HAYASEND_S3_ENDPOINT",
+      )
+    : undefined;
+  const azureStorageAccount = env.AZURE_STORAGE_ACCOUNT_NAME;
+  if (
+    mode === "portable" &&
+    portableObjectStorage === "azure-blob" &&
+    (!azureStorageAccount ||
+      !/^[a-z0-9]{3,24}$/.test(azureStorageAccount))
+  ) {
+    throw new ValidationError(
+      "AZURE_STORAGE_ACCOUNT_NAME is required for Azure Blob storage and must contain 3 to 24 lowercase letters or numbers.",
+    );
+  }
+  const azureBlobEndpoint = env.HAYASEND_AZURE_BLOB_ENDPOINT
+    ? secureServiceEndpoint(
+        env.HAYASEND_AZURE_BLOB_ENDPOINT,
+        "HAYASEND_AZURE_BLOB_ENDPOINT",
+      )
+    : undefined;
   if (
     mode === "portable" &&
     portableTransport === "console" &&
@@ -224,6 +430,29 @@ export function loadConfig(env = process.env): Config {
       ? {
           databaseUrl: databaseUrl as string,
           portableTransport: portableTransport as "console" | "aws-ses",
+          portableObjectStorage: portableObjectStorage as
+            | "disabled"
+            | "s3"
+            | "gcs"
+            | "azure-blob",
+          ...(objectStorageBucket
+            ? { objectStorageBucket }
+            : {}),
+          ...(s3Endpoint ? { s3Endpoint } : {}),
+          s3ForcePathStyle: booleanSetting(
+            env,
+            "HAYASEND_S3_FORCE_PATH_STYLE",
+            false,
+          ),
+          ...(env.GOOGLE_CLOUD_PROJECT
+            ? { gcsProjectId: env.GOOGLE_CLOUD_PROJECT }
+            : {}),
+          ...(azureStorageAccount
+            ? { azureStorageAccount }
+            : {}),
+          ...(azureBlobEndpoint
+            ? { azureBlobEndpoint }
+            : {}),
           postgresPoolMax: integerSetting(
             env,
             "HAYASEND_POSTGRES_POOL_MAX",

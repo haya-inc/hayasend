@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0.0",
+  "runtime": "portable-postgres",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "service_maturity": "experimental",
+  "runtime_class": "portable-container",
+  "required_plan": "Customer-controlled containers, PostgreSQL 18, and either private S3-compatible, Google Cloud Storage, or Azure Blob object storage. Platform-native workload identity and secret injection are recommended.",
+  "limits": {
+    "max_payload_bytes": 40894464,
+    "max_schedule_delay_seconds": 2592000,
+    "reconciliation_interval_seconds": 1
+  },
+  "authority": {
+    "durable_store": "metadata-ledger-outbox",
+    "atomic_message_outbox_commit": true,
+    "queue_is_source_of_truth": false,
+    "scheduler_is_source_of_truth": false,
+    "due_row_reconciliation": true
+  },
+  "components": {
+    "atomic_store": {
+      "status": "supported",
+      "notes": "PostgreSQL transactions atomically persist the message, recipient ledger, idempotency claim, and deterministic outbox intent."
+    },
+    "recipient_ledger": {
+      "status": "supported",
+      "notes": "PostgreSQL is the provider-neutral authority for messages, recipients, attempts, immutable events, and outbox state."
+    },
+    "payload_store": {
+      "status": "supported",
+      "notes": "One attachment port supports private S3-compatible, Google Cloud Storage, and Azure Blob stores with signed direct uploads, declared checksum metadata, size verification, and final byte-level SHA-256 validation."
+    },
+    "queue_wakeup": {
+      "status": "supported",
+      "notes": "PostgreSQL jobs provide deterministic identities, ordered SKIP LOCKED leases, bounded retries, expired-lease recovery, and terminal failure isolation without requiring a managed queue."
+    },
+    "scheduler_wakeup": {
+      "status": "conditional",
+      "notes": "PostgreSQL due times retain the 30-day contract; platform scheduler and managed-queue accelerators remain deployment-pack work."
+    },
+    "periodic_reconciliation": {
+      "status": "supported",
+      "notes": "Every worker periodically reconciles committed outbox rows and due jobs, recovering after process or wake-up loss."
+    },
+    "secret_injection": {
+      "status": "supported",
+      "notes": "Bootstrap API and PostgreSQL secrets accept mutually exclusive environment or bounded absolute mounted-file injection; storage SDKs use provider workload identity and credential chains."
+    },
+    "provider_event_ingress": {
+      "status": "unsupported",
+      "notes": "Portable provider-event HTTP ingress is not yet implemented or proven."
+    },
+    "webhook_egress": {
+      "status": "supported",
+      "notes": "Durable PostgreSQL jobs deliver signed webhooks through public-endpoint validation and bounded privacy-safe retries."
+    },
+    "backup_restore": {
+      "status": "unsupported",
+      "notes": "PostgreSQL plus object-store backup and isolated restore evidence is still required for every deployment pack."
+    }
+  },
+  "lifecycle": {
+    "safe_deploy": {
+      "status": "unsupported",
+      "notes": "Pinned Cloud Run, Azure Container Apps, Render, Railway, and Fly.io deployment packs are not yet published."
+    },
+    "doctor": {
+      "status": "conditional",
+      "notes": "Readiness verifies applied PostgreSQL migrations and the selected object-storage container, but platform identity, retention, encryption, and lifecycle policy checks remain open."
+    },
+    "upgrade": {
+      "status": "conditional",
+      "notes": "Forward-only additive migrations are checksum-pinned and advisory-lock serialized; exact platform rollout evidence remains open."
+    },
+    "rollback": {
+      "status": "conditional",
+      "notes": "Application rollback can retain compatible schema and object state, but each platform pack requires an isolated rollback drill."
+    },
+    "cleanup": {
+      "status": "unsupported",
+      "notes": "No portable platform pack has yet published zero-residue cleanup evidence."
+    }
+  },
+  "privacy": {
+    "content_stored_in_customer_account": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_operational_errors_retained": false
+  },
+  "sources": [
+    {
+      "title": "PostgreSQL explicit locking",
+      "url": "https://www.postgresql.org/docs/current/explicit-locking.html",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Google Cloud Storage V4 signed URLs",
+      "url": "https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Azure Blob user delegation SAS",
+      "url": "https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-javascript",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Amazon S3 presigned upload",
+      "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html",
+      "checked_at": "2026-07-28"
+    }
+  ],
+  "limitations": [
+    "The runtime remains experimental until one exact platform deployment passes lifecycle, backup/restore, terminal delivery, controlled receipt, and zero-residue cleanup evidence.",
+    "Direct-upload metadata binds the declared SHA-256 to the signed upload contract; HayaSend additionally re-hashes downloaded bytes immediately before provider submission.",
+    "Inbound receiving and portable provider-event ingestion remain disabled."
+  ]
+}
