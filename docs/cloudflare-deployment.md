@@ -138,6 +138,47 @@ Do not treat the cleanup command alone as proof. List D1, R2, Queues, and
 Worker versions afterward and fail closed if the absence check itself cannot
 be completed.
 
+## Backup and isolated restore
+
+The D1 ledger and its retained R2 payload objects form one logical backup.
+Backing up only D1 leaves dangling `payload_ref` values; copying R2 objects
+without their HayaSend custom metadata and SHA-256 checksum makes restored
+payloads fail closed.
+
+The protected `Cloudflare integration` workflow therefore performs this
+combination drill inside the approved general-purpose test account:
+
+1. persist one provider-accepted fixture and one future-due fixture;
+2. add a clearly labeled synthetic terminal event used only to exercise
+   restore semantics, never as provider-delivery evidence;
+3. export D1 with `wrangler d1 export`;
+4. copy every managed R2 object to a separate private bucket while preserving
+   HTTP metadata, custom metadata, size, and SHA-256;
+5. import the SQL into a separately named D1 database;
+6. require the restored D1+R2 state digest to equal the source digest;
+7. hydrate every restored delivery ledger and require an empty
+   `PRAGMA foreign_key_check`;
+8. make the restored future-due outbox item executable, publish it to an
+   unconsumed proof Queue exactly once, and prove a second reconciliation is
+   empty;
+9. verify the message, recipient, attempt, and provider-event ledger did not
+   change during recovery; and
+10. delete both namespaces and verify no named Worker, D1 database, R2 bucket,
+    or Queue remains.
+
+The SQL export and payload contents stay in the ephemeral runner and are never
+uploaded as workflow evidence. Published evidence contains only counts,
+checksums, pass/fail fields, tool versions, and cleanup results. The standalone
+Wrangler R2 object commands are not treated as a complete backup mechanism
+because they do not expose all HayaSend custom-metadata preservation controls.
+
+This drill must pass on an exact protected `main` commit before the
+`backup-restore` conformance case can be marked passed. The source commands are
+documented by Cloudflare in
+[D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
+and
+[R2 Workers bindings](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/).
+
 ## Hosted integration environment
 
 The manual `Cloudflare integration` GitHub Actions workflow uses the protected
@@ -162,9 +203,9 @@ unless the account guard passed, preventing a failed confirmation from
 authorizing deletion while preserving unrelated test resources.
 
 The workflow records pinned tools, plan, deployment result, doctor output,
-official Resend SDK send/retrieval, controlled health failure, explicit
-rollback, cost estimate, cleanup, and fail-closed absence checks as a retained
-artifact.
+official Resend SDK send/retrieval, isolated backup/restore proof, controlled
+health failure, explicit rollback, cost estimate, cleanup, and fail-closed
+absence checks as a retained artifact.
 
 ## Email Sending event subscription and terminal proof
 

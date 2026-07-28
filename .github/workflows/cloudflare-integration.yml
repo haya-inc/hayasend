@@ -67,6 +67,23 @@ jobs:
           fi
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
+      - name: Initialize isolated restore namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          restore_deployment_name="${DEPLOYMENT_NAME}-restore"
+          restore_prefix="hayasend-${restore_deployment_name}"
+          {
+            echo "SOURCE_DATABASE=hayasend-${DEPLOYMENT_NAME}-d1"
+            echo "SOURCE_BUCKET=hayasend-${DEPLOYMENT_NAME}-payloads"
+            echo "RESTORE_DEPLOYMENT_NAME=${restore_deployment_name}"
+            echo "RESTORE_WORKER=${restore_prefix}"
+            echo "RESTORE_DATABASE=${restore_prefix}-d1"
+            echo "RESTORE_BUCKET=${restore_prefix}-payloads"
+            echo "RESTORE_QUEUE=${restore_prefix}-jobs"
+            echo "RESTORE_PROBE_ENDPOINT=https://${restore_prefix}.${CLOUDFLARE_TEST_WORKERS_SUBDOMAIN}.workers.dev"
+          } >> "$GITHUB_ENV"
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.5.0
@@ -116,9 +133,17 @@ jobs:
             echo "::error::The isolated R2 name already exists."
             exit 1
           fi
+          if grep -F "$RESTORE_BUCKET" <<< "$r2_list"; then
+            echo "::error::The isolated restore R2 name already exists."
+            exit 1
+          fi
           queue_list="$(npx --yes wrangler@4.114.0 queues list)"
           if grep -F "$prefix-" <<< "$queue_list"; then
             echo "::error::An isolated Queue name already exists."
+            exit 1
+          fi
+          if grep -F "$RESTORE_QUEUE" <<< "$queue_list"; then
+            echo "::error::The isolated restore Queue name already exists."
             exit 1
           fi
           set +e
@@ -136,6 +161,27 @@ jobs:
           if ! grep -Fq "code: 10007" <<< "$worker_check"; then
             echo "::error::Worker absence could not be verified before deployment."
             printf '%s\n' "$worker_check"
+            exit 1
+          fi
+          if node -e 'const a=JSON.parse(process.argv[1]);const n=process.argv[2];process.exit(a.some(x=>x.name===n)?0:1)' "$d1_json" "$RESTORE_DATABASE"; then
+            echo "::error::The isolated restore D1 name already exists."
+            exit 1
+          fi
+          set +e
+          restore_worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$RESTORE_WORKER" \
+              --json 2>&1
+          )"
+          restore_worker_status="$?"
+          set -e
+          if [[ "$restore_worker_status" -eq 0 ]]; then
+            echo "::error::The isolated restore Worker name already exists."
+            exit 1
+          fi
+          if ! grep -Fq "code: 10007" <<< "$restore_worker_check"; then
+            echo "::error::Restore Worker absence could not be verified before deployment."
+            printf '%s\n' "$restore_worker_check"
             exit 1
           fi
 
@@ -174,6 +220,248 @@ jobs:
           CF_ENDPOINT="$INITIAL_CF_ENDPOINT" \
             node scripts/cloudflare-integration-api.mjs \
             | tee "$RUNNER_TEMP/cloudflare-api-proof.json"
+
+      - name: Seed future-due restore fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          CF_ENDPOINT="$INITIAL_CF_ENDPOINT" \
+            node scripts/cloudflare-backup-restore-seed.mjs \
+            | tee "$RUNNER_TEMP/cloudflare-backup-restore-seed.json"
+          initial_email_id="$(
+            jq -er '.email_id | select(test("^email_[a-f0-9]{32}$"))' \
+              "$RUNNER_TEMP/cloudflare-api-proof.json"
+          )"
+          scheduled_email_id="$(
+            jq -er '.scheduled_email_id | select(test("^email_[a-f0-9]{32}$"))' \
+              "$RUNNER_TEMP/cloudflare-backup-restore-seed.json"
+          )"
+          {
+            echo "BACKUP_SENT_EMAIL_ID=$initial_email_id"
+            echo "BACKUP_SCHEDULED_EMAIL_ID=$scheduled_email_id"
+          } >> "$GITHUB_ENV"
+
+      - name: Create isolated restore targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.114.0 d1 create \
+            "$RESTORE_DATABASE" \
+            --location apac
+          restore_d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          restore_database_id="$(
+            node -e '
+              const databases = JSON.parse(process.argv[1]);
+              const name = process.argv[2];
+              const matches = databases.filter((item) => item.name === name);
+              if (matches.length !== 1) process.exit(1);
+              const id = matches[0].uuid ?? matches[0].id;
+              if (!/^[a-f0-9-]{16,128}$/.test(id)) process.exit(1);
+              process.stdout.write(id);
+            ' "$restore_d1_json" "$RESTORE_DATABASE"
+          )"
+          echo "RESTORE_DATABASE_ID=$restore_database_id" >> "$GITHUB_ENV"
+          npx --yes wrangler@4.114.0 r2 bucket create \
+            "$RESTORE_BUCKET" \
+            --location apac
+          npx --yes wrangler@4.114.0 queues create \
+            "$RESTORE_QUEUE" \
+            --message-retention-period-secs 86400
+
+      - name: Deploy source snapshot probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_config="$RUNNER_TEMP/backup-restore-source-wrangler.json"
+          proof_secrets="$RUNNER_TEMP/backup-restore-secrets.json"
+          jq -n \
+            --arg name "$RESTORE_WORKER" \
+            --arg database_name "$SOURCE_DATABASE" \
+            --arg database_id "$INITIAL_CF_DATABASE_ID" \
+            --arg source_bucket "$SOURCE_BUCKET" \
+            --arg restore_bucket "$RESTORE_BUCKET" \
+            '{
+              name: $name,
+              main: "src/workers/cloudflare-backup-restore-probe.ts",
+              compatibility_date: "2026-07-27",
+              workers_dev: true,
+              vars: {HAYASEND_PROOF_MODE: "source"},
+              d1_databases: [{
+                binding: "DB",
+                database_name: $database_name,
+                database_id: $database_id
+              }],
+              r2_buckets: [
+                {binding: "PAYLOADS", bucket_name: $source_bucket},
+                {binding: "TARGET_PAYLOADS", bucket_name: $restore_bucket}
+              ]
+            }' > "$source_config"
+          node -e '
+            const fs = require("node:fs");
+            fs.writeFileSync(
+              process.argv[1],
+              JSON.stringify({
+                HAYASEND_PROOF_TOKEN:
+                  process.env.HAYASEND_CLOUDFLARE_API_KEY,
+              }),
+              {mode: 0o600},
+            );
+          ' "$proof_secrets"
+          npx --yes wrangler@4.114.0 deploy \
+            --config "$source_config" \
+            --secrets-file "$proof_secrets" \
+            --strict \
+            --minify
+
+      - name: Snapshot D1 and copy retained R2 payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          request="$(
+            jq -cn \
+              --arg sent "$BACKUP_SENT_EMAIL_ID" \
+              --arg scheduled "$BACKUP_SCHEDULED_EMAIL_ID" \
+              '{
+                action: "snapshot",
+                sent_email_id: $sent,
+                scheduled_email_id: $scheduled
+              }'
+          )"
+          for attempt in $(seq 1 30); do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              "$RESTORE_PROBE_ENDPOINT/" \
+              --header "Authorization: Bearer $HAYASEND_CLOUDFLARE_API_KEY" \
+              --header "Content-Type: application/json" \
+              --data "$request" \
+              --output "$RUNNER_TEMP/cloudflare-backup-snapshot.json"; then
+              break
+            fi
+            if [[ "$attempt" -eq 30 ]]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          jq -e '
+            .object == "cloudflare_backup_snapshot_proof" and
+            (.state_sha256 | test("^[a-f0-9]{64}$")) and
+            .counts.messages >= 2 and
+            .counts.provider_events >= 1 and
+            .counts.payload_objects >= 2 and
+            .fixture_event == "synthetic_terminal_for_restore_only" and
+            .production_delivery_evidence == false
+          ' "$RUNNER_TEMP/cloudflare-backup-snapshot.json"
+          state_sha256="$(
+            jq -er '.state_sha256' \
+              "$RUNNER_TEMP/cloudflare-backup-snapshot.json"
+          )"
+          echo "BACKUP_STATE_SHA256=$state_sha256" >> "$GITHUB_ENV"
+
+      - name: Export D1 and import it into the isolated restore database
+        shell: bash
+        run: |
+          set -euo pipefail
+          backup_file="$RUNNER_TEMP/hayasend-cloudflare-backup.sql"
+          npx --yes wrangler@4.114.0 d1 export \
+            "$SOURCE_DATABASE" \
+            --remote \
+            --skip-confirmation \
+            --output "$backup_file"
+          test -s "$backup_file"
+          npx --yes wrangler@4.114.0 d1 execute \
+            "$RESTORE_DATABASE" \
+            --remote \
+            --yes \
+            --file "$backup_file"
+
+      - name: Deploy restore verification probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          restore_config="$RUNNER_TEMP/backup-restore-target-wrangler.json"
+          proof_secrets="$RUNNER_TEMP/backup-restore-secrets.json"
+          jq -n \
+            --arg name "$RESTORE_WORKER" \
+            --arg database_name "$RESTORE_DATABASE" \
+            --arg database_id "$RESTORE_DATABASE_ID" \
+            --arg restore_bucket "$RESTORE_BUCKET" \
+            --arg recovery_queue "$RESTORE_QUEUE" \
+            '{
+              name: $name,
+              main: "src/workers/cloudflare-backup-restore-probe.ts",
+              compatibility_date: "2026-07-27",
+              workers_dev: true,
+              vars: {HAYASEND_PROOF_MODE: "restore"},
+              d1_databases: [{
+                binding: "DB",
+                database_name: $database_name,
+                database_id: $database_id
+              }],
+              r2_buckets: [{
+                binding: "PAYLOADS",
+                bucket_name: $restore_bucket
+              }],
+              queues: {
+                producers: [{
+                  binding: "RECOVERY_QUEUE",
+                  queue: $recovery_queue
+                }]
+              }
+            }' > "$restore_config"
+          npx --yes wrangler@4.114.0 deploy \
+            --config "$restore_config" \
+            --secrets-file "$proof_secrets" \
+            --strict \
+            --minify
+
+      - name: Verify isolated restore and one-time due-work recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          request="$(
+            jq -cn \
+              --arg digest "$BACKUP_STATE_SHA256" \
+              --arg scheduled "$BACKUP_SCHEDULED_EMAIL_ID" \
+              '{
+                action: "verify",
+                expected_state_sha256: $digest,
+                scheduled_email_id: $scheduled
+              }'
+          )"
+          for attempt in $(seq 1 30); do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              "$RESTORE_PROBE_ENDPOINT/" \
+              --header "Authorization: Bearer $HAYASEND_CLOUDFLARE_API_KEY" \
+              --header "Content-Type: application/json" \
+              --data "$request" \
+              --output "$RUNNER_TEMP/cloudflare-backup-restore.json"; then
+              break
+            fi
+            if [[ "$attempt" -eq 30 ]]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          jq -e '
+            .object == "cloudflare_backup_restore_proof" and
+            .status == "passed" and
+            .restored_state_sha256 == env.BACKUP_STATE_SHA256 and
+            .relational_integrity == "passed" and
+            .payload_integrity == "passed" and
+            .hydration == "passed" and
+            .due_work_recovery.first_sweep ==
+              {"leased": 1, "dispatched": 1, "failed": 0} and
+            .due_work_recovery.second_sweep ==
+              {"leased": 0, "dispatched": 0, "failed": 0} and
+            .due_work_recovery.deterministic_single_dispatch == true and
+            .immutable_delivery_ledger_unchanged == true and
+            .external_send_performed_during_restore == false
+          ' "$RUNNER_TEMP/cloudflare-backup-restore.json"
 
       - name: Deploy controlled failure version
         shell: bash
@@ -241,6 +529,32 @@ jobs:
             --provider_events_per_message 0 \
             > "$RUNNER_TEMP/cloudflare-cost.json"
 
+      - name: Delete isolated restore resources
+        if: always() && steps.account_guard.outputs.validated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          purge_request='{"action":"purge_restore_payloads"}'
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            "$RESTORE_PROBE_ENDPOINT/" \
+            --header "Authorization: Bearer $HAYASEND_CLOUDFLARE_API_KEY" \
+            --header "Content-Type: application/json" \
+            --data "$purge_request" \
+            --output "$RUNNER_TEMP/cloudflare-backup-restore-cleanup.json" \
+            || true
+          npm run --silent cli -- cleanup cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$RESTORE_DEPLOYMENT_NAME" \
+            --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --apply \
+            | tee "$RUNNER_TEMP/cloudflare-restore-cleanup.json"
+          rm -f \
+            "$RUNNER_TEMP/hayasend-cloudflare-backup.sql" \
+            "$RUNNER_TEMP/backup-restore-secrets.json"
+
       - name: Delete disposable resources
         if: always() && steps.account_guard.outputs.validated == 'true'
         shell: bash
@@ -270,9 +584,17 @@ jobs:
             echo "::error::R2 bucket remains after cleanup."
             exit 1
           fi
+          if grep -F "$RESTORE_BUCKET" <<< "$r2_list"; then
+            echo "::error::Restore R2 bucket remains after cleanup."
+            exit 1
+          fi
           queue_list="$(npx --yes wrangler@4.114.0 queues list)"
           if grep -F "$prefix-" <<< "$queue_list"; then
             echo "::error::Queue remains after cleanup."
+            exit 1
+          fi
+          if grep -F "$RESTORE_QUEUE" <<< "$queue_list"; then
+            echo "::error::Restore Queue remains after cleanup."
             exit 1
           fi
           set +e
@@ -290,6 +612,27 @@ jobs:
           if ! grep -Fq "code: 10007" <<< "$worker_check"; then
             echo "::error::Worker absence could not be verified."
             printf '%s\n' "$worker_check"
+            exit 1
+          fi
+          if node -e 'const a=JSON.parse(process.argv[1]);const n=process.argv[2];process.exit(a.some(x=>x.name===n)?0:1)' "$d1_json" "$RESTORE_DATABASE"; then
+            echo "::error::Restore D1 database remains after cleanup."
+            exit 1
+          fi
+          set +e
+          restore_worker_check="$(
+            npx --yes wrangler@4.114.0 versions list \
+              --name "$RESTORE_WORKER" \
+              --json 2>&1
+          )"
+          restore_worker_status="$?"
+          set -e
+          if [[ "$restore_worker_status" -eq 0 ]]; then
+            echo "::error::Restore Worker remains after cleanup."
+            exit 1
+          fi
+          if ! grep -Fq "code: 10007" <<< "$restore_worker_check"; then
+            echo "::error::Restore Worker absence could not be verified."
+            printf '%s\n' "$restore_worker_check"
             exit 1
           fi
 

@@ -7,6 +7,7 @@ declare global {
     interface Env {
       TEST_DB: D1Database;
       TEST_BUCKET: R2Bucket;
+      TEST_TARGET_BUCKET: R2Bucket;
       TEST_QUEUE: Queue;
       TEST_MIGRATIONS: D1Migration[];
     }
