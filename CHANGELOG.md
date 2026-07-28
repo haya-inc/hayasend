@@ -6,6 +6,19 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.1 - 2026-07-29
+
+- Add a provider-neutral, console-only hosted semantic proof for portable
+  PostgreSQL deployments. It verifies the 30-day scheduling ledger, atomic
+  idempotent commit, lost-wake-up recovery, provider-acceptance state, and
+  exact fixture cleanup without sending external mail.
+- Fail closed when a production-built portable runtime uses the console
+  transport without the exact `isolated-non-sending` proof confirmation.
+- Wire the non-sending guard into the Cloud Run, Render, Railway, Fly.io, and
+  Vercel lifecycle profiles while keeping SendGrid profiles free of the guard.
+- Add production-image and PostgreSQL 18 coverage for guard enforcement,
+  response-loss cleanup, non-empty database refusal, and non-root startup.
+
 ## 0.3.0 - 2026-07-29
 
 - Define independent, versioned runtime, transport, and combined-deployment

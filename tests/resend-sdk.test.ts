@@ -71,7 +71,7 @@ describe("official Resend Node SDK compatibility", () => {
       {
         provider: {
           name: "cloudflare-email",
-          adapter_version: "0.3.0",
+          adapter_version: "0.3.1",
           capability_version: "1.0.0",
         },
         pre_commit_validator: assertCloudflareEmailPreflight,
@@ -92,7 +92,7 @@ describe("official Resend Node SDK compatibility", () => {
         queue,
         {
           provider: "local-console",
-          adapter_version: "0.3.0",
+          adapter_version: "0.3.1",
           capability_version: "1.0.0",
           checked_at: null,
           document: { provider: "local-console" },
@@ -401,7 +401,7 @@ describe("official Resend Node SDK compatibility", () => {
       message: {
         provider: {
           name: "cloudflare-email",
-          adapter_version: "0.3.0",
+          adapter_version: "0.3.1",
           capability_version: "1.0.0",
         },
       },

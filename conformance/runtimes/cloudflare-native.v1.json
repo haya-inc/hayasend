@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "runtime": "cloudflare-native",
-  "adapter_version": "0.3.0",
+  "adapter_version": "0.3.1",
   "checked_at": "2026-07-28",
   "service_maturity": "beta",
   "runtime_class": "native-cloud",
