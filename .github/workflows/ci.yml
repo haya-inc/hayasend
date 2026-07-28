@@ -10,6 +10,77 @@ permissions:
   contents: read
 
 jobs:
+  cloud-run-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.72.0
+          cache: true
+      - name: Validate the Cloud Run deployment pack
+        working-directory: deploy/cloud-run
+        env:
+          GOOGLE_OAUTH_ACCESS_TOKEN: invalid-ci-token
+          TF_VAR_api_key: re_DO_NOT_PERSIST_API_KEY_ABCDEFGHIJKL
+          TF_VAR_database_password: DO_NOT_PERSIST_DATABASE_PASSWORD_1234
+          TF_VAR_image: >-
+            ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          TF_VAR_project_id: hayasend-test-project
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test -no-color
+          shellcheck deploy.sh cleanup.sh
+          trivy config \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --skip-version-check \
+            .
+          terraform plan \
+            -input=false \
+            -lock=false \
+            -no-color \
+            -refresh=false \
+            -out="$RUNNER_TEMP/cloud-run.tfplan" \
+            > "$RUNNER_TEMP/cloud-run-plan.txt"
+          grep --fixed-strings --quiet \
+            'connector_enforcement            = "REQUIRED"' \
+            "$RUNNER_TEMP/cloud-run-plan.txt"
+          grep --fixed-strings --quiet \
+            'secret_data_wo         = (write-only attribute)' \
+            "$RUNNER_TEMP/cloud-run-plan.txt"
+          if grep --fixed-strings --quiet \
+            "$TF_VAR_api_key" "$RUNNER_TEMP/cloud-run-plan.txt"; then
+            echo "Terraform plan exposed the HayaSend API key."
+            exit 1
+          fi
+          if grep --fixed-strings --quiet \
+            "$TF_VAR_database_password" "$RUNNER_TEMP/cloud-run-plan.txt"; then
+            echo "Terraform plan exposed the database password."
+            exit 1
+          fi
+          terraform show -json "$RUNNER_TEMP/cloud-run.tfplan" \
+            > "$RUNNER_TEMP/cloud-run-plan.json"
+          if grep --fixed-strings --quiet \
+            "$TF_VAR_api_key" "$RUNNER_TEMP/cloud-run-plan.json"; then
+            echo "The saved Terraform plan exposed the HayaSend API key."
+            exit 1
+          fi
+          if grep --fixed-strings --quiet \
+            "$TF_VAR_database_password" \
+            "$RUNNER_TEMP/cloud-run-plan.json"; then
+            echo "The saved Terraform plan exposed the database password."
+            exit 1
+          fi
+
   postgres-substrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -302,9 +373,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 405 and
-            .size < 545000 and
-            .unpackedSize < 2850000 and
+              .entryCount <= 415 and
+            .size < 550000 and
+            .unpackedSize < 2900000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -332,6 +403,14 @@ jobs:
             ([.files[].path] |
               index("dist/adapters/portable-attachment-storage.js") != null) and
             ([.files[].path] |
+              index("deploy/cloud-run/main.tf") != null) and
+            ([.files[].path] |
+              index("deploy/cloud-run/.terraform.lock.hcl") != null) and
+            ([.files[].path] |
+              index("deploy/cloud-run/.terraform-version") != null) and
+            ([.files[].path] |
+              index("deploy/cloud-run/backend.tf.example") != null) and
+            ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
               index("schemas/readiness-matrix.v1.schema.json") != null) and
@@ -341,7 +420,7 @@ jobs:
           ' "$RUNNER_TEMP/npm-pack-metadata.json" > /dev/null
           if tar --list --gzip --file "$RUNNER_TEMP/$archive" |
             grep --extended-regexp --invert-match --quiet \
-              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|dist/.*|migrations/.*|schemas/.*|scripts/(clean-dist|cloudflare-cost-model|npm-sam-compat)\.mjs|src/.*|template\.yaml)$'; then
+              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|deploy/.*|dist/.*|migrations/.*|schemas/.*|scripts/(clean-dist|cloudflare-cost-model|npm-sam-compat)\.mjs|src/.*|template\.yaml)$'; then
             echo "The npm package contains an unexpected path."
             tar --list --gzip --file "$RUNNER_TEMP/$archive"
             exit 1
@@ -386,6 +465,12 @@ jobs:
             "$package_root/conformance/runtimes/portable-postgres.v1.json"
           test -f \
             "$package_root/dist/adapters/portable-attachment-storage.js"
+          test -f "$package_root/deploy/cloud-run/main.tf"
+          test -f "$package_root/deploy/cloud-run/.terraform.lock.hcl"
+          test -f "$package_root/deploy/cloud-run/.terraform-version"
+          test -f "$package_root/deploy/cloud-run/backend.tf.example"
+          test -x "$package_root/deploy/cloud-run/deploy.sh"
+          test -x "$package_root/deploy/cloud-run/cleanup.sh"
           test -f "$package_root/conformance/readiness.v1.json"
           test -f \
             "$package_root/schemas/readiness-matrix.v1.schema.json"

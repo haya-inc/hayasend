@@ -62,8 +62,8 @@
   },
   "lifecycle": {
     "safe_deploy": {
-      "status": "unsupported",
-      "notes": "Pinned Cloud Run, Azure Container Apps, Render, Railway, and Fly.io deployment packs are not yet published."
+      "status": "conditional",
+      "notes": "The pinned Cloud Run pack uses a migration-first rollout, immutable images, Cloud SQL, GCS, Secret Manager, and a Worker Pool; hosted lifecycle proof and the remaining platform packs are still required."
     },
     "doctor": {
       "status": "conditional",
@@ -97,6 +97,16 @@
     {
       "title": "Google Cloud Storage V4 signed URLs",
       "url": "https://cloud.google.com/storage/docs/access-control/signing-urls-with-helpers",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Cloud Run resource model",
+      "url": "https://docs.cloud.google.com/run/docs/resource-model",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Cloud Run Worker Pools",
+      "url": "https://docs.cloud.google.com/run/docs/deploy-worker-pools",
       "checked_at": "2026-07-28"
     },
     {

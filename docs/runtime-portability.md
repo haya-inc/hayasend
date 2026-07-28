@@ -88,6 +88,13 @@ This single runtime is the intended path to Cloud Run, Azure Container Apps,
 Render, Railway, and Fly.io. Each platform gets a deployment pack and exact
 operational evidence, not a fork of core delivery logic.
 
+The first thin pack is now published for
+[Cloud Run + Cloud SQL + GCS](../deploy/cloud-run/README.md). It uses a Cloud
+Run Service, migration Job, and Beta Worker Pool with write-only Terraform
+secrets and a migration-first rollout. It remains experimental until its
+hosted lifecycle, backup/restore, rollback, cleanup, and exact transport
+evidence pass.
+
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,
@@ -101,8 +108,8 @@ advisory lock and each applied migration is pinned by SHA-256 checksum.
 
 [The portable runtime runbook](portable-postgres.md) documents its exact
 settings, storage bindings, identity requirements, and process model. Portable
-provider event ingress, backup/restore drills, platform deployment packs, and
-exact platform evidence remain prerequisites before this profile can be
+provider event ingress, backup/restore drills, the remaining platform packs,
+and exact hosted evidence remain prerequisites before this profile can be
 claimed as a supported Beta deployment.
 
 ### `vercel-serverless` (planned experimental)

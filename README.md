@@ -21,6 +21,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Provider capabilities](docs/provider-capabilities.md) ·
 [Runtime portability](docs/runtime-portability.md) ·
 [Portable PostgreSQL](docs/portable-postgres.md) ·
+[Cloud Run](deploy/cloud-run/README.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
