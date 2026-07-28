@@ -15,8 +15,8 @@ delivery provider and data plane stay in your cloud account. Amazon SES is the
 deployed provider today. The Cloudflare runtime is wired for controlled Beta
 proofs only and is not production-ready. HayaSend never logs message bodies.
 
-[Project site](https://haya-inc.github.io/hayasend/) ·
-[API reference](https://haya-inc.github.io/hayasend/api-reference.html) ·
+[Project site](https://hayasend.com/) ·
+[API reference](https://hayasend.com/api-reference.html) ·
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
@@ -69,7 +69,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   property-based direct HTTP contract tests
 
 See [the compatibility matrix](docs/compatibility.md) for precise coverage.
-Browse the generated [API reference](https://haya-inc.github.io/hayasend/api-reference.html)
+Browse the generated [API reference](https://hayasend.com/api-reference.html)
 or download its versioned [OpenAPI contract](openapi.yaml).
 The dedicated-account deployment gate is documented in
 [AWS integration testing](docs/aws-integration-testing.md).
@@ -602,7 +602,7 @@ Self-hosting and community use do not require a commercial agreement.
 
 See [SUPPORT.md](SUPPORT.md) and
 [the commercial boundary](docs/commercial.md). The
-[project site](https://haya-inc.github.io/hayasend/) provides a concise
+[project site](https://hayasend.com/) provides a concise
 overview suitable for technical evaluators.
 
 ## Contributing

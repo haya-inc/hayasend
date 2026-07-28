@@ -225,6 +225,26 @@ h1 em {
   line-height: 1.55;
 }
 
+.release-context {
+  max-width: 41rem;
+  margin: 1.2rem 0 0;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.release-context a {
+  color: var(--ink);
+  font-weight: 700;
+  text-underline-offset: 0.18em;
+}
+
+.release-context code {
+  color: var(--ink);
+  font-family: inherit;
+}
+
 .hero-actions {
   display: flex;
   margin-top: 2.4rem;

@@ -116,6 +116,15 @@ function capturingIo() {
 }
 
 describe("HayaSend CLI", () => {
+  it("reports its exact packaged version through standard commands", async () => {
+    for (const args of [["--version"], ["-v"], ["version"]]) {
+      const capture = capturingIo();
+      await runCli(args, { io: capture.io });
+      expect(capture.logs).toEqual([HAYASEND_VERSION]);
+      expect(capture.errors).toEqual([]);
+    }
+  });
+
   it("recognizes an npm-style symlink as the executable module", async () => {
     const directory = await temporaryDirectory();
     const modulePath = join(directory, "cli.js");

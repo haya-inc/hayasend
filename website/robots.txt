@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://haya-inc.github.io/hayasend/sitemap.xml
+Sitemap: https://hayasend.com/sitemap.xml

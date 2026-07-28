@@ -89,9 +89,11 @@ jobs:
             echo "::error::Release commit is not reachable from the protected main branch."
             exit 1
           fi
-          echo "version=${package_version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "commit=${release_commit}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${package_version}"
+            echo "tag=${RELEASE_TAG}"
+            echo "commit=${release_commit}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: |

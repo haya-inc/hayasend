@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import { HAYASEND_VERSION } from "../src/version.js";
 
 const read = (path: string) =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -41,11 +42,20 @@ describe("project site", () => {
       read("website/sitemap.xml"),
       read(".github/workflows/pages.yml"),
     ]);
-    const siteUrl = "https://haya-inc.github.io/hayasend/";
+    const siteUrl = "https://hayasend.com/";
 
     expect(index).toContain(siteUrl);
-    expect(notFound).toContain('href="/hayasend/styles.css"');
-    expect(notFound).toContain('href="/hayasend/"');
+    expect(index).toContain(
+      "This site tracks <code>main</code> and may describe unreleased changes.",
+    );
+    expect(index).toContain(
+      `href="https://github.com/haya-inc/hayasend/releases/tag/v${HAYASEND_VERSION}"`,
+    );
+    expect(index).toContain(
+      `npx --yes @haya-inc/hayasend@${HAYASEND_VERSION} init`,
+    );
+    expect(notFound).toContain('href="/styles.css"');
+    expect(notFound).toContain('href="/"');
     expect(robots).toContain(`${siteUrl}sitemap.xml`);
     expect(sitemap).toContain(`<loc>${siteUrl}</loc>`);
     expect(sitemap).toContain(`<loc>${siteUrl}api-reference.html</loc>`);
@@ -57,5 +67,6 @@ describe("project site", () => {
     expect(workflow).toMatch(/actions\/configure-pages@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-pages-artifact@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/deploy-pages@[0-9a-f]{40}/);
+    expect(await read("website/CNAME")).toBe("hayasend.com\n");
   });
 });
