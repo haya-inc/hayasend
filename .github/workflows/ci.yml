@@ -302,13 +302,15 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-              .entryCount <= 350 and
+              .entryCount <= 360 and
             .size < 500000 and
             .unpackedSize < 2600000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
               index("migrations/0003_cloudflare_suppressions.sql") != null) and
+            ([.files[].path] |
+              index("migrations/postgres/0002_application_store.sql") != null) and
             ([.files[].path] |
               index("scripts/cloudflare-cost-model.mjs") != null) and
             ([.files[].path] | index("src/aws/api.ts") != null) and
@@ -357,6 +359,8 @@ jobs:
           test -f "$package_root/src/workers/index.ts"
           test -f \
             "$package_root/migrations/0003_cloudflare_suppressions.sql"
+          test -f \
+            "$package_root/migrations/postgres/0002_application_store.sql"
           test -f "$package_root/scripts/cloudflare-cost-model.mjs"
           test -f \
             "$package_root/schemas/runtime-capabilities.v1.schema.json"
