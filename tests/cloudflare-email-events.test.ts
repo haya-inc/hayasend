@@ -44,7 +44,7 @@ function fixture() {
     {
       provider: {
         name: "cloudflare-email",
-        adapter_version: "0.2.0",
+        adapter_version: "0.3.0",
         capability_version: "1.0.0",
       },
     },

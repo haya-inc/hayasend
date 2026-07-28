@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "provider": "sendgrid",
-  "adapter_version": "0.2.0",
+  "adapter_version": "0.3.0",
   "checked_at": "2026-07-29",
   "service_maturity": "experimental",
   "required_plan": "A customer-owned Twilio SendGrid account, scoped API key, authenticated sender domain, and Signed Event Webhook are required. EU regional sending requires an eligible regional subuser and plan.",
