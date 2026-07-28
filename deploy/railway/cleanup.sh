@@ -9,6 +9,11 @@ if [[ "${HAYASEND_RAILWAY_DEDICATED_PROJECT:-}" != "true" ]]; then
   echo "Set HAYASEND_RAILWAY_DEDICATED_PROJECT=true only for an isolated proof project." >&2
   exit 1
 fi
+if [[ "${HAYASEND_RAILWAY_ALLOW_PARTIAL:-false}" != "false" ]] &&
+  [[ "${HAYASEND_RAILWAY_ALLOW_PARTIAL:-}" != "true" ]]; then
+  echo "HAYASEND_RAILWAY_ALLOW_PARTIAL must be true or false." >&2
+  exit 1
+fi
 
 pack_directory="$(
   cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
@@ -31,15 +36,38 @@ if [[ ! "$HAYASEND_RAILWAY_PROJECT_ID" =~ $uuid_pattern ]] ||
   echo "Railway project and environment identifiers must be exact lowercase UUIDs." >&2
   exit 1
 fi
+if [[ -n "${HAYASEND_RAILWAY_WORKSPACE_ID:-}" ]] &&
+  [[ ! "$HAYASEND_RAILWAY_WORKSPACE_ID" =~ $uuid_pattern ]]; then
+  echo "HAYASEND_RAILWAY_WORKSPACE_ID must be an exact lowercase UUID when set." >&2
+  exit 1
+fi
 
 link_directory="$(mktemp -d "${TMPDIR:-/tmp}/hayasend-railway-cleanup.XXXXXX")"
 trap 'rm -rf -- "$link_directory"' EXIT
 cd -- "$link_directory"
 
-"$railway_cli" link \
-  --project "$HAYASEND_RAILWAY_PROJECT_ID" \
-  --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
-  --json >/dev/null
+link_arguments=(
+  link
+  --project "$HAYASEND_RAILWAY_PROJECT_ID"
+  --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID"
+  --json
+)
+if [[ -n "${HAYASEND_RAILWAY_WORKSPACE_ID:-}" ]]; then
+  link_arguments+=(--workspace "$HAYASEND_RAILWAY_WORKSPACE_ID")
+fi
+"$railway_cli" "${link_arguments[@]}" >/dev/null
+
+environments="$("$railway_cli" environment list --json)"
+if ! jq --exit-status \
+  --arg environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+  '.environments | length == 1 and
+    .[0].id == $environment and
+    .[0].name == "production" and
+    .[0].isEphemeral == false' \
+  <<<"$environments" >/dev/null; then
+  echo "The project must contain only the exact non-ephemeral production environment." >&2
+  exit 1
+fi
 
 status="$(
   "$railway_cli" status \
@@ -49,27 +77,42 @@ status="$(
 )"
 if ! jq --exit-status \
   --arg project "$HAYASEND_RAILWAY_PROJECT_ID" \
+  --arg allow_partial "${HAYASEND_RAILWAY_ALLOW_PARTIAL:-false}" \
   '.id == $project and
     .name == "hayasend-railway" and
-    ([.services.edges[].node.name] | sort ==
-      ["hayasend-api", "hayasend-postgres", "hayasend-worker"]) and
-    ([.buckets.edges[].node.name] | sort == ["hayasend-attachments"])' \
+    (if $allow_partial == "true" then
+      ([.services.edges[].node.name] |
+        all(. == "hayasend-api" or
+          . == "hayasend-postgres" or
+          . == "hayasend-worker")) and
+      ([.buckets.edges[].node.name] |
+        all(. == "hayasend-attachments"))
+    else
+      ([.services.edges[].node.name] | sort ==
+        ["hayasend-api", "hayasend-postgres", "hayasend-worker"]) and
+      ([.buckets.edges[].node.name] | sort ==
+        ["hayasend-attachments"])
+    end)' \
   <<<"$status" >/dev/null; then
-  echo "The project is not an exact isolated HayaSend Railway project; cleanup refused." >&2
+  echo "The project is not an isolated HayaSend Railway project with only allowed resources; cleanup refused." >&2
   exit 1
 fi
 
-bucket="$(
-  "$railway_cli" bucket info \
-    --bucket "hayasend-attachments" \
-    --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
-    --json
-)"
-if ! jq --exit-status \
-  '.name == "hayasend-attachments" and (.objects // 0) == 0' \
-  <<<"$bucket" >/dev/null; then
-  echo "Empty the Railway attachment bucket and verify object count zero before cleanup." >&2
-  exit 1
+if jq --exit-status \
+  '[.buckets.edges[].node.name] | any(. == "hayasend-attachments")' \
+  <<<"$status" >/dev/null; then
+  bucket="$(
+    "$railway_cli" bucket info \
+      --bucket "hayasend-attachments" \
+      --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
+      --json
+  )"
+  if ! jq --exit-status \
+    '.name == "hayasend-attachments" and (.objects // 0) == 0' \
+    <<<"$bucket" >/dev/null; then
+    echo "Empty the Railway attachment bucket and verify object count zero before cleanup." >&2
+    exit 1
+  fi
 fi
 
 delete_arguments=(

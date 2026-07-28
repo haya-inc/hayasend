@@ -25,6 +25,11 @@ if [[ ! "$HAYASEND_RAILWAY_PROJECT_ID" =~ $uuid_pattern ]] ||
   echo "Railway project and environment identifiers must be exact lowercase UUIDs." >&2
   exit 1
 fi
+if [[ -n "${HAYASEND_RAILWAY_WORKSPACE_ID:-}" ]] &&
+  [[ ! "$HAYASEND_RAILWAY_WORKSPACE_ID" =~ $uuid_pattern ]]; then
+  echo "HAYASEND_RAILWAY_WORKSPACE_ID must be an exact lowercase UUID when set." >&2
+  exit 1
+fi
 if [[ ! "$HAYASEND_IMAGE" =~ ^ghcr\.io/haya-inc/hayasend@sha256:[a-f0-9]{64}$ ]]; then
   echo "HAYASEND_IMAGE must be an immutable official HayaSend GHCR digest." >&2
   exit 1
@@ -51,10 +56,16 @@ link_directory="$(mktemp -d "${TMPDIR:-/tmp}/hayasend-railway-link.XXXXXX")"
 trap 'rm -rf -- "$link_directory"' EXIT
 cd -- "$link_directory"
 
-"$railway_cli" link \
-  --project "$HAYASEND_RAILWAY_PROJECT_ID" \
-  --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID" \
-  --json >/dev/null
+link_arguments=(
+  link
+  --project "$HAYASEND_RAILWAY_PROJECT_ID"
+  --environment "$HAYASEND_RAILWAY_ENVIRONMENT_ID"
+  --json
+)
+if [[ -n "${HAYASEND_RAILWAY_WORKSPACE_ID:-}" ]]; then
+  link_arguments+=(--workspace "$HAYASEND_RAILWAY_WORKSPACE_ID")
+fi
+"$railway_cli" "${link_arguments[@]}" >/dev/null
 
 plan="$(
   "$railway_cli" config plan \

@@ -15,6 +15,7 @@ const image =
   "0123456789abcdef".repeat(4);
 const projectId = "11111111-1111-4111-8111-111111111111";
 const environmentId = "22222222-2222-4222-8222-222222222222";
+const workspaceId = "33333333-3333-4333-8333-333333333333";
 const apiUrl =
   "https://hayasend-api-production.up.railway.app";
 const apiKey = "re_RAILWAY_DEPLOYMENT_TEST_KEY";
@@ -48,8 +49,23 @@ elif [[ "\${1:-}" == "status" ]]; then
   else
     extra=''
   fi
-  printf '{"id":"%s","name":"hayasend-railway","services":{"edges":[{"node":{"name":"hayasend-api"}},{"node":{"name":"hayasend-postgres"}},{"node":{"name":"hayasend-worker"}}%s]},"buckets":{"edges":[{"node":{"name":"hayasend-attachments"}}]}}\\n' \
-    "$HAYASEND_RAILWAY_PROJECT_ID" "$extra"
+  if [[ "\${RAILWAY_FAKE_PARTIAL:-false}" == "true" ]]; then
+    services='[{"node":{"name":"hayasend-api"}}]'
+    buckets='[]'
+  else
+    services='[{"node":{"name":"hayasend-api"}},{"node":{"name":"hayasend-postgres"}},{"node":{"name":"hayasend-worker"}}'"$extra"']'
+    buckets='[{"node":{"name":"hayasend-attachments"}}]'
+  fi
+  printf '{"id":"%s","name":"hayasend-railway","services":{"edges":%s},"buckets":{"edges":%s}}\\n' \
+    "$HAYASEND_RAILWAY_PROJECT_ID" "$services" "$buckets"
+elif [[ "\${1:-} \${2:-}" == "environment list" ]]; then
+  if [[ "\${RAILWAY_FAKE_EXTRA_ENVIRONMENT:-false}" == "true" ]]; then
+    extra_environment=',{"id":"33333333-3333-4333-8333-333333333333","name":"staging","isEphemeral":false}'
+  else
+    extra_environment=''
+  fi
+  printf '{"environments":[{"id":"%s","name":"production","isEphemeral":false}%s]}\\n' \
+    "$HAYASEND_RAILWAY_ENVIRONMENT_ID" "$extra_environment"
 elif [[ "\${1:-} \${2:-}" == "bucket info" ]]; then
   printf '{"id":"bucket-id","name":"hayasend-attachments","region":"sin","objects":%s}\\n' \
     "\${RAILWAY_FAKE_BUCKET_OBJECTS:-0}"
@@ -105,6 +121,7 @@ const baseEnvironment = {
   HAYASEND_RAILWAY_API_URL: apiUrl,
   HAYASEND_RAILWAY_ENVIRONMENT_ID: environmentId,
   HAYASEND_RAILWAY_PROJECT_ID: projectId,
+  HAYASEND_RAILWAY_WORKSPACE_ID: workspaceId,
 };
 
 describe.skipIf(process.platform === "win32")(
@@ -122,6 +139,9 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(commands).toContain(
         `config apply --file ${deploymentDirectory}/.railway/railway.ts --yes --json`,
+      );
+      expect(commands).toContain(
+        `--workspace ${workspaceId}`,
       );
       expect(commands).not.toContain("--confirm-destructive");
       expect(commands).not.toContain(apiKey);
@@ -177,6 +197,7 @@ describe.skipIf(process.platform === "win32")(
 
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
+      expect(commands).toContain("environment list --json");
       expect(commands).toContain(
         `delete --project ${projectId} --yes --json`,
       );
@@ -207,7 +228,45 @@ describe.skipIf(process.platform === "win32")(
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain(
-        "not an exact isolated HayaSend Railway project",
+        "not an isolated HayaSend Railway project",
+      );
+      expect(await readFile(fixture.log, "utf8")).not.toContain(
+        `delete --project ${projectId}`,
+      );
+    });
+
+    it("deletes an allowed partial graph after a failed deployment", async () => {
+      const fixture = await fakeCommands();
+      const result = run("cleanup.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_ALLOW_DESTROY: "railway",
+        HAYASEND_RAILWAY_ALLOW_PARTIAL: "true",
+        HAYASEND_RAILWAY_DEDICATED_PROJECT: "true",
+        RAILWAY_FAKE_PARTIAL: "true",
+      });
+      const commands = await readFile(fixture.log, "utf8");
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).not.toContain("bucket info");
+      expect(commands).toContain(
+        `delete --project ${projectId} --yes --json`,
+      );
+    });
+
+    it("refuses cleanup when another environment exists", async () => {
+      const fixture = await fakeCommands();
+      const result = run("cleanup.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_ALLOW_DESTROY: "railway",
+        HAYASEND_RAILWAY_ALLOW_PARTIAL: "true",
+        HAYASEND_RAILWAY_DEDICATED_PROJECT: "true",
+        RAILWAY_FAKE_EXTRA_ENVIRONMENT: "true",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "only the exact non-ephemeral production environment",
       );
       expect(await readFile(fixture.log, "utf8")).not.toContain(
         `delete --project ${projectId}`,
