@@ -120,6 +120,15 @@ Postgres currently tops out at PostgreSQL 17, and `fly storage create` does
 not enable Tigris snapshots, so hosted PostgreSQL-version parity and an
 object-store restore design remain explicit promotion gates.
 
+The experimental
+[Azure Container Apps pack](../deploy/azure-container-apps/README.md) binds the
+same API, worker, migration job, and PostgreSQL authority to Container Apps,
+private PostgreSQL Flexible Server 18, Blob user-delegation uploads, Key Vault,
+managed identity, ACS Email, and secret Event Grid ingress. Its Event Grid
+subscription is deliberately managed outside Terraform so the independent
+delivery secret is never persisted in Terraform state. Hosted lifecycle and
+terminal-recipient evidence remain tracked separately in #152.
+
 The PostgreSQL 18 substrate now implements the complete application `Store`
 contract: the delivery ledger and transactional outbox, emails, templates and
 immutable publication history, attachments, inbound claims, domains,

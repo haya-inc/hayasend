@@ -201,7 +201,9 @@ do not log the URL because it may contain credentials.
   [experimental Cloud Run pack](../deploy/cloud-run/README.md) is published,
   as are the [experimental Render pack](../deploy/render/README.md) and
   [experimental Railway pack](../deploy/railway/README.md) and
-  [experimental Fly.io pack](../deploy/flyio/README.md), but their hosted
+  [experimental Fly.io pack](../deploy/flyio/README.md) and
+  [experimental Azure Container Apps pack](../deploy/azure-container-apps/README.md),
+  but their hosted
   evidence is still pending. Fly Managed Postgres currently uses PostgreSQL
   17 rather than the PostgreSQL 18 primary test substrate.
 
