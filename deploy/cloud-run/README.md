@@ -58,7 +58,10 @@ The pack was validated on 2026-07-29 with:
 
 - Terraform `1.15.8`;
 - HashiCorp Google provider `7.41.0`;
-- Google Cloud PostgreSQL `18`; and
+- Google Cloud PostgreSQL `18`;
+- HayaSend `0.3.0` OCI index digest
+  `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`;
+  and
 - the Cloud Run v2 Service, Job, and Worker Pool resources.
 
 The optional wake-up adapter uses `google-auth-library` 10.9.1 and the current
@@ -86,7 +89,7 @@ argument:
 
 ```bash
 export TF_VAR_project_id="your-gcp-project-id"
-export TF_VAR_image="ghcr.io/haya-inc/hayasend@sha256:..."
+export TF_VAR_image="ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519"
 export TF_VAR_api_key="re_$(openssl rand -hex 32)"
 export TF_VAR_database_password="$(openssl rand -base64 48 | tr -d '\n')"
 ```
