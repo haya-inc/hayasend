@@ -6,12 +6,12 @@ This experimental Blueprint binds the shared `portable-postgres` runtime to:
 - one Render Background Worker for durable due-row and outbox recovery; and
 - one private Render Postgres 18 database.
 
-The Blueprint uses the signed `sendgrid` transport and starts with disabled
-direct-upload storage. It can submit real mail after the operator supplies a
-customer-owned scoped SendGrid API key, authenticated domain, and Signed Event
-Webhook verification key. It offers inline attachments until an external
-object store is selected. Render does not provide a native object store or
-transactional-email transport.
+The Blueprint starts with the non-sending `console` transport and disabled
+direct-upload storage. This is the lifecycle-proof profile: it can exercise
+API acceptance, durable jobs, worker recovery, upgrades, rollback, and
+database restore without submitting mail to an external provider. It offers
+inline attachments until an external object store is selected. Render does
+not provide a native object store or transactional-email transport.
 
 The pack is not a Beta or production-readiness claim. Hosted deploy, rollback,
 backup/restore, queue-loss, terminal delivery, controlled receipt, and cleanup
@@ -26,7 +26,8 @@ Validated on 2026-07-29 with:
   `sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519`;
 - Render Postgres `18`;
 - `starter` Web Service and Background Worker plans; and
-- the `basic-256mb` paid database plan.
+- the `basic-256mb` paid database plan with an explicit 1 GB disk and storage
+  autoscaling disabled for the disposable proof.
 
 The current CLI release and its downloaded checksum were independently
 verified before validation. The Blueprint disables automatic deploys and
@@ -41,13 +42,11 @@ silently create a new runtime or billable data plane.
    `deploy/render/render.yaml` as its Blueprint path.
 3. Review all three paid resources, the Singapore region, and the exact image
    digest before applying.
-4. Enter one independently generated `re_` API key and the customer-owned
-   `SENDGRID_API_KEY` and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` when Render
-   prompts. The worker references the API service values it needs instead of
-   creating duplicate credentials; only the API receives the webhook key.
-5. Configure SendGrid's Signed Event Webhook URL as
-   `https://API_HOST/events/sendgrid` and enable processed, deferred,
-   delivered, bounce, dropped, spamreport, open, and click events.
+4. Enter one independently generated `re_` API key when Render prompts. The
+   worker references the API service value instead of creating a duplicate
+   credential.
+5. Confirm both services have `HAYASEND_TRANSPORT=console` and no
+   `SENDGRID_*` variables before the first deploy.
 6. Record the exact `srv-*` API and worker IDs, the `dpg-*` database ID, and the
    API's `https://*.onrender.com` origin in your password/operations system.
 
@@ -62,7 +61,10 @@ evidence. Render's `sync: false` field keeps it out of the Blueprint file but
 Render still stores and injects it within the customer's workspace.
 
 The database has an empty public IP allow list. Both services receive its
-private connection string through `fromDatabase`.
+private connection string through `fromDatabase`. The disposable proof fixes
+storage at the provider minimum instead of accepting the larger Blueprint
+default or one-way automatic growth. Production sizing must be reviewed
+separately.
 
 ## Deploy an exact image
 
@@ -115,12 +117,18 @@ rotation design is part of the combination evidence.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
-Only opaque HayaSend correlation values enter custom arguments, and the API
-accepts events only after verifying the exact raw body with SendGrid's ECDSA
-signature. Do not report HTTP 202, `processed`, or a queue result as terminal
-delivery. Hosted proof remains tracked in issue #146 and readiness stays false
-until every evidence gate passes.
+The committed lifecycle profile uses `HAYASEND_TRANSPORT=console` and cannot
+submit mail. After the lifecycle, recovery, upgrade, rollback, and restore
+proofs pass, an independently reviewed transport phase may set
+`HAYASEND_TRANSPORT=sendgrid`, add a scoped `SENDGRID_API_KEY` to both
+services, and add `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` to the API only. Configure
+the Signed Event Webhook URL as `https://API_HOST/events/sendgrid` and enable
+processed, deferred, delivered, bounce, dropped, spamreport, open, and click
+events. Only opaque HayaSend correlation values enter custom arguments, and
+the API accepts events only after verifying the exact raw body with SendGrid's
+ECDSA signature. Do not report HTTP 202, `processed`, or a queue result as
+terminal delivery. Hosted proof remains tracked in issue #146 and readiness
+stays false until every evidence gate passes.
 
 ## Scaling, backups, and rollback
 

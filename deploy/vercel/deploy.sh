@@ -12,27 +12,37 @@ assert_linked_project
 : "${HAYASEND_API_KEY:?Export the same bootstrap API key configured in Vercel.}"
 : "${BLOB_READ_WRITE_TOKEN:?Export the private Vercel Blob read/write token.}"
 : "${CRON_SECRET:?Export the same Vercel Cron secret configured in production.}"
-: "${SENDGRID_API_KEY:?Export the same scoped SendGrid API key configured in production.}"
-: "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Export the same SendGrid verification key configured in production.}"
 : "${HAYASEND_VERCEL_API_URL:?Set the public production HTTPS origin to verify.}"
 require_https_origin "HAYASEND_VERCEL_API_URL" "$HAYASEND_VERCEL_API_URL"
+export HAYASEND_TRANSPORT="${HAYASEND_TRANSPORT:-console}"
 
 if [[ "$HAYASEND_DATABASE_URL" != postgres://* ]] &&
   [[ "$HAYASEND_DATABASE_URL" != postgresql://* ]]; then
   echo "HAYASEND_DATABASE_URL must be an explicit PostgreSQL URL." >&2
   exit 1
 fi
-if [[ "$SENDGRID_API_KEY" != SG.* ]] ||
-  [[ "${#SENDGRID_API_KEY}" -lt 32 ]] ||
-  [[ "${#SENDGRID_API_KEY}" -gt 512 ]]; then
-  echo "SENDGRID_API_KEY must be a 32 to 512 character SG. key." >&2
-  exit 1
-fi
-if [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -lt 64 ]] ||
-  [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -gt 16384 ]]; then
-  echo "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key." >&2
-  exit 1
-fi
+case "$HAYASEND_TRANSPORT" in
+  console) ;;
+  sendgrid)
+    : "${SENDGRID_API_KEY:?Export the same scoped SendGrid API key configured in production.}"
+    : "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Export the same SendGrid verification key configured in production.}"
+    if [[ "$SENDGRID_API_KEY" != SG.* ]] ||
+      [[ "${#SENDGRID_API_KEY}" -lt 32 ]] ||
+      [[ "${#SENDGRID_API_KEY}" -gt 512 ]]; then
+      echo "SENDGRID_API_KEY must be a 32 to 512 character SG. key." >&2
+      exit 1
+    fi
+    if [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -lt 64 ]] ||
+      [[ "${#SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY}" -gt 16384 ]]; then
+      echo "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key." >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "HAYASEND_TRANSPORT must be console or sendgrid for the Vercel pack." >&2
+    exit 1
+    ;;
+esac
 if [[ "$HAYASEND_API_KEY" != re_* ]] ||
   [[ "${#HAYASEND_API_KEY}" -lt 16 ]] ||
   [[ "${#HAYASEND_API_KEY}" -gt 512 ]]; then
@@ -57,7 +67,7 @@ fi
   npm run validate:vercel
   npm run build
   HAYASEND_MODE=portable \
-    HAYASEND_TRANSPORT=sendgrid \
+    HAYASEND_TRANSPORT="$HAYASEND_TRANSPORT" \
     HAYASEND_OBJECT_STORAGE=vercel-blob \
     npm run migrate:postgres
 )
@@ -68,6 +78,7 @@ deployment="$(
     "$vercel_cli" deploy "$repository_root" \
       --prod \
       --yes \
+      --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
       --project "$HAYASEND_VERCEL_PROJECT_ID"
 )"
 require_https_origin "Vercel deployment URL" "$deployment"

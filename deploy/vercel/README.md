@@ -17,8 +17,9 @@ transactional jobs and leases make this safe.
 This pack is not a production-readiness claim. Vercel Queues and private Blob
 are Beta, Vercel does not supply PostgreSQL or a native mail service, and
 hosted lifecycle, restore, interruption, terminal-delivery, controlled-receipt,
-and cleanup evidence remain pending. The reviewed external transport is the
-signed SendGrid adapter.
+and cleanup evidence remain pending. The first hosted lifecycle profile uses
+the non-sending `console` transport. The reviewed external transport for a
+separate terminal-delivery phase is the signed SendGrid adapter.
 
 ## Pinned inputs and platform limits
 
@@ -107,9 +108,7 @@ Configure at least these Vercel production variables:
 | `HAYASEND_MODE` | `portable` |
 | `HAYASEND_DATABASE_URL` | secret pooled PostgreSQL URL with provider-required TLS |
 | `HAYASEND_API_KEY` | independent secret `re_...` bootstrap key |
-| `HAYASEND_TRANSPORT` | `sendgrid` |
-| `SENDGRID_API_KEY` | customer-owned scoped SendGrid Mail Send/domain key |
-| `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` | SendGrid Signed Event Webhook verification key |
+| `HAYASEND_TRANSPORT` | `console` for the first lifecycle proof |
 | `HAYASEND_OBJECT_STORAGE` | `vercel-blob` |
 | `BLOB_READ_WRITE_TOKEN` | token automatically connected from the private store |
 | `CRON_SECRET` | independently generated random secret of 32–512 characters |
@@ -121,11 +120,15 @@ Vercel sends `Authorization: Bearer $CRON_SECRET` to the configured Cron
 route. HayaSend validates it in constant time. The Queue trigger makes
 `api/queue.ts` air-gapped from the public internet.
 
-Configure SendGrid's Signed Event Webhook URL as
-`https://HAYASEND_VERCEL_API_URL/events/sendgrid` and enable processed,
-deferred, delivered, bounce, dropped, spamreport, open, and click events.
-Only opaque HayaSend correlation values enter custom arguments, and the
-ingress verifies the exact raw body with SendGrid's ECDSA signature.
+The lifecycle profile contains no `SENDGRID_*` values and cannot submit mail.
+After it passes recovery, interruption, long-delay, restore, rollback, and
+cleanup tests, set `HAYASEND_TRANSPORT=sendgrid`, add the customer-owned scoped
+`SENDGRID_API_KEY` and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY`, and redeploy for the
+separately approved transport phase. Configure SendGrid's Signed Event Webhook
+URL as `https://HAYASEND_VERCEL_API_URL/events/sendgrid` and enable processed,
+deferred, delivered, bounce, dropped, spamreport, open, and click events. Only
+opaque HayaSend correlation values enter custom arguments, and the ingress
+verifies the exact raw body with SendGrid's ECDSA signature.
 
 ## Deploy and verify
 
@@ -136,15 +139,15 @@ export HAYASEND_DATABASE_URL="postgresql://..."
 export HAYASEND_API_KEY="re_..."
 export BLOB_READ_WRITE_TOKEN="..."
 export CRON_SECRET="..."
-export SENDGRID_API_KEY="SG...."
-export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
+export HAYASEND_TRANSPORT="console"
 export HAYASEND_VERCEL_API_URL="https://your-production-origin.example"
 ./deploy/vercel/deploy.sh
 ```
 
 The script verifies the pinned CLI and exact linked project, installs from the
 lockfile, runs type/config checks, builds, executes checksum-pinned migrations,
-deploys production, waits for the exact deployment to become `READY`, and
+passes the reviewed non-secret transport selection explicitly to the
+production deployment, waits for the exact deployment to become `READY`, and
 then verifies:
 
 - `/healthz` and PostgreSQL/Blob `/readyz`;

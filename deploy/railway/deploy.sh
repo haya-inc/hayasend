@@ -17,6 +17,7 @@ fi
 : "${HAYASEND_RAILWAY_ENVIRONMENT_ID:?Set HAYASEND_RAILWAY_ENVIRONMENT_ID to the exact environment UUID.}"
 : "${HAYASEND_IMAGE:?Set HAYASEND_IMAGE to an immutable HayaSend GHCR digest.}"
 : "${HAYASEND_API_KEY:?Set HAYASEND_API_KEY to an independently generated re_ key.}"
+export HAYASEND_TRANSPORT="${HAYASEND_TRANSPORT:-console}"
 
 uuid_pattern='^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$'
 if [[ ! "$HAYASEND_RAILWAY_PROJECT_ID" =~ $uuid_pattern ]] ||
@@ -34,6 +35,17 @@ if [[ "$HAYASEND_API_KEY" != re_* ]] ||
   echo "HAYASEND_API_KEY must be a 16 to 512 character re_ key." >&2
   exit 1
 fi
+case "$HAYASEND_TRANSPORT" in
+  console) ;;
+  sendgrid)
+    : "${SENDGRID_API_KEY:?Set SENDGRID_API_KEY only for an explicitly approved SendGrid proof.}"
+    : "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Set SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY only for an explicitly approved SendGrid proof.}"
+    ;;
+  *)
+    echo "HAYASEND_TRANSPORT must be console or sendgrid for the Railway pack." >&2
+    exit 1
+    ;;
+esac
 
 link_directory="$(mktemp -d "${TMPDIR:-/tmp}/hayasend-railway-link.XXXXXX")"
 trap 'rm -rf -- "$link_directory"' EXIT

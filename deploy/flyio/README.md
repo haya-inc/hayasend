@@ -7,9 +7,11 @@ This experimental pack binds HayaSend's shared `portable-postgres` runtime to:
 - one private Tigris S3-compatible bucket; and
 - Fly secrets for the API key, database URL, and bucket credentials.
 
-The pack uses the signed SendGrid HTTP transport because Fly.io has no native
-transactional-email service. It remains an implementation starting point, not
-a Beta or production-readiness claim.
+The pack starts with the non-sending `console` transport so runtime lifecycle
+proofs cannot accidentally submit mail. Fly.io has no native
+transactional-email service; the signed SendGrid HTTP transport remains an
+explicit second-phase option. The pack remains an implementation starting
+point, not a Beta or production-readiness claim.
 
 ## Pinned inputs
 
@@ -53,8 +55,7 @@ export HAYASEND_FLY_APP="hayasend-flyio-example"
 export HAYASEND_FLY_ORG="your-org"
 export HAYASEND_FLY_MPG_PLAN="basic"
 export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
-export SENDGRID_API_KEY="SG...."
-export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
+export HAYASEND_TRANSPORT="console"
 export HAYASEND_FLY_CREATE="confirmed"
 ./provision.sh
 ```
@@ -126,6 +127,10 @@ The config uses:
 - `/readyz` Fly health checks; and
 - the canonical new-code Tigris endpoint `https://t3.storage.dev`.
 
+`deploy.sh` passes the reviewed `HAYASEND_TRANSPORT` explicitly on every
+deployment and rollback. When omitted it resolves to `console`, matching the
+committed `fly.toml`.
+
 `--ha=false` makes initial cost and inventory deterministic. It is not an HA
 claim. Before promotion, size and prove multiple API and worker Machines,
 regional placement, connection-pool totals, worker lease takeover, and failure
@@ -149,6 +154,15 @@ https://<app>.fly.dev
 ```
 
 Custom-domain certificates and DNS are a separate hosted acceptance step.
+After the console-only lifecycle and recovery proof passes, opt in to the
+separately approved transport phase by provisioning with:
+
+```bash
+export HAYASEND_TRANSPORT="sendgrid"
+export SENDGRID_API_KEY="SG...."
+export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
+```
+
 Configure SendGrid's Signed Event Webhook URL as
 `https://<app>.fly.dev/events/sendgrid` and enable processed, deferred,
 delivered, bounce, dropped, spamreport, open, and click events.
@@ -210,9 +224,11 @@ rollback.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
-Only opaque HayaSend correlation values enter custom arguments, and the
-public ingress verifies the exact raw body with SendGrid's ECDSA signature.
+`HAYASEND_TRANSPORT=console` is the fail-closed lifecycle default.
+`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API
+only after the scoped API key and verification key are supplied. Only opaque
+HayaSend correlation values enter custom arguments, and the public ingress
+verifies the exact raw body with SendGrid's ECDSA signature.
 Deployment success, HTTP 202, `processed`, or a running worker is not terminal
 delivery evidence. Hosted proof remains tracked in issue #150.
 

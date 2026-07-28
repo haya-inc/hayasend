@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 
 require_flyctl
+require_transport
 require_resource_inputs
 require_image
 assert_app_inventory
@@ -21,6 +22,7 @@ assert_secret_names false
   --app "$HAYASEND_FLY_APP" \
   --config "$pack_directory/fly.toml" \
   --image "$HAYASEND_IMAGE" \
+  --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
   --strategy rolling \
   --release-command-timeout 10m \
   --ha=false \

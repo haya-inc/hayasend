@@ -68,6 +68,10 @@ elif [[ "\${1:-} \${2:-}" == "storage status" ]]; then
   printf 'Name %s\\nStatus ready\\nPublic False\\nApp %s\\n' \
     "$HAYASEND_FLY_BUCKET" "$HAYASEND_FLY_APP"
 elif [[ "\${1:-} \${2:-}" == "secrets list" ]]; then
+  sendgrid_secrets=''
+  if [[ "\${FLY_FAKE_SENDGRID_SECRETS:-false}" == "true" ]]; then
+    sendgrid_secrets=',{"name":"SENDGRID_API_KEY","digest":"i","status":"Deployed"},{"name":"SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY","digest":"j","status":"Deployed"}'
+  fi
   printf '%s\\n' '[
     {"name":"AWS_ACCESS_KEY_ID","digest":"a","status":"Deployed"},
     {"name":"AWS_ENDPOINT_URL_S3","digest":"b","status":"Deployed"},
@@ -76,10 +80,8 @@ elif [[ "\${1:-} \${2:-}" == "secrets list" ]]; then
     {"name":"BUCKET_NAME","digest":"e","status":"Deployed"},
     {"name":"HAYASEND_API_KEY","digest":"f","status":"'\${FLY_FAKE_SECRET_STATUS:-Deployed}'"},
     {"name":"HAYASEND_DATABASE_URL","digest":"g","status":"Deployed"},
-    {"name":"HAYASEND_OBJECT_STORAGE_BUCKET","digest":"h","status":"Deployed"},
-    {"name":"SENDGRID_API_KEY","digest":"i","status":"Deployed"},
-    {"name":"SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY","digest":"j","status":"Deployed"}
-  ]'
+    {"name":"HAYASEND_OBJECT_STORAGE_BUCKET","digest":"h","status":"Deployed"}
+  '"$sendgrid_secrets"']'
 elif [[ "\${1:-} \${2:-}" == "machine list" ]]; then
   machine_image="registry.fly.io/$HAYASEND_FLY_APP:deployment-test"
   machine_digest="\${FLY_FAKE_MACHINE_DIGEST:-$HAYASEND_FLY_MACHINE_IMAGE_DIGEST}"
@@ -140,9 +142,6 @@ const baseEnvironment = {
   HAYASEND_FLY_ORG: organization,
   HAYASEND_FLY_MACHINE_IMAGE_DIGEST: machineImageDigest,
   HAYASEND_IMAGE: image,
-  SENDGRID_API_KEY: "SG.FLYIO_TEST_KEY_000000000000000000",
-  SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==",
 };
 
 describe.skipIf(process.platform === "win32")(
@@ -163,7 +162,7 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(commands).toContain(
         `deploy --app ${app} --config ${deploymentDirectory}/fly.toml ` +
-          `--image ${image} --strategy rolling ` +
+          `--image ${image} --env HAYASEND_TRANSPORT=console --strategy rolling ` +
           "--release-command-timeout 10m --ha=false --yes",
       );
       expect(commands).not.toContain("--skip-release-command");
@@ -197,6 +196,31 @@ describe.skipIf(process.platform === "win32")(
       );
     });
 
+    it("requires SendGrid secrets only after explicit opt-in", async () => {
+      const fixture = await fakeCommands();
+      const result = run("verify.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_TRANSPORT: "sendgrid",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Required app secrets are missing or not fully deployed",
+      );
+    });
+
+    it("accepts the explicit SendGrid transport when both secrets are deployed", async () => {
+      const fixture = await fakeCommands();
+      const result = run("verify.sh", fixture, {
+        ...baseEnvironment,
+        FLY_FAKE_SENDGRID_SECRETS: "true",
+        HAYASEND_TRANSPORT: "sendgrid",
+      });
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+    });
+
     it("rolls back by redeploying an older immutable image without rerunning migrations", async () => {
       const fixture = await fakeCommands();
       const result = run("rollback.sh", fixture, {
@@ -210,7 +234,8 @@ describe.skipIf(process.platform === "win32")(
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
       expect(commands).toContain(
-        `--image ${rollbackImage} --strategy rolling ` +
+        `--image ${rollbackImage} --env HAYASEND_TRANSPORT=console ` +
+          "--strategy rolling " +
           "--skip-release-command --ha=false --yes",
       );
       expect(result.stdout).toContain(

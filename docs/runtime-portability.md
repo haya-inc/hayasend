@@ -101,26 +101,31 @@ The second thin pack targets
 [Render Web Services, Background Workers, and private PostgreSQL](../deploy/render/README.md).
 It pins the same released image for both processes, gates each revision on
 the shared migration runner, disables automatic and preview deploys, and
-uses the shared signed SendGrid transport with disabled direct-upload storage.
-It remains experimental until hosted evidence passes.
+starts with the non-sending console transport and disabled direct-upload
+storage. The signed SendGrid combination is enabled only in a separately
+approved transport phase. It remains experimental until hosted evidence
+passes.
 
 The third thin pack targets
 [Railway services, PostgreSQL 18, and private S3-compatible Buckets](../deploy/railway/README.md).
 It uses Railway's experimental project-level TypeScript IaC, pins one image
 digest across the API and worker, rejects destructive plans, and gives direct
-uploads a Railway-native object store. It remains experimental until hosted
+uploads a Railway-native object store. The lifecycle graph defaults to console,
+caps each process for the disposable proof, and requires an explicit opt-in
+before adding SendGrid credentials. It remains experimental until hosted
 lifecycle, backup/restore, rollback, cleanup, and exact-transport evidence
-passes. Railway Bucket credentials remain isolated from the scoped SendGrid
+passes. Railway Bucket credentials remain isolated from any scoped SendGrid
 credential.
 
 The fourth thin pack targets
 [Fly.io process groups, Managed Postgres, and private Tigris storage](../deploy/flyio/README.md).
 It uses one immutable image for the migration command, API, and durable
 worker, keeps the application stateless, verifies the exact Machine/resource
-inventory, and publishes guarded rollback and cleanup scripts. Fly Managed
-Postgres currently tops out at PostgreSQL 17, and `fly storage create` does
-not enable Tigris snapshots, so hosted PostgreSQL-version parity and an
-object-store restore design remain explicit promotion gates.
+inventory, defaults lifecycle proofs to the non-sending console transport, and
+publishes guarded rollback and cleanup scripts. Fly Managed Postgres currently
+tops out at PostgreSQL 17, and `fly storage create` does not enable Tigris
+snapshots, so hosted PostgreSQL-version parity and an object-store restore
+design remain explicit promotion gates.
 
 The experimental
 [Azure Container Apps pack](../deploy/azure-container-apps/README.md) binds the
@@ -154,7 +159,10 @@ The [Vercel pack](../deploy/vercel/README.md) now uses a Hono Function,
 Vercel Queues, private Vercel Blob, an external PostgreSQL 18 authority, and
 authenticated minute Cron reconciliation. Successful mutations send only a
 content-free reconciliation wakeup. Queue and Cron invocations run bounded
-worker bursts; PostgreSQL jobs and leases remain authoritative.
+worker bursts; PostgreSQL jobs and leases remain authoritative. The first
+hosted lifecycle deploy explicitly overrides the project transport to
+`console`; SendGrid credentials are not required until the separately approved
+terminal-delivery phase.
 
 Vercel Queues is public Beta and now retains messages for at most seven days.
 Its idempotency window remains at most 24 hours. HayaSend's 30-day scheduling

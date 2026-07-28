@@ -18,6 +18,7 @@ fi
 : "${HAYASEND_RAILWAY_API_URL:?Set HAYASEND_RAILWAY_API_URL to the API HTTPS origin.}"
 : "${HAYASEND_IMAGE:?Set HAYASEND_IMAGE to the expected immutable image digest.}"
 : "${HAYASEND_API_KEY:?Set HAYASEND_API_KEY to the deployed re_ key so IaC drift can be checked.}"
+export HAYASEND_TRANSPORT="${HAYASEND_TRANSPORT:-console}"
 
 uuid_pattern='^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$'
 if [[ ! "$HAYASEND_RAILWAY_PROJECT_ID" =~ $uuid_pattern ]] ||
@@ -39,6 +40,17 @@ if [[ "$HAYASEND_API_KEY" != re_* ]] ||
   echo "HAYASEND_API_KEY must be a 16 to 512 character re_ key." >&2
   exit 1
 fi
+case "$HAYASEND_TRANSPORT" in
+  console) ;;
+  sendgrid)
+    : "${SENDGRID_API_KEY:?Set SENDGRID_API_KEY to the deployed scoped key so IaC drift can be checked.}"
+    : "${SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:?Set SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY to the deployed verification key so IaC drift can be checked.}"
+    ;;
+  *)
+    echo "HAYASEND_TRANSPORT must be console or sendgrid for the Railway pack." >&2
+    exit 1
+    ;;
+esac
 
 link_directory="$(mktemp -d "${TMPDIR:-/tmp}/hayasend-railway-verify.XXXXXX")"
 trap 'rm -rf -- "$link_directory"' EXIT

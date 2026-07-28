@@ -8,9 +8,11 @@ This experimental Railway Infrastructure as Code pack binds HayaSend's shared
 - one Railway PostgreSQL 18 service; and
 - one private, S3-compatible Railway Bucket for direct-upload attachments.
 
-The pack uses the signed SendGrid HTTP transport because Railway has no native
-transactional-email service. Railway IaC is itself experimental, so this pack
-is not a Beta or production-readiness claim.
+The pack starts with the non-sending `console` transport so the hosted runtime
+lifecycle can be proven without external submission credentials or mail.
+Railway has no native transactional-email service; the signed SendGrid HTTP
+transport remains an explicit second-phase option. Railway IaC is itself
+experimental, so this pack is not a Beta or production-readiness claim.
 
 ## Pinned inputs
 
@@ -23,12 +25,20 @@ Validated on 2026-07-29 with:
 - PostgreSQL `18`;
 - the Singapore Railway compute region
   `asia-southeast1-eqsg3a`; and
-- the Singapore Bucket region `sin`.
+- the Singapore Bucket region `sin`;
+- one replica per process capped at 0.5 vCPU, 512 MiB RAM, and 1 GiB ephemeral
+  disk for the disposable proof.
 
 The reviewed image uses an immutable digest and disables Railway image
 auto-updates. Repository CI downloads the current pinned CLI release, verifies
 its GitHub-published SHA-256 digest, evaluates the TypeScript graph with the
 official SDK, and checks every shell guard.
+
+Before applying the graph, configure the workspace Compute Usage hard limit
+and alert in Railway's Usage settings. The per-replica limits in this pack
+bound each process, but only the workspace hard limit caps aggregate compute,
+database, storage, and egress charges. Production limits must be reviewed
+separately.
 
 ## Create the isolated project
 
@@ -47,8 +57,7 @@ outside source control:
 
 ```bash
 export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
-export SENDGRID_API_KEY="SG...."
-export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
+export HAYASEND_TRANSPORT="console"
 ```
 
 Keep the key in a password/operations system. Do not place it in the IaC file,
@@ -74,6 +83,17 @@ Both services run the checksum-pinned PostgreSQL migration command before
 starting. PostgreSQL advisory locking makes concurrent first deployment safe.
 Forward migrations must remain compatible with the immediately previous API
 and worker revisions.
+
+The default graph contains no `SENDGRID_*` variables and cannot submit mail.
+After lifecycle, recovery, upgrade, rollback, backup/restore, and cleanup
+behavior has been proven, opt in to the separately approved transport phase:
+
+```bash
+export HAYASEND_TRANSPORT="sendgrid"
+export SENDGRID_API_KEY="SG...."
+export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
+./deploy.sh
+```
 
 Configure SendGrid's Signed Event Webhook URL as
 `https://HAYASEND_RAILWAY_API_URL/events/sendgrid` and enable processed,
@@ -107,10 +127,12 @@ credentials.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
-Railway Bucket credentials remain isolated from the SendGrid credential. Only
-opaque HayaSend correlation values enter SendGrid custom arguments, and the
-public ingress verifies the exact raw body with SendGrid's ECDSA signature.
+`HAYASEND_TRANSPORT=console` is the fail-closed lifecycle default.
+`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API
+only after the two required SendGrid values are supplied. Railway Bucket
+credentials remain isolated from the SendGrid credential. Only opaque
+HayaSend correlation values enter SendGrid custom arguments, and the public
+ingress verifies the exact raw body with SendGrid's ECDSA signature.
 
 Terminal recipient delivery, bounce, complaint, suppression, and controlled
 receipt evidence remain mandatory. A successful Railway deployment, SendGrid
