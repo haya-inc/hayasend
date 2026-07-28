@@ -286,6 +286,79 @@ describe("loadConfig", () => {
     );
   });
 
+  it("loads a SendGrid transport while keeping webhook verification on the API process", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "sendgrid",
+      SENDGRID_API_KEY:
+        "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+      SENDGRID_API_BASE_URL: "https://api.eu.sendgrid.com",
+    };
+    const workerConfig = loadConfig(base);
+    expect(workerConfig).toMatchObject({
+      portableTransport: "sendgrid",
+      sendGridApiKey:
+        "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+      sendGridApiBaseUrl: "https://api.eu.sendgrid.com",
+    });
+    expect(workerConfig.sendGridEventWebhookPublicKey).toBeUndefined();
+    expect(() => assertApiServerConfig(workerConfig)).toThrow(
+      "SendGrid API process requires",
+    );
+
+    const apiConfig = loadConfig({
+      ...base,
+      SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==",
+    });
+    expect(() => assertApiServerConfig(apiConfig)).not.toThrow();
+  });
+
+  it("fails closed on incomplete or unsafe SendGrid settings", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "sendgrid",
+    };
+    expect(() => loadConfig(base)).toThrow("SENDGRID_API_KEY");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SENDGRID_API_KEY: "SG.too-short",
+      }),
+    ).toThrow("32 to 512");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SENDGRID_API_KEY:
+          "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+        SENDGRID_API_BASE_URL: "https://attacker.example",
+      }),
+    ).toThrow("global or EU SendGrid API origin");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SENDGRID_API_KEY:
+          "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+        SENDGRID_API_BASE_URL:
+          "https://api.sendgrid.com.attacker.example",
+      }),
+    ).toThrow("global or EU SendGrid API origin");
+    expect(() =>
+      loadConfig({
+        ...base,
+        SENDGRID_API_KEY:
+          "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+        SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: "not-a-key",
+      }),
+    ).toThrow("base64 or PEM");
+  });
+
   it("fails closed on incomplete or unsafe object-storage settings", () => {
     const base = {
       HAYASEND_MODE: "portable",

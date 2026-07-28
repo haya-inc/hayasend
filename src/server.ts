@@ -41,6 +41,9 @@ export async function startServer(config: Config = loadConfig()) {
           },
         }
       : {}),
+    ...(runtime.sendGridEventIngress
+      ? { sendGridEventIngress: runtime.sendGridEventIngress }
+      : {}),
   });
   let server: ReturnType<typeof serve>;
   try {

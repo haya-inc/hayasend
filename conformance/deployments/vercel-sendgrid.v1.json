@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "deployment": "vercel-sendgrid",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-29",
+  "runtime": {
+    "profile": "vercel-serverless",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/runtimes/vercel-serverless.v1.json"
+  },
+  "transport": {
+    "provider": "sendgrid",
+    "adapter_version": "0.2.0",
+    "capability_document": "conformance/providers/sendgrid.v1.json"
+  },
+  "maturity": {
+    "runtime": "experimental",
+    "transport": "experimental",
+    "combination": "experimental"
+  },
+  "production_ready": false,
+  "effective_limits": {
+    "max_serialized_request_bytes": 4500000,
+    "max_mime_message_bytes": 4500000,
+    "max_combined_recipients": 1000,
+    "max_attachments": 20,
+    "max_decoded_attachment_bytes": 4500000,
+    "max_batch_messages": 100,
+    "max_schedule_delay_seconds": 2592000
+  },
+  "evidence": {
+    "conformance": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/155",
+      "notes": "The shared SendGrid adapter passes local contract tests; exact hosted conformance remains pending."
+    },
+    "lifecycle": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/155",
+      "notes": "An isolated hosted deploy, migration, doctor, controlled failure, upgrade, and rollback drill has not yet passed."
+    },
+    "terminal_delivery": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/155",
+      "notes": "SendGrid acceptance and a signed recipient-level terminal event have not yet converged on exact main in this host."
+    },
+    "controlled_receipt": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/155",
+      "notes": "A uniquely identified message has not yet been confirmed in a controlled mailbox for this exact deployment."
+    },
+    "cleanup": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/155",
+      "notes": "The isolated hosted resources have not yet passed zero-residue cleanup verification."
+    }
+  },
+  "privacy": {
+    "customer_owned_data_plane": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_provider_errors_retained": false
+  },
+  "limitations": [
+    "Production readiness remains false while issue #155 is incomplete.",
+    "A customer-owned SendGrid account, scoped API key, authenticated domain, and Signed Event Webhook are required.",
+    "Provider acceptance is not terminal delivery, and the Mail Send API has no provider-enforced idempotency key.",
+    "Only opaque HayaSend correlation values are copied to SendGrid custom arguments."
+  ]
+}

@@ -1,0 +1,185 @@
+import {
+  providerCapabilityDocumentSchema,
+  type ProviderCapabilityDocument,
+} from "../../core/provider-capabilities.js";
+import { HAYASEND_VERSION } from "../../version.js";
+import {
+  SENDGRID_MAX_ATTACHMENTS,
+  SENDGRID_MAX_COMBINED_RECIPIENTS,
+  SENDGRID_MAX_DECODED_ATTACHMENT_BYTES,
+  SENDGRID_MAX_SERIALIZED_REQUEST_BYTES,
+} from "./sendgrid-email-transport.js";
+
+export const SENDGRID_EMAIL_CAPABILITIES =
+  providerCapabilityDocumentSchema.parse({
+    schema_version: "1.0.0",
+    provider: "sendgrid",
+    adapter_version: HAYASEND_VERSION,
+    checked_at: "2026-07-29",
+    service_maturity: "experimental",
+    required_plan:
+      "A customer-owned Twilio SendGrid account, scoped API key, authenticated sender domain, and Signed Event Webhook are required. EU regional sending requires an eligible regional subuser and plan.",
+    limits: {
+      max_serialized_request_bytes:
+        SENDGRID_MAX_SERIALIZED_REQUEST_BYTES,
+      max_mime_message_bytes: 30_000_000,
+      max_combined_recipients: SENDGRID_MAX_COMBINED_RECIPIENTS,
+      max_attachments: SENDGRID_MAX_ATTACHMENTS,
+      max_decoded_attachment_bytes:
+        SENDGRID_MAX_DECODED_ATTACHMENT_BYTES,
+      max_batch_messages: 100,
+      max_schedule_delay_seconds: 30 * 86_400,
+    },
+    features: {
+      attachments: {
+        status: "conditional",
+        notes:
+          "HayaSend supports its existing 20-attachment API boundary while failing before SendGrid's documented request-size ceiling.",
+      },
+      custom_headers: {
+        status: "conditional",
+        notes:
+          "Safe custom headers are passed through; SendGrid-reserved delivery headers and HayaSend's correlation Message-ID cannot be overridden.",
+      },
+      scheduling: {
+        status: "supported",
+        notes:
+          "The customer-owned runtime retains schedules for up to 30 days and submits to SendGrid only when due.",
+      },
+      cancellation: {
+        status: "conditional",
+        notes:
+          "Queued or scheduled HayaSend messages can be canceled before provider submission.",
+      },
+      batch: {
+        status: "conditional",
+        notes:
+          "HayaSend accepts up to 100 messages and submits each durable message independently.",
+      },
+      provider_message_id: {
+        status: "conditional",
+        notes:
+          "HayaSend assigns an RFC Message-ID before submission and carries it as an opaque SendGrid custom argument for exact attempt correlation; SendGrid's sg_message_id is retained only as provider event metadata when available.",
+      },
+      provider_event_id: {
+        status: "supported",
+        notes:
+          "SendGrid sg_event_id values identify immutable, deduplicated provider events.",
+      },
+      provider_idempotency: {
+        status: "unsupported",
+        notes:
+          "The Mail Send API does not provide a provider-enforced idempotency key for accepted sends.",
+      },
+      domain_verification: {
+        status: "supported",
+        notes:
+          "The adapter creates, reads, validates, and deletes exact SendGrid authenticated-domain resources through the v3 API.",
+      },
+      suppression_handling: {
+        status: "conditional",
+        notes:
+          "HayaSend preflights customer-owned suppressions and converts signed bounce or spam-report events into customer-owned suppressions.",
+      },
+    },
+    events: {
+      accepted: {
+        status: "supported",
+        notes:
+          "HTTP 202 acceptance is recorded separately from the signed processed event and from terminal delivery.",
+      },
+      delivered: {
+        status: "supported",
+        notes:
+          "Signed delivered events include the exact recipient and opaque HayaSend correlation arguments.",
+      },
+      delayed: {
+        status: "supported",
+        notes:
+          "Signed deferred events become nonterminal delivery-delayed state.",
+      },
+      bounced: {
+        status: "supported",
+        notes:
+          "Signed bounce events are terminal and add a customer-owned bounce suppression.",
+      },
+      complained: {
+        status: "supported",
+        notes:
+          "Signed spamreport events are terminal complaints and add a customer-owned complaint suppression.",
+      },
+      rejected: {
+        status: "supported",
+        notes:
+          "Synchronous 4xx responses and signed dropped events map to privacy-safe rejected or failed states.",
+      },
+      opened: {
+        status: "conditional",
+        notes:
+          "Signed open events are supported when the customer enables SendGrid open tracking.",
+      },
+      clicked: {
+        status: "conditional",
+        notes:
+          "Signed click events are supported when the customer enables SendGrid click tracking.",
+      },
+    },
+    error_mapping: {
+      retryable_categories: [
+        "application_error",
+        "network_dns",
+        "network_refused",
+        "network_reset",
+        "provider_error",
+        "provider_throttled",
+        "provider_unavailable",
+        "timeout",
+      ],
+      permanent_categories: ["invalid_data", "provider_rejected"],
+      unknown_error_behavior: "retry",
+    },
+    privacy: {
+      content_exported_by_default: false,
+      addresses_exported_by_default: false,
+      raw_provider_errors_retained: false,
+    },
+    sources: [
+      {
+        title: "Twilio SendGrid Mail Send API overview",
+        url: "https://www.twilio.com/docs/sendgrid/api-reference/mail-send",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Twilio SendGrid Mail Send operation",
+        url: "https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Twilio SendGrid Event Webhook reference",
+        url: "https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/event",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Twilio SendGrid Event Webhook security",
+        url: "https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Twilio SendGrid authenticated domains",
+        url: "https://www.twilio.com/docs/sendgrid/api-reference/domain-authentication/list-all-authenticated-domains",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Google Cloud guidance for sending email",
+        url: "https://docs.cloud.google.com/compute/docs/tutorials/sending-mail",
+        checked_at: "2026-07-29",
+      },
+    ],
+    limitations: [
+      "The adapter remains experimental until an explicitly authorized hosted proof demonstrates domain authentication, signed events, exact recipient terminal delivery, controlled receipt, rollback, backup/restore, and cleanup.",
+      "Provider acceptance is never reported as terminal delivery.",
+      "The Mail Send API has no provider-enforced send idempotency key, so an acceptance followed by a process crash remains an explicit ambiguity.",
+      "Only opaque HayaSend message and correlation IDs are placed in SendGrid custom arguments; user tags, recipient addresses, subjects, and content are not copied there.",
+      "Unsubscribe and group-subscription events are ignored because HayaSend does not yet expose an unsubscribe-group model.",
+    ],
+  }) satisfies ProviderCapabilityDocument;

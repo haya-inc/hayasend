@@ -22,6 +22,28 @@
       ]
     },
     {
+      "deployment": "cloud-run-sendgrid",
+      "checked_at": "2026-07-29",
+      "runtime": "portable-postgres",
+      "transport": "sendgrid",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ]
+    },
+    {
       "deployment": "cloudflare-email",
       "checked_at": "2026-07-28",
       "runtime": "cloudflare-native",
@@ -39,6 +61,94 @@
         "conformance",
         "terminal_delivery",
         "controlled_receipt"
+      ]
+    },
+    {
+      "deployment": "flyio-sendgrid",
+      "checked_at": "2026-07-29",
+      "runtime": "portable-postgres",
+      "transport": "sendgrid",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ]
+    },
+    {
+      "deployment": "railway-sendgrid",
+      "checked_at": "2026-07-29",
+      "runtime": "portable-postgres",
+      "transport": "sendgrid",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ]
+    },
+    {
+      "deployment": "render-sendgrid",
+      "checked_at": "2026-07-29",
+      "runtime": "portable-postgres",
+      "transport": "sendgrid",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ]
+    },
+    {
+      "deployment": "vercel-sendgrid",
+      "checked_at": "2026-07-29",
+      "runtime": "vercel-serverless",
+      "transport": "sendgrid",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
       ]
     }
   ]

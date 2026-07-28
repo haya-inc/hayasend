@@ -607,9 +607,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 520 and
-            .size < 650000 and
-            .unpackedSize < 3250000 and
+            .entryCount <= 540 and
+            .size < 675000 and
+            .unpackedSize < 3500000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -639,11 +639,17 @@ jobs:
             ([.files[].path] |
               index("conformance/providers/azure-communication-services.v1.json") != null) and
             ([.files[].path] |
+              index("conformance/providers/sendgrid.v1.json") != null) and
+            ([.files[].path] |
               index("dist/adapters/portable-attachment-storage.js") != null) and
             ([.files[].path] |
               index("dist/adapters/azure/acs-email-transport.js") != null) and
             ([.files[].path] |
               index("dist/adapters/azure/acs-email-events.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/sendgrid/sendgrid-email-transport.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/sendgrid/sendgrid-email-events.js") != null) and
             ([.files[].path] |
               index("dist/adapters/vercel-blob-attachment-storage.js") != null) and
             ([.files[].path] |
@@ -818,6 +824,8 @@ jobs:
           (
             cd "$consumer"
             HAYASEND_API_KEY=re_RAILWAY_PACKAGE_VALIDATION_DO_NOT_USE \
+              SENDGRID_API_KEY=SG.RAILWAY_PACKAGE_VALIDATION_DO_NOT_USE_000000 \
+              SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY=RAILWAY_PACKAGE_VALIDATION_PUBLIC_KEY_DO_NOT_USE_0000000000000000 \
               node --input-type=module --eval '
                 import { evaluateRailwayFile } from "railway/iac";
                 const result = await evaluateRailwayFile(process.argv[1]);

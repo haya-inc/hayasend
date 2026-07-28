@@ -3,6 +3,7 @@ import { AWS_RUNTIME_CAPABILITIES } from "../src/adapters/aws-runtime-capabiliti
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
 import { ACS_EMAIL_CAPABILITIES } from "../src/adapters/azure/acs-email-capabilities.js";
+import { SENDGRID_EMAIL_CAPABILITIES } from "../src/adapters/sendgrid/sendgrid-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
@@ -22,6 +23,14 @@ import {
 } from "../src/core/runtime-capabilities.js";
 import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
 import { CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES } from "../src/deployments/cloudflare-email-capabilities.js";
+import {
+  CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  FLYIO_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  RAILWAY_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  RENDER_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  SENDGRID_DEPLOYMENT_CAPABILITIES,
+  VERCEL_SENDGRID_DEPLOYMENT_CAPABILITIES,
+} from "../src/deployments/sendgrid-portable-capabilities.js";
 
 function jsonSchema(schema: z.ZodType, id: string) {
   const generated = z.toJSONSchema(schema, {
@@ -40,6 +49,7 @@ function jsonSchema(schema: z.ZodType, id: string) {
 const READINESS_MATRIX = buildReadinessMatrix([
   AWS_SES_DEPLOYMENT_CAPABILITIES,
   CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
+  ...SENDGRID_DEPLOYMENT_CAPABILITIES,
 ]);
 
 export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
@@ -52,6 +62,8 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     CLOUDFLARE_EMAIL_CAPABILITIES,
   "conformance/providers/azure-communication-services.v1.json":
     ACS_EMAIL_CAPABILITIES,
+  "conformance/providers/sendgrid.v1.json":
+    SENDGRID_EMAIL_CAPABILITIES,
   "conformance/runtimes/aws-native.v1.json": AWS_RUNTIME_CAPABILITIES,
   "conformance/runtimes/cloudflare-native.v1.json":
     CLOUDFLARE_RUNTIME_CAPABILITIES,
@@ -63,6 +75,16 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     AWS_SES_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloudflare-email.v1.json":
     CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/cloud-run-sendgrid.v1.json":
+    CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/flyio-sendgrid.v1.json":
+    FLYIO_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/railway-sendgrid.v1.json":
+    RAILWAY_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/render-sendgrid.v1.json":
+    RENDER_SENDGRID_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/vercel-sendgrid.v1.json":
+    VERCEL_SENDGRID_DEPLOYMENT_CAPABILITIES,
   "conformance/readiness.v1.json": READINESS_MATRIX,
   "conformance/reports/cloudflare-email.local.v1.json":
     CLOUDFLARE_EMAIL_CONFORMANCE_REPORT,

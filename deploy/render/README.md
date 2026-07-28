@@ -6,11 +6,12 @@ This experimental Blueprint binds the shared `portable-postgres` runtime to:
 - one Render Background Worker for durable due-row and outbox recovery; and
 - one private Render Postgres 18 database.
 
-The Blueprint starts with the lifecycle-only `console` transport and disabled
-direct-upload storage. It therefore proves no real email delivery and offers
-inline attachments only. Render does not provide a native object store or a
-native transactional-email transport; select an external storage and transport
-adapter deliberately before production evaluation.
+The Blueprint uses the signed `sendgrid` transport and starts with disabled
+direct-upload storage. It can submit real mail after the operator supplies a
+customer-owned scoped SendGrid API key, authenticated domain, and Signed Event
+Webhook verification key. It offers inline attachments until an external
+object store is selected. Render does not provide a native object store or
+transactional-email transport.
 
 The pack is not a Beta or production-readiness claim. Hosted deploy, rollback,
 backup/restore, queue-loss, terminal delivery, controlled receipt, and cleanup
@@ -40,10 +41,14 @@ silently create a new runtime or billable data plane.
    `deploy/render/render.yaml` as its Blueprint path.
 3. Review all three paid resources, the Singapore region, and the exact image
    digest before applying.
-4. Enter one independently generated `re_` API key when Render prompts for
-   `HAYASEND_API_KEY`. The worker references the API service value instead of
-   creating a second credential.
-5. Record the exact `srv-*` API and worker IDs, the `dpg-*` database ID, and the
+4. Enter one independently generated `re_` API key and the customer-owned
+   `SENDGRID_API_KEY` and `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` when Render
+   prompts. The worker references the API service values it needs instead of
+   creating duplicate credentials; only the API receives the webhook key.
+5. Configure SendGrid's Signed Event Webhook URL as
+   `https://API_HOST/events/sendgrid` and enable processed, deferred,
+   delivered, bounce, dropped, spamreport, open, and click events.
+6. Record the exact `srv-*` API and worker IDs, the `dpg-*` database ID, and the
    API's `https://*.onrender.com` origin in your password/operations system.
 
 Generate the API key outside source control:
@@ -110,11 +115,12 @@ rotation design is part of the combination evidence.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=console` records provider acceptance only and sends no
-mail. `aws-ses` additionally requires an explicit short-lived cross-cloud AWS
-identity and terminal event ingress. A certified external HTTP transport
-adapter is roadmap work. Do not report a queue or submission response as
-terminal delivery.
+`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
+Only opaque HayaSend correlation values enter custom arguments, and the API
+accepts events only after verifying the exact raw body with SendGrid's ECDSA
+signature. Do not report HTTP 202, `processed`, or a queue result as terminal
+delivery. Hosted proof remains tracked in issue #146 and readiness stays false
+until every evidence gate passes.
 
 ## Scaling, backups, and rollback
 

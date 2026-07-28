@@ -14,6 +14,9 @@ const releasedImage =
   "ghcr.io/haya-inc/hayasend@sha256:8358bf6463372e95bf7e5fdbae493634d3a200621efddf2fb722c8b64514fc96";
 const imageReference = process.env.HAYASEND_IMAGE ?? releasedImage;
 const apiKey = process.env.HAYASEND_API_KEY;
+const sendGridApiKey = process.env.SENDGRID_API_KEY;
+const sendGridEventWebhookPublicKey =
+  process.env.SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY;
 
 if (
   !/^ghcr\.io\/haya-inc\/hayasend@sha256:[a-f0-9]{64}$/.test(
@@ -22,6 +25,26 @@ if (
 ) {
   throw new Error(
     "HAYASEND_IMAGE must be an immutable official HayaSend GHCR digest.",
+  );
+}
+if (
+  !sendGridApiKey ||
+  sendGridApiKey.length < 32 ||
+  sendGridApiKey.length > 512 ||
+  !sendGridApiKey.startsWith("SG.")
+) {
+  throw new Error(
+    "SENDGRID_API_KEY must be a 32 to 512 character SG. key.",
+  );
+}
+if (
+  !sendGridEventWebhookPublicKey ||
+  sendGridEventWebhookPublicKey.length < 64 ||
+  sendGridEventWebhookPublicKey.length > 16_384 ||
+  sendGridEventWebhookPublicKey.includes("\0")
+) {
+  throw new Error(
+    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key.",
   );
 }
 if (
@@ -54,7 +77,8 @@ export default defineRailway(() => {
     HAYASEND_POSTGRES_POOL_MAX: "8",
     HAYASEND_S3_ENDPOINT: ref(attachments, "ENDPOINT"),
     HAYASEND_S3_FORCE_PATH_STYLE: "false",
-    HAYASEND_TRANSPORT: "console",
+    HAYASEND_TRANSPORT: "sendgrid",
+    SENDGRID_API_KEY: sendGridApiKey,
   } as const;
 
   const api = service("hayasend-api", {
@@ -80,6 +104,8 @@ export default defineRailway(() => {
       ...sharedEnvironment,
       HAYASEND_HOST: "0.0.0.0",
       HAYASEND_PORT: "8787",
+      SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY:
+        sendGridEventWebhookPublicKey,
     },
   });
 

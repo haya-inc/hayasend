@@ -174,6 +174,62 @@ resource "google_secret_manager_secret_version" "api_key" {
   deletion_policy        = "DELETE"
 }
 
+resource "google_secret_manager_secret" "sendgrid_api_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  project             = var.project_id
+  secret_id           = local.sendgrid_api_secret_id
+  deletion_protection = var.deletion_protection
+  labels              = local.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_secret_manager_secret_version" "sendgrid_api_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  secret                 = google_secret_manager_secret.sendgrid_api_key[0].id
+  secret_data_wo         = var.sendgrid_api_key
+  secret_data_wo_version = var.sendgrid_secret_version
+  deletion_policy        = "DELETE"
+}
+
+resource "google_secret_manager_secret" "sendgrid_webhook_public_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  project             = var.project_id
+  secret_id           = local.sendgrid_webhook_secret_id
+  deletion_protection = var.deletion_protection
+  labels              = local.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_secret_manager_secret_version" "sendgrid_webhook_public_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  secret                 = google_secret_manager_secret.sendgrid_webhook_public_key[0].id
+  secret_data_wo         = var.sendgrid_event_webhook_public_key
+  secret_data_wo_version = var.sendgrid_secret_version
+  deletion_policy        = "DELETE"
+}
+
 resource "google_secret_manager_secret_iam_member" "database_url" {
   project   = var.project_id
   secret_id = google_secret_manager_secret.database_url.secret_id
@@ -184,6 +240,24 @@ resource "google_secret_manager_secret_iam_member" "database_url" {
 resource "google_secret_manager_secret_iam_member" "api_key" {
   project   = var.project_id
   secret_id = google_secret_manager_secret.api_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = local.service_account_member
+}
+
+resource "google_secret_manager_secret_iam_member" "sendgrid_api_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.sendgrid_api_key[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = local.service_account_member
+}
+
+resource "google_secret_manager_secret_iam_member" "sendgrid_webhook_public_key" {
+  count = var.transport == "sendgrid" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.sendgrid_webhook_public_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = local.service_account_member
 }
@@ -307,6 +381,13 @@ resource "google_cloud_run_v2_job" "migration" {
           name       = "api-key"
           mount_path = "/var/run/hayasend/api-key"
         }
+        dynamic "volume_mounts" {
+          for_each = var.transport == "sendgrid" ? [1] : []
+          content {
+            name       = "sendgrid-api-key"
+            mount_path = "/var/run/hayasend/sendgrid-api-key"
+          }
+        }
       }
 
       volumes {
@@ -339,6 +420,21 @@ resource "google_cloud_run_v2_job" "migration" {
           }
         }
       }
+      dynamic "volumes" {
+        for_each = var.transport == "sendgrid" ? [1] : []
+        content {
+          name = "sendgrid-api-key"
+          secret {
+            secret       = google_secret_manager_secret.sendgrid_api_key[0].secret_id
+            default_mode = 292
+            items {
+              version = google_secret_manager_secret_version.sendgrid_api_key[0].version
+              path    = "value"
+              mode    = 292
+            }
+          }
+        }
+      }
     }
   }
 
@@ -346,6 +442,7 @@ resource "google_cloud_run_v2_job" "migration" {
     google_project_iam_member.cloud_sql_client,
     google_secret_manager_secret_iam_member.api_key,
     google_secret_manager_secret_iam_member.database_url,
+    google_secret_manager_secret_iam_member.sendgrid_api_key,
     google_sql_database.hayasend,
     google_sql_user.hayasend,
     google_storage_bucket_iam_member.runtime_objects,
@@ -384,9 +481,13 @@ resource "google_cloud_run_v2_service" "api" {
       image = var.image
 
       dynamic "env" {
-        for_each = merge(local.common_environment, {
-          HAYASEND_PORT = "8080"
-        })
+        for_each = merge(
+          local.common_environment,
+          { HAYASEND_PORT = "8080" },
+          var.transport == "sendgrid" ? {
+            SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE = local.sendgrid_webhook_key_file
+          } : {},
+        )
         content {
           name  = env.key
           value = env.value
@@ -441,6 +542,20 @@ resource "google_cloud_run_v2_service" "api" {
         name       = "api-key"
         mount_path = "/var/run/hayasend/api-key"
       }
+      dynamic "volume_mounts" {
+        for_each = var.transport == "sendgrid" ? [1] : []
+        content {
+          name       = "sendgrid-api-key"
+          mount_path = "/var/run/hayasend/sendgrid-api-key"
+        }
+      }
+      dynamic "volume_mounts" {
+        for_each = var.transport == "sendgrid" ? [1] : []
+        content {
+          name       = "sendgrid-webhook-public-key"
+          mount_path = "/var/run/hayasend/sendgrid-webhook-public-key"
+        }
+      }
     }
 
     volumes {
@@ -473,11 +588,42 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
     }
+    dynamic "volumes" {
+      for_each = var.transport == "sendgrid" ? [1] : []
+      content {
+        name = "sendgrid-api-key"
+        secret {
+          secret       = google_secret_manager_secret.sendgrid_api_key[0].secret_id
+          default_mode = 292
+          items {
+            version = google_secret_manager_secret_version.sendgrid_api_key[0].version
+            path    = "value"
+            mode    = 292
+          }
+        }
+      }
+    }
+    dynamic "volumes" {
+      for_each = var.transport == "sendgrid" ? [1] : []
+      content {
+        name = "sendgrid-webhook-public-key"
+        secret {
+          secret       = google_secret_manager_secret.sendgrid_webhook_public_key[0].secret_id
+          default_mode = 292
+          items {
+            version = google_secret_manager_secret_version.sendgrid_webhook_public_key[0].version
+            path    = "value"
+            mode    = 292
+          }
+        }
+      }
+    }
   }
 
   depends_on = [
     google_cloud_run_v2_job.migration,
     google_service_account_iam_member.self_signing,
+    google_secret_manager_secret_iam_member.sendgrid_webhook_public_key,
   ]
 }
 
@@ -550,6 +696,13 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
         name       = "api-key"
         mount_path = "/var/run/hayasend/api-key"
       }
+      dynamic "volume_mounts" {
+        for_each = var.transport == "sendgrid" ? [1] : []
+        content {
+          name       = "sendgrid-api-key"
+          mount_path = "/var/run/hayasend/sendgrid-api-key"
+        }
+      }
     }
 
     volumes {
@@ -579,6 +732,21 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
           version = google_secret_manager_secret_version.api_key.version
           path    = "value"
           mode    = 292
+        }
+      }
+    }
+    dynamic "volumes" {
+      for_each = var.transport == "sendgrid" ? [1] : []
+      content {
+        name = "sendgrid-api-key"
+        secret {
+          secret       = google_secret_manager_secret.sendgrid_api_key[0].secret_id
+          default_mode = 292
+          items {
+            version = google_secret_manager_secret_version.sendgrid_api_key[0].version
+            path    = "value"
+            mode    = 292
+          }
         }
       }
     }

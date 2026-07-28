@@ -37,7 +37,8 @@ export interface Config {
   portableTransport?:
     | "console"
     | "aws-ses"
-    | "azure-communication-services";
+    | "azure-communication-services"
+    | "sendgrid";
   portableObjectStorage?:
     | "disabled"
     | "s3"
@@ -58,6 +59,9 @@ export interface Config {
   azureEmailServiceName?: string;
   azureEmailDomainResourceName?: string;
   azureEventGridSecret?: string;
+  sendGridApiKey?: string;
+  sendGridApiBaseUrl?: string;
+  sendGridEventWebhookPublicKey?: string;
   postgresPoolMax?: number;
   postgresIdleTimeoutMs?: number;
   postgresConnectionTimeoutMs?: number;
@@ -139,6 +143,70 @@ function secretSetting(env: NodeJS.ProcessEnv, name: string) {
     throw new ValidationError(
       `${fileName} must contain exactly one non-empty secret value.`,
     );
+  }
+  return value;
+}
+
+function publicMultilineSetting(env: NodeJS.ProcessEnv, name: string) {
+  const direct = env[name];
+  const fileName = `${name}_FILE`;
+  const path = env[fileName];
+  if (direct !== undefined && path !== undefined) {
+    throw new ValidationError(
+      `${name} and ${fileName} may not both be set.`,
+    );
+  }
+  if (path === undefined) {
+    return direct?.trim();
+  }
+  if (
+    !isAbsolute(path) ||
+    path.length > 4_096 ||
+    path.includes("\0")
+  ) {
+    throw new ValidationError(
+      `${fileName} must be an absolute configuration-file path.`,
+    );
+  }
+  let descriptor: number | undefined;
+  let value: string;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY);
+    const metadata = fstatSync(descriptor);
+    if (
+      !metadata.isFile() ||
+      metadata.size < 1 ||
+      metadata.size > MAX_SECRET_FILE_BYTES
+    ) {
+      throw new Error("invalid configuration file");
+    }
+    const content = Buffer.allocUnsafe(MAX_SECRET_FILE_BYTES + 1);
+    let offset = 0;
+    while (offset < content.byteLength) {
+      const bytesRead = readSync(
+        descriptor,
+        content,
+        offset,
+        content.byteLength - offset,
+        null,
+      );
+      if (bytesRead === 0) {
+        break;
+      }
+      offset += bytesRead;
+    }
+    if (offset > MAX_SECRET_FILE_BYTES) {
+      throw new Error("invalid configuration file");
+    }
+    value = content.subarray(0, offset).toString("utf8").trim();
+  } catch {
+    throw new ValidationError(
+      `${fileName} must reference a readable regular file of at most ${MAX_SECRET_FILE_BYTES} bytes.`,
+    );
+  } finally {
+    if (descriptor !== undefined) {
+      closeSync(descriptor);
+    }
   }
   return value;
 }
@@ -263,10 +331,11 @@ export function loadConfig(env = process.env): Config {
       "console",
       "aws-ses",
       "azure-communication-services",
+      "sendgrid",
     ].includes(portableTransport ?? "")
   ) {
     throw new ValidationError(
-      "HAYASEND_TRANSPORT must be console, aws-ses, or azure-communication-services in portable mode.",
+      "HAYASEND_TRANSPORT must be console, aws-ses, azure-communication-services, or sendgrid in portable mode.",
     );
   }
   const usesAcs = portableTransport === "azure-communication-services";
@@ -320,6 +389,78 @@ export function loadConfig(env = process.env): Config {
   ) {
     throw new ValidationError(
       "Azure Communication Services transport requires a safe endpoint, subscription ID, resource group, Communication Services name, Email Services name, and domain resource name.",
+    );
+  }
+  const usesSendGrid = portableTransport === "sendgrid";
+  const sendGridApiKey = secretSetting(env, "SENDGRID_API_KEY");
+  if (
+    mode === "portable" &&
+    usesSendGrid &&
+    (!sendGridApiKey ||
+      sendGridApiKey.length < 32 ||
+      sendGridApiKey.length > 512 ||
+      !sendGridApiKey.startsWith("SG."))
+  ) {
+    throw new ValidationError(
+      "SENDGRID_API_KEY or SENDGRID_API_KEY_FILE must contain a 32 to 512 character SG. API key.",
+    );
+  }
+  const sendGridApiBaseUrl = env.SENDGRID_API_BASE_URL
+    ? secureServiceEndpoint(
+        env.SENDGRID_API_BASE_URL,
+        "SENDGRID_API_BASE_URL",
+      )
+    : "https://api.sendgrid.com";
+  const sendGridApiUrl = new URL(sendGridApiBaseUrl);
+  const approvedSendGridOrigin =
+    sendGridApiUrl.protocol === "https:" &&
+    sendGridApiUrl.port === "" &&
+    (sendGridApiUrl.hostname === "api.sendgrid.com" ||
+      sendGridApiUrl.hostname === "api.eu.sendgrid.com");
+  const loopbackSendGridOrigin =
+    sendGridApiUrl.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(
+      sendGridApiUrl.hostname,
+    );
+  if (
+    mode === "portable" &&
+    usesSendGrid &&
+    !approvedSendGridOrigin &&
+    !loopbackSendGridOrigin
+  ) {
+    throw new ValidationError(
+      "SENDGRID_API_BASE_URL must be the global or EU SendGrid API origin (loopback HTTP is allowed only for tests).",
+    );
+  }
+  const sendGridEventWebhookPublicKey = publicMultilineSetting(
+    env,
+    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY",
+  );
+  const sendGridEventWebhookKeyIsPem =
+    sendGridEventWebhookPublicKey?.startsWith(
+      "-----BEGIN PUBLIC KEY-----",
+    ) === true &&
+    sendGridEventWebhookPublicKey.endsWith(
+      "-----END PUBLIC KEY-----",
+    );
+  const sendGridEventWebhookKeyIsBase64 =
+    sendGridEventWebhookPublicKey !== undefined &&
+    sendGridEventWebhookPublicKey.length >= 64 &&
+    sendGridEventWebhookPublicKey.length <= 4_096 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(
+      sendGridEventWebhookPublicKey,
+    );
+  if (
+    mode === "portable" &&
+    usesSendGrid &&
+    sendGridEventWebhookPublicKey !== undefined &&
+    ((!sendGridEventWebhookKeyIsPem &&
+      !sendGridEventWebhookKeyIsBase64) ||
+      sendGridEventWebhookPublicKey.length > MAX_SECRET_FILE_BYTES ||
+      sendGridEventWebhookPublicKey.includes("\0"))
+  ) {
+    throw new ValidationError(
+      "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY must contain the SendGrid verification key in base64 or PEM form.",
     );
   }
   const portableObjectStorage = env.HAYASEND_OBJECT_STORAGE ?? "disabled";
@@ -526,7 +667,8 @@ export function loadConfig(env = process.env): Config {
           portableTransport: portableTransport as
             | "console"
             | "aws-ses"
-            | "azure-communication-services",
+            | "azure-communication-services"
+            | "sendgrid",
           portableObjectStorage: portableObjectStorage as
             | "disabled"
             | "s3"
@@ -565,6 +707,11 @@ export function loadConfig(env = process.env): Config {
             ? { azureEmailDomainResourceName }
             : {}),
           ...(azureEventGridSecret ? { azureEventGridSecret } : {}),
+          ...(sendGridApiKey ? { sendGridApiKey } : {}),
+          ...(usesSendGrid ? { sendGridApiBaseUrl } : {}),
+          ...(sendGridEventWebhookPublicKey
+            ? { sendGridEventWebhookPublicKey }
+            : {}),
           postgresPoolMax: integerSetting(
             env,
             "HAYASEND_POSTGRES_POOL_MAX",
@@ -718,6 +865,15 @@ export function assertApiServerConfig(config: Config): void {
   ) {
     throw new ValidationError(
       "The Azure Communication Services API process requires HAYASEND_AZURE_EVENT_GRID_SECRET or HAYASEND_AZURE_EVENT_GRID_SECRET_FILE.",
+    );
+  }
+  if (
+    config.mode === "portable" &&
+    config.portableTransport === "sendgrid" &&
+    !config.sendGridEventWebhookPublicKey
+  ) {
+    throw new ValidationError(
+      "The SendGrid API process requires SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY or SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE.",
     );
   }
 }

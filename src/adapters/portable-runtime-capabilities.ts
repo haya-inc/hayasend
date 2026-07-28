@@ -11,7 +11,7 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
     schema_version: "1.0.0",
     runtime: "portable-postgres",
     adapter_version: HAYASEND_VERSION,
-    checked_at: "2026-07-28",
+    checked_at: "2026-07-29",
     service_maturity: "experimental",
     runtime_class: "portable-container",
     required_plan:
@@ -67,7 +67,7 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       provider_event_ingress: {
         status: "conditional",
         notes:
-          "The ACS Email Event Grid HTTP ingress uses an independent secret, validates subscription handshakes and provider schemas, and applies exact recipient delivery reports; hosted lifecycle evidence remains pending.",
+          "ACS Event Grid and SendGrid Signed Event Webhook ingresses authenticate independently, validate provider schemas, and apply exact recipient delivery reports; hosted lifecycle evidence remains pending.",
       },
       webhook_egress: {
         status: "supported",
@@ -188,6 +188,6 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
     limitations: [
       "The runtime remains experimental until one exact platform deployment passes lifecycle, backup/restore, terminal delivery, controlled receipt, and zero-residue cleanup evidence.",
       "Direct-upload metadata binds the declared SHA-256 to the signed upload contract; HayaSend additionally re-hashes downloaded bytes immediately before provider submission.",
-      "Inbound receiving and non-ACS portable provider-event ingestion remain disabled.",
+      "Inbound receiving remains disabled; provider-event ingress is currently implemented for ACS Email and SendGrid only.",
     ],
   }) satisfies RuntimeCapabilityDocument;

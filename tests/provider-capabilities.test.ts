@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AWS_SES_CAPABILITIES } from "../src/adapters/aws-ses-capabilities.js";
 import { ACS_EMAIL_CAPABILITIES } from "../src/adapters/azure/acs-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CAPABILITIES } from "../src/adapters/cloudflare/cloudflare-email-capabilities.js";
+import { SENDGRID_EMAIL_CAPABILITIES } from "../src/adapters/sendgrid/sendgrid-email-capabilities.js";
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import {
   CONFORMANCE_CASES,
@@ -162,6 +163,40 @@ describe("provider capability contract", () => {
         complained: { status: "unsupported" },
         opened: { status: "conditional" },
         clicked: { status: "conditional" },
+      },
+    });
+  });
+
+  it("publishes fail-closed SendGrid limits, signed events, and privacy boundaries", () => {
+    expect(SENDGRID_EMAIL_CAPABILITIES).toMatchObject({
+      provider: "sendgrid",
+      service_maturity: "experimental",
+      limits: {
+        max_serialized_request_bytes: 29_999_999,
+        max_mime_message_bytes: 30_000_000,
+        max_combined_recipients: 1_000,
+        max_decoded_attachment_bytes: 20_000_000,
+      },
+      features: {
+        provider_message_id: { status: "conditional" },
+        provider_event_id: { status: "supported" },
+        provider_idempotency: { status: "unsupported" },
+        domain_verification: { status: "supported" },
+      },
+      events: {
+        accepted: { status: "supported" },
+        delivered: { status: "supported" },
+        delayed: { status: "supported" },
+        bounced: { status: "supported" },
+        complained: { status: "supported" },
+        rejected: { status: "supported" },
+        opened: { status: "conditional" },
+        clicked: { status: "conditional" },
+      },
+      privacy: {
+        content_exported_by_default: false,
+        addresses_exported_by_default: false,
+        raw_provider_errors_retained: false,
       },
     });
   });

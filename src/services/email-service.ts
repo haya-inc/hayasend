@@ -998,6 +998,7 @@ export class EmailService {
     input: NormalizedProviderEvent,
   ): Promise<void> {
     const statusByEvent: Partial<Record<WebhookEventType, EmailStatus>> = {
+      "email.sent": "sent",
       "email.delivered": "delivered",
       "email.delivery_delayed": "delivery_delayed",
       "email.opened": "opened",
@@ -1080,6 +1081,7 @@ export class EmailService {
     const providerTypeByEvent: Partial<
       Record<WebhookEventType, ProviderEventRecord["type"]>
     > = {
+      "email.sent": "accepted",
       "email.delivered": "delivered",
       "email.delivery_delayed": "delayed",
       "email.opened": "opened",
@@ -1136,7 +1138,11 @@ export class EmailService {
     };
     const result = await this.store.appendProviderEvent(event);
     const updated = result?.email;
-    if (updated) {
+    if (
+      updated &&
+      (type !== "email.sent" ||
+        (result?.changed_recipient_ids.length ?? 0) > 0)
+    ) {
       await this.webhooks.publish(type, updated, {
         provider_event_id: event.id,
         provider_message_id: event.provider_message_id,

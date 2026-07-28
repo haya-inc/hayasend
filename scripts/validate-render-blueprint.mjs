@@ -136,16 +136,16 @@ function environmentValue(service, key) {
 
 if (
   environmentValue(api, "HAYASEND_TRANSPORT")?.value !==
-    "console" ||
+    "sendgrid" ||
   environmentValue(worker, "HAYASEND_TRANSPORT")?.value !==
-    "console" ||
+    "sendgrid" ||
   environmentValue(api, "HAYASEND_OBJECT_STORAGE")?.value !==
     "disabled" ||
   environmentValue(worker, "HAYASEND_OBJECT_STORAGE")?.value !==
     "disabled"
 ) {
   throw new Error(
-    "The Blueprint must start with lifecycle-only transport and storage.",
+    "The Blueprint must use the signed SendGrid transport and start with disabled direct-upload storage.",
   );
 }
 if (
@@ -155,6 +155,23 @@ if (
 ) {
   throw new Error(
     "The API key must be prompted once and shared with the worker by reference.",
+  );
+}
+if (
+  environmentValue(api, "SENDGRID_API_KEY")?.sync !== false ||
+  environmentValue(worker, "SENDGRID_API_KEY")?.fromService
+    ?.envVarKey !== "SENDGRID_API_KEY" ||
+  environmentValue(
+    api,
+    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY",
+  )?.sync !== false ||
+  environmentValue(
+    worker,
+    "SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY",
+  ) !== undefined
+) {
+  throw new Error(
+    "SendGrid secrets must be prompted on the API, with only the scoped API key shared to the worker.",
   );
 }
 

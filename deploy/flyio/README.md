@@ -7,8 +7,9 @@ This experimental pack binds HayaSend's shared `portable-postgres` runtime to:
 - one private Tigris S3-compatible bucket; and
 - Fly secrets for the API key, database URL, and bucket credentials.
 
-The default `console` transport sends no mail. This pack is an implementation
-starting point, not a Beta or production-readiness claim.
+The pack uses the signed SendGrid HTTP transport because Fly.io has no native
+transactional-email service. It remains an implementation starting point, not
+a Beta or production-readiness claim.
 
 ## Pinned inputs
 
@@ -52,6 +53,8 @@ export HAYASEND_FLY_APP="hayasend-flyio-example"
 export HAYASEND_FLY_ORG="your-org"
 export HAYASEND_FLY_MPG_PLAN="basic"
 export HAYASEND_API_KEY="re_$(openssl rand -hex 32)"
+export SENDGRID_API_KEY="SG...."
+export SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY="..."
 export HAYASEND_FLY_CREATE="confirmed"
 ./provision.sh
 ```
@@ -146,6 +149,9 @@ https://<app>.fly.dev
 ```
 
 Custom-domain certificates and DNS are a separate hosted acceptance step.
+Configure SendGrid's Signed Event Webhook URL as
+`https://<app>.fly.dev/events/sendgrid` and enable processed, deferred,
+delivered, bounce, dropped, spamreport, open, and click events.
 
 ## Storage boundary
 
@@ -204,14 +210,11 @@ rollback.
 
 ## Transport boundary
 
-`HAYASEND_TRANSPORT=console` records synthetic acceptance for lifecycle tests
-and sends no mail. Deployment success, API acceptance, or a running worker is
-not terminal delivery evidence.
-
-A certified external HTTP transport still needs submission limits, custom
-domain checks, retry classification, provider identity, recipient-level
-terminal events, duplicate/out-of-order convergence, bounce/complaint
-behavior, controlled receipt, and exact combined maturity evidence.
+`HAYASEND_TRANSPORT=sendgrid` submits through the SendGrid v3 Mail Send API.
+Only opaque HayaSend correlation values enter custom arguments, and the
+public ingress verifies the exact raw body with SendGrid's ECDSA signature.
+Deployment success, HTTP 202, `processed`, or a running worker is not terminal
+delivery evidence. Hosted proof remains tracked in issue #150.
 
 ## Cleanup
 

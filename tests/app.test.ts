@@ -224,6 +224,37 @@ describe("HTTP API", () => {
     );
   });
 
+  it("passes exact raw bytes and SendGrid signature headers to public ingress", async () => {
+    const receive = vi.fn(async () => undefined);
+    const { app } = fixture({
+      sendGridEventIngress: { receive },
+    });
+    const body =
+      '[{"event":"delivered","opaque":"\\u003cunchanged\\u003e"}]';
+    const response = await app.request("/events/sendgrid", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-twilio-email-event-webhook-signature": "signed-value",
+        "x-twilio-email-event-webhook-timestamp": "1785283500",
+      },
+      body,
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true });
+    expect(receive).toHaveBeenCalledWith(
+      new TextEncoder().encode(body),
+      {
+        signature: "signed-value",
+        timestamp: "1785283500",
+        received_at: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+        ),
+      },
+    );
+  });
+
   it("reports readiness failures without exposing private diagnostics", async () => {
     const result = fixture();
     const app = createApp(

@@ -18,6 +18,10 @@ const environmentId = "22222222-2222-4222-8222-222222222222";
 const apiUrl =
   "https://hayasend-api-production.up.railway.app";
 const apiKey = "re_RAILWAY_DEPLOYMENT_TEST_KEY";
+const sendGridApiKey =
+  "SG.RAILWAY_DEPLOYMENT_TEST_KEY_0000000000";
+const sendGridWebhookPublicKey =
+  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==";
 
 async function fakeCommands() {
   const directory = await mkdtemp(
@@ -106,6 +110,8 @@ const baseEnvironment = {
   HAYASEND_RAILWAY_API_URL: apiUrl,
   HAYASEND_RAILWAY_ENVIRONMENT_ID: environmentId,
   HAYASEND_RAILWAY_PROJECT_ID: projectId,
+  SENDGRID_API_KEY: sendGridApiKey,
+  SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY: sendGridWebhookPublicKey,
 };
 
 describe.skipIf(process.platform === "win32")(

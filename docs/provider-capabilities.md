@@ -19,10 +19,15 @@ The generated artifacts are:
   — current Beta Cloudflare Email Sending adapter capabilities;
 - [`conformance/providers/azure-communication-services.v1.json`](../conformance/providers/azure-communication-services.v1.json)
   — experimental ACS Email transport and Event Grid capabilities;
+- [`conformance/providers/sendgrid.v1.json`](../conformance/providers/sendgrid.v1.json)
+  — experimental shared SendGrid Mail Send and Signed Event Webhook capabilities;
 - [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
   and
   [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
   — exact runtime+transport maturity, effective limits, and evidence gates;
+- the five `*-sendgrid.v1.json` documents under
+  [`conformance/deployments/`](../conformance/deployments/)
+  — Cloud Run, Render, Railway, Fly.io, and Vercel combined readiness gates;
 - [`conformance/readiness.v1.json`](../conformance/readiness.v1.json)
   — generated support/readiness matrix and current evidence blockers;
 - [`conformance/reports/cloudflare-email.local.v1.json`](../conformance/reports/cloudflare-email.local.v1.json)
@@ -152,3 +157,32 @@ verification and the ACS link, and never creates, mutates, or deletes Azure
 resources or DNS. This adapter remains experimental until a hosted Azure
 composition proves quota, terminal delivery, controlled receipt,
 backup/restore, rollback, and zero-residue cleanup.
+
+## SendGrid evidence
+
+The SendGrid document was checked on 2026-07-29 against the official
+[Mail Send API](https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send),
+[Event Webhook reference](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/event),
+[Event Webhook security guide](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features),
+and
+[domain-authentication API](https://www.twilio.com/docs/sendgrid/api-reference/domain-authentication/list-all-authenticated-domains).
+
+HayaSend enforces 1,000 combined recipients, 20 attachments, 20,000,000
+decoded attachment bytes, and a request strictly below the documented 30 MB
+ceiling before durable commit and immediately before submission. It assigns
+one opaque RFC Message-ID correlation value before submission because Mail
+Send acceptance has no response body or provider idempotency key.
+
+The Signed Event Webhook ingress verifies ECDSA over the timestamp plus exact
+raw bytes before JSON parsing. `sg_event_id` supplies immutable deduplication;
+opaque HayaSend custom arguments identify one message and accepted attempt;
+and each event's `email` identifies one recipient. Late or duplicate deferred
+events cannot undo terminal delivery. Bounce and spam-report events converge
+to customer-owned suppressions. Raw provider responses, subjects, bodies,
+addresses, and user tags are excluded from stored operational evidence and
+custom arguments.
+
+The adapter and its local contract tests are implemented, but every combined
+deployment remains experimental and `production_ready: false`. Issues #144,
+#146, #148, #150, and #155 own the isolated hosted lifecycle, backup/restore,
+terminal-delivery, controlled-receipt, and zero-residue proofs.
