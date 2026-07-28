@@ -74,7 +74,7 @@ function inputs(requiresSecret) {
     fail("HAYASEND_AZURE_API_URL must be a credential-free HTTPS origin.");
   }
   const scopeMatch =
-    /^\/subscriptions\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/resourceGroups\/[A-Za-z0-9_().-]{1,90}\/providers\/Microsoft\.Communication\/communicationServices\/[A-Za-z0-9-]{1,63}$/i.exec(
+    /^\/subscriptions\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/resourceGroups\/([A-Za-z0-9_().-]{1,90})\/providers\/Microsoft\.Communication\/communicationServices\/([A-Za-z0-9-]{1,63})$/i.exec(
       scope,
     );
   if (
@@ -104,7 +104,9 @@ function inputs(requiresSecret) {
 
   return {
     apiUrl,
+    communicationServiceName: scopeMatch[3],
     deploymentId,
+    resourceGroupName: scopeMatch[2],
     scope,
     secret,
     subscriptionId,
@@ -136,9 +138,20 @@ function managementToken() {
   return token;
 }
 
-function resourceUrl({ scope, subscriptionName }, suffix = "") {
+function resourceUrl(
+  {
+    communicationServiceName,
+    resourceGroupName,
+    subscriptionId,
+    subscriptionName,
+  },
+  suffix = "",
+) {
   return (
-    `https://management.azure.com${scope}` +
+    `${MANAGEMENT_ORIGIN}/subscriptions/${encodeURIComponent(subscriptionId)}` +
+    `/resourceGroups/${encodeURIComponent(resourceGroupName)}` +
+    "/providers/Microsoft.Communication/communicationServices/" +
+    encodeURIComponent(communicationServiceName) +
     `/providers/Microsoft.EventGrid/eventSubscriptions/` +
     `${encodeURIComponent(subscriptionName)}${suffix}?api-version=${API_VERSION}`
   );
