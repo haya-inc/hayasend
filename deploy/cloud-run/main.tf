@@ -1,5 +1,5 @@
 resource "google_project_service" "required" {
-  for_each = toset([
+  for_each = toset(concat([
     "compute.googleapis.com",
     "iamcredentials.googleapis.com",
     "run.googleapis.com",
@@ -7,18 +7,36 @@ resource "google_project_service" "required" {
     "servicenetworking.googleapis.com",
     "sqladmin.googleapis.com",
     "storage.googleapis.com",
-  ])
+  ], var.enable_pubsub_wakeup ? ["pubsub.googleapis.com"] : []))
 
   project            = var.project_id
   service            = each.value
   disable_on_destroy = var.disable_apis_on_destroy
 }
 
-resource "google_service_account" "runtime" {
+resource "google_service_account" "api" {
   project      = var.project_id
-  account_id   = local.runtime_account_id
-  display_name = "HayaSend portable runtime"
-  description  = "Least-privilege identity shared by the HayaSend API, worker, and migration job."
+  account_id   = local.api_account_id
+  display_name = "HayaSend portable API"
+  description  = "Least-privilege identity for the HayaSend API service."
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_service_account" "worker" {
+  project      = var.project_id
+  account_id   = local.worker_account_id
+  display_name = "HayaSend portable worker"
+  description  = "Least-privilege identity for the HayaSend worker pool."
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_service_account" "migration" {
+  project      = var.project_id
+  account_id   = local.migration_account_id
+  display_name = "HayaSend portable migration"
+  description  = "Least-privilege identity for the HayaSend migration job."
 
   depends_on = [google_project_service.required]
 }
@@ -231,26 +249,30 @@ resource "google_secret_manager_secret_version" "sendgrid_webhook_public_key" {
 }
 
 resource "google_secret_manager_secret_iam_member" "database_url" {
+  for_each = local.workload_service_account_members
+
   project   = var.project_id
   secret_id = google_secret_manager_secret.database_url.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = local.service_account_member
+  member    = each.value
 }
 
 resource "google_secret_manager_secret_iam_member" "api_key" {
+  for_each = local.runtime_service_account_members
+
   project   = var.project_id
   secret_id = google_secret_manager_secret.api_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = local.service_account_member
+  member    = each.value
 }
 
 resource "google_secret_manager_secret_iam_member" "sendgrid_api_key" {
-  count = var.transport == "sendgrid" ? 1 : 0
+  for_each = var.transport == "sendgrid" ? local.runtime_service_account_members : {}
 
   project   = var.project_id
   secret_id = google_secret_manager_secret.sendgrid_api_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = local.service_account_member
+  member    = each.value
 }
 
 resource "google_secret_manager_secret_iam_member" "sendgrid_webhook_public_key" {
@@ -259,19 +281,21 @@ resource "google_secret_manager_secret_iam_member" "sendgrid_webhook_public_key"
   project   = var.project_id
   secret_id = google_secret_manager_secret.sendgrid_webhook_public_key[0].secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = local.service_account_member
+  member    = local.api_service_account_member
 }
 
 resource "google_project_iam_member" "cloud_sql_client" {
+  for_each = local.workload_service_account_members
+
   project = var.project_id
   role    = "roles/cloudsql.client"
-  member  = local.service_account_member
+  member  = each.value
 }
 
-resource "google_service_account_iam_member" "self_signing" {
-  service_account_id = google_service_account.runtime.name
+resource "google_service_account_iam_member" "api_self_signing" {
+  service_account_id = google_service_account.api.name
   role               = "roles/iam.serviceAccountTokenCreator"
-  member             = local.service_account_member
+  member             = local.api_service_account_member
 }
 
 resource "google_storage_bucket" "attachments" {
@@ -318,9 +342,55 @@ resource "google_storage_bucket" "attachments" {
 }
 
 resource "google_storage_bucket_iam_member" "runtime_objects" {
+  for_each = local.runtime_service_account_members
+
   bucket = google_storage_bucket.attachments.name
   role   = "roles/storage.objectUser"
-  member = local.service_account_member
+  member = each.value
+}
+
+resource "google_pubsub_topic" "wakeup" {
+  count = var.enable_pubsub_wakeup ? 1 : 0
+
+  project = var.project_id
+  name    = local.pubsub_topic_name
+  labels  = local.labels
+
+  message_storage_policy {
+    allowed_persistence_regions = [var.region]
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_pubsub_subscription" "wakeup" {
+  count = var.enable_pubsub_wakeup ? 1 : 0
+
+  project                    = var.project_id
+  name                       = local.pubsub_subscription_name
+  topic                      = google_pubsub_topic.wakeup[0].id
+  ack_deadline_seconds       = 10
+  message_retention_duration = "600s"
+  retain_acked_messages      = false
+  labels                     = local.labels
+}
+
+resource "google_pubsub_topic_iam_member" "api_publisher" {
+  count = var.enable_pubsub_wakeup ? 1 : 0
+
+  project = var.project_id
+  topic   = google_pubsub_topic.wakeup[0].name
+  role    = "roles/pubsub.publisher"
+  member  = local.api_service_account_member
+}
+
+resource "google_pubsub_subscription_iam_member" "worker_subscriber" {
+  count = var.enable_pubsub_wakeup ? 1 : 0
+
+  project      = var.project_id
+  subscription = google_pubsub_subscription.wakeup[0].name
+  role         = "roles/pubsub.subscriber"
+  member       = local.worker_service_account_member
 }
 
 resource "google_cloud_run_v2_job" "migration" {
@@ -335,7 +405,7 @@ resource "google_cloud_run_v2_job" "migration" {
     parallelism = 1
 
     template {
-      service_account       = google_service_account.runtime.email
+      service_account       = google_service_account.migration.email
       timeout               = "600s"
       max_retries           = 0
       execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
@@ -355,7 +425,7 @@ resource "google_cloud_run_v2_job" "migration" {
         args    = ["dist/portable/migrate.js"]
 
         dynamic "env" {
-          for_each = local.common_environment
+          for_each = local.migration_environment
           content {
             name  = env.key
             value = env.value
@@ -377,17 +447,6 @@ resource "google_cloud_run_v2_job" "migration" {
           name       = "database-url"
           mount_path = "/var/run/hayasend/database-url"
         }
-        volume_mounts {
-          name       = "api-key"
-          mount_path = "/var/run/hayasend/api-key"
-        }
-        dynamic "volume_mounts" {
-          for_each = var.transport == "sendgrid" ? [1] : []
-          content {
-            name       = "sendgrid-api-key"
-            mount_path = "/var/run/hayasend/sendgrid-api-key"
-          }
-        }
       }
 
       volumes {
@@ -408,44 +467,14 @@ resource "google_cloud_run_v2_job" "migration" {
           }
         }
       }
-      volumes {
-        name = "api-key"
-        secret {
-          secret       = google_secret_manager_secret.api_key.secret_id
-          default_mode = 292
-          items {
-            version = google_secret_manager_secret_version.api_key.version
-            path    = "value"
-            mode    = 292
-          }
-        }
-      }
-      dynamic "volumes" {
-        for_each = var.transport == "sendgrid" ? [1] : []
-        content {
-          name = "sendgrid-api-key"
-          secret {
-            secret       = google_secret_manager_secret.sendgrid_api_key[0].secret_id
-            default_mode = 292
-            items {
-              version = google_secret_manager_secret_version.sendgrid_api_key[0].version
-              path    = "value"
-              mode    = 292
-            }
-          }
-        }
-      }
     }
   }
 
   depends_on = [
     google_project_iam_member.cloud_sql_client,
-    google_secret_manager_secret_iam_member.api_key,
     google_secret_manager_secret_iam_member.database_url,
-    google_secret_manager_secret_iam_member.sendgrid_api_key,
     google_sql_database.hayasend,
     google_sql_user.hayasend,
-    google_storage_bucket_iam_member.runtime_objects,
   ]
 }
 
@@ -463,7 +492,7 @@ resource "google_cloud_run_v2_service" "api" {
   }
 
   template {
-    service_account                  = google_service_account.runtime.email
+    service_account                  = google_service_account.api.email
     timeout                          = "300s"
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     max_instance_request_concurrency = var.api_concurrency
@@ -481,13 +510,7 @@ resource "google_cloud_run_v2_service" "api" {
       image = var.image
 
       dynamic "env" {
-        for_each = merge(
-          local.common_environment,
-          { HAYASEND_PORT = "8080" },
-          var.transport == "sendgrid" ? {
-            SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE = local.sendgrid_webhook_key_file
-          } : {},
-        )
+        for_each = local.api_environment
         content {
           name  = env.key
           value = env.value
@@ -622,8 +645,14 @@ resource "google_cloud_run_v2_service" "api" {
 
   depends_on = [
     google_cloud_run_v2_job.migration,
-    google_service_account_iam_member.self_signing,
+    google_project_iam_member.cloud_sql_client,
+    google_pubsub_topic_iam_member.api_publisher,
+    google_service_account_iam_member.api_self_signing,
+    google_secret_manager_secret_iam_member.api_key,
+    google_secret_manager_secret_iam_member.database_url,
+    google_secret_manager_secret_iam_member.sendgrid_api_key,
     google_secret_manager_secret_iam_member.sendgrid_webhook_public_key,
+    google_storage_bucket_iam_member.runtime_objects,
   ]
 }
 
@@ -651,7 +680,7 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
   }
 
   template {
-    service_account = google_service_account.runtime.email
+    service_account = google_service_account.worker.email
 
     vpc_access {
       egress = "PRIVATE_RANGES_ONLY"
@@ -668,9 +697,7 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
       args    = ["dist/portable/worker.js"]
 
       dynamic "env" {
-        for_each = merge(local.common_environment, {
-          HAYASEND_WORKER_CONCURRENCY = tostring(var.worker_concurrency)
-        })
+        for_each = local.worker_environment
         content {
           name  = env.key
           value = env.value
@@ -754,6 +781,11 @@ resource "google_cloud_run_v2_worker_pool" "worker" {
 
   depends_on = [
     google_cloud_run_v2_job.migration,
-    google_service_account_iam_member.self_signing,
+    google_project_iam_member.cloud_sql_client,
+    google_pubsub_subscription_iam_member.worker_subscriber,
+    google_secret_manager_secret_iam_member.api_key,
+    google_secret_manager_secret_iam_member.database_url,
+    google_secret_manager_secret_iam_member.sendgrid_api_key,
+    google_storage_bucket_iam_member.runtime_objects,
   ]
 }

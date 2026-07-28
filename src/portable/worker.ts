@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { createGooglePubSubWakeupWaiter } from "../adapters/google-pubsub-wakeup.js";
 import { createPortableAttachmentStorage } from "../adapters/portable-attachment-storage.js";
 import { createPostgresPool } from "../adapters/postgres/postgres-pool.js";
 import type {
@@ -6,7 +7,11 @@ import type {
   PostgresLeasedJob,
   PostgresLeaseOptions,
 } from "../adapters/postgres/postgres-job-queue.js";
-import { loadConfig, type Config } from "../config.js";
+import {
+  assertPortableWorkerConfig,
+  loadConfig,
+  type Config,
+} from "../config.js";
 import { createId } from "../core/crypto.js";
 import {
   safeErrorCategory,
@@ -356,17 +361,25 @@ async function runPortableWorkerProcess(): Promise<void> {
   if (config.mode !== "portable") {
     throw new Error("The portable worker requires HAYASEND_MODE=portable.");
   }
+  assertPortableWorkerConfig(config);
   const pool = createPostgresPool(config, "hayasend-worker");
   const runtime: PortableRuntime = createPortableRuntime(
     config,
     pool,
     createPortableAttachmentStorage(config),
   );
+  const wakeupWaiter = createGooglePubSubWakeupWaiter(config);
   await runtime.checkReadiness();
   const worker = new PortableWorker(
     runtime,
     runtime.jobQueue,
-    portableWorkerOptions(config),
+    {
+      ...portableWorkerOptions(config),
+      ...(wakeupWaiter
+        ? { wait: (milliseconds, signal) =>
+            wakeupWaiter.wait(milliseconds, signal) }
+        : {}),
+    },
   );
   const controller = new AbortController();
   const stop = () => controller.abort();
@@ -382,7 +395,11 @@ async function runPortableWorkerProcess(): Promise<void> {
   try {
     await worker.run(controller.signal);
   } finally {
-    await runtime.close();
+    try {
+      await wakeupWaiter?.close();
+    } finally {
+      await runtime.close();
+    }
   }
 }
 

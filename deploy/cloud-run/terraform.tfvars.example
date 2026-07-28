@@ -6,6 +6,10 @@ image      = "ghcr.io/haya-inc/hayasend@sha256:replace-with-a-release-digest"
 # write-only SendGrid variables and Signed Event Webhook are prepared.
 transport = "console"
 
+# Optional latency accelerator. PostgreSQL still owns jobs, retries, and every
+# delayed schedule; disabling or losing Pub/Sub does not lose accepted work.
+enable_pubsub_wakeup = true
+
 # Browser direct uploads need exact origins. CLI uploads do not use CORS.
 attachment_cors_origins = [
   "https://app.example.com",

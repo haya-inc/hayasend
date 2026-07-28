@@ -49,17 +49,40 @@ run "secure_foundation_defaults" {
     condition     = google_compute_subnetwork.cloud_run.private_ip_google_access
     error_message = "The Direct VPC subnet must retain private Google API access."
   }
+
+  assert {
+    condition     = length(google_pubsub_topic.wakeup) == 0 && length(google_pubsub_subscription.wakeup) == 0
+    error_message = "The optional Pub/Sub accelerator must provision no resources by default."
+  }
 }
 
 run "workloads_use_pinned_identity_and_manual_worker" {
   command = plan
 
   override_resource {
-    target          = google_service_account.runtime
+    target          = google_service_account.api
     override_during = plan
     values = {
-      email = "hayasend-runtime@hayasend-test-project.iam.gserviceaccount.com"
-      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-runtime@hayasend-test-project.iam.gserviceaccount.com"
+      email = "hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.worker
+    override_during = plan
+    values = {
+      email = "hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.migration
+    override_during = plan
+    values = {
+      email = "hayasend-migrate@hayasend-test-project.iam.gserviceaccount.com"
+      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-migrate@hayasend-test-project.iam.gserviceaccount.com"
     }
   }
 
@@ -71,13 +94,18 @@ run "workloads_use_pinned_identity_and_manual_worker" {
   }
 
   assert {
-    condition     = google_cloud_run_v2_service.api.template[0].service_account == "hayasend-runtime@hayasend-test-project.iam.gserviceaccount.com"
-    error_message = "The API must use the dedicated runtime identity."
+    condition     = google_cloud_run_v2_service.api.template[0].service_account == "hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+    error_message = "The API must use its dedicated identity."
   }
 
   assert {
-    condition     = google_cloud_run_v2_worker_pool.worker.template[0].service_account == "hayasend-runtime@hayasend-test-project.iam.gserviceaccount.com"
-    error_message = "The worker must use the dedicated runtime identity."
+    condition     = google_cloud_run_v2_worker_pool.worker.template[0].service_account == "hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+    error_message = "The worker must use its dedicated identity."
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_job.migration.template[0].template[0].service_account == "hayasend-migrate@hayasend-test-project.iam.gserviceaccount.com"
+    error_message = "The migration job must use its dedicated identity."
   }
 
   assert {
@@ -93,6 +121,114 @@ run "workloads_use_pinned_identity_and_manual_worker" {
   assert {
     condition     = google_cloud_run_v2_worker_pool.worker.template[0].containers[0].image == var.image
     error_message = "The worker must deploy the same immutable digest."
+  }
+}
+
+run "pubsub_is_content_free_optional_and_role_separated" {
+  command = plan
+
+  override_resource {
+    target          = google_service_account.api
+    override_during = plan
+    values = {
+      email = "hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_service_account.worker
+    override_during = plan
+    values = {
+      email = "hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+      name  = "projects/hayasend-test-project/serviceAccounts/hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+    }
+  }
+
+  override_resource {
+    target          = google_pubsub_topic.wakeup[0]
+    override_during = plan
+    values = {
+      id   = "projects/hayasend-test-project/topics/hayasend-wakeup"
+      name = "hayasend-wakeup"
+    }
+  }
+
+  override_resource {
+    target          = google_pubsub_subscription.wakeup[0]
+    override_during = plan
+    values = {
+      id   = "projects/hayasend-test-project/subscriptions/hayasend-wakeup"
+      name = "hayasend-wakeup"
+    }
+  }
+
+  variables {
+    project_id           = "hayasend-test-project"
+    image                = "ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    api_key              = "re_test_test_test_test_test_test_test"
+    database_password    = "test-test-test-test-test-test-test-test"
+    enable_pubsub_wakeup = true
+  }
+
+  assert {
+    condition     = length(google_pubsub_topic.wakeup) == 1 && length(google_pubsub_subscription.wakeup) == 1
+    error_message = "Enabled Pub/Sub wake-up must provision exactly one topic and pull subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.wakeup[0].message_retention_duration == "600s"
+    error_message = "Wake-up hints must use the minimum bounded retention rather than own long schedules."
+  }
+
+  assert {
+    condition     = google_pubsub_topic_iam_member.api_publisher[0].role == "roles/pubsub.publisher" && google_pubsub_topic_iam_member.api_publisher[0].member == "serviceAccount:hayasend-api@hayasend-test-project.iam.gserviceaccount.com"
+    error_message = "Only the API identity may publish wake-up hints."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription_iam_member.worker_subscriber[0].role == "roles/pubsub.subscriber" && google_pubsub_subscription_iam_member.worker_subscriber[0].member == "serviceAccount:hayasend-worker@hayasend-test-project.iam.gserviceaccount.com"
+    error_message = "Only the worker identity may consume wake-up hints."
+  }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_service.api.template[0].containers[0].env :
+      setting.value if setting.name == "HAYASEND_GCP_PUBSUB_TOPIC"
+    ]) == "projects/hayasend-test-project/topics/hayasend-wakeup"
+    error_message = "The API must receive only the fully qualified Pub/Sub topic."
+  }
+
+  assert {
+    condition = length([
+      for setting in google_cloud_run_v2_service.api.template[0].containers[0].env :
+      setting if setting.name == "HAYASEND_GCP_PUBSUB_SUBSCRIPTION"
+    ]) == 0
+    error_message = "The API must not receive subscriber configuration."
+  }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_worker_pool.worker.template[0].containers[0].env :
+      setting.value if setting.name == "HAYASEND_GCP_PUBSUB_SUBSCRIPTION"
+    ]) == "projects/hayasend-test-project/subscriptions/hayasend-wakeup"
+    error_message = "The worker must receive only the fully qualified Pub/Sub subscription."
+  }
+
+  assert {
+    condition = length([
+      for setting in google_cloud_run_v2_worker_pool.worker.template[0].containers[0].env :
+      setting if setting.name == "HAYASEND_GCP_PUBSUB_TOPIC"
+    ]) == 0
+    error_message = "The worker must not receive publisher configuration."
+  }
+
+  assert {
+    condition = length([
+      for setting in google_cloud_run_v2_job.migration.template[0].template[0].containers[0].env :
+      setting if startswith(setting.name, "HAYASEND_GCP_PUBSUB_") || setting.name == "HAYASEND_QUEUE_WAKEUP"
+    ]) == 0
+    error_message = "The migration job must receive no Pub/Sub configuration."
   }
 }
 

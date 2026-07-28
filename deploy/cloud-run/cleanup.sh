@@ -47,3 +47,4 @@ done
 
 terraform apply -input=false -lock-timeout=5m "$@"
 terraform destroy -input=false -lock-timeout=5m "$@"
+"$deployment_directory/verify-zero-residue.sh"

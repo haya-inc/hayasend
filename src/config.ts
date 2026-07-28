@@ -45,6 +45,9 @@ export interface Config {
     | "gcs"
     | "azure-blob"
     | "vercel-blob";
+  portableQueueWakeup?: "disabled" | "gcp-pubsub";
+  gcpPubSubTopic?: string;
+  gcpPubSubSubscription?: string;
   objectStorageBucket?: string;
   vercelBlobToken?: string;
   s3Endpoint?: string;
@@ -502,6 +505,46 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_OBJECT_STORAGE_BUCKET is not used by Vercel Blob.",
     );
   }
+  const portableQueueWakeup =
+    env.HAYASEND_QUEUE_WAKEUP ?? "disabled";
+  if (
+    mode === "portable" &&
+    !["disabled", "gcp-pubsub"].includes(portableQueueWakeup)
+  ) {
+    throw new ValidationError(
+      "HAYASEND_QUEUE_WAKEUP must be disabled or gcp-pubsub in portable mode.",
+    );
+  }
+  const gcpPubSubTopic = env.HAYASEND_GCP_PUBSUB_TOPIC;
+  const gcpPubSubSubscription =
+    env.HAYASEND_GCP_PUBSUB_SUBSCRIPTION;
+  const validPubSubTopic =
+    gcpPubSubTopic === undefined ||
+    /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/topics\/[A-Za-z][A-Za-z0-9._~+%-]{2,254}$/.test(
+      gcpPubSubTopic,
+    );
+  const validPubSubSubscription =
+    gcpPubSubSubscription === undefined ||
+    /^projects\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/subscriptions\/[A-Za-z][A-Za-z0-9._~+%-]{2,254}$/.test(
+      gcpPubSubSubscription,
+    );
+  if (
+    mode === "portable" &&
+    (!validPubSubTopic || !validPubSubSubscription)
+  ) {
+    throw new ValidationError(
+      "Pub/Sub wake-up settings must use fully qualified Google Cloud resource names.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    portableQueueWakeup === "disabled" &&
+    (gcpPubSubTopic || gcpPubSubSubscription)
+  ) {
+    throw new ValidationError(
+      "Pub/Sub resource settings require HAYASEND_QUEUE_WAKEUP=gcp-pubsub.",
+    );
+  }
   if (
     objectStorageBucket &&
     (objectStorageBucket.length < 3 ||
@@ -675,6 +718,13 @@ export function loadConfig(env = process.env): Config {
             | "gcs"
             | "azure-blob"
             | "vercel-blob",
+          portableQueueWakeup: portableQueueWakeup as
+            | "disabled"
+            | "gcp-pubsub",
+          ...(gcpPubSubTopic ? { gcpPubSubTopic } : {}),
+          ...(gcpPubSubSubscription
+            ? { gcpPubSubSubscription }
+            : {}),
           ...(objectStorageBucket
             ? { objectStorageBucket }
             : {}),
@@ -860,6 +910,15 @@ export function loadConfig(env = process.env): Config {
 export function assertApiServerConfig(config: Config): void {
   if (
     config.mode === "portable" &&
+    config.portableQueueWakeup === "gcp-pubsub" &&
+    (!config.gcpPubSubTopic || config.gcpPubSubSubscription)
+  ) {
+    throw new ValidationError(
+      "The API process requires only HAYASEND_GCP_PUBSUB_TOPIC when Pub/Sub wake-up is enabled.",
+    );
+  }
+  if (
+    config.mode === "portable" &&
     config.portableTransport === "azure-communication-services" &&
     !config.azureEventGridSecret
   ) {
@@ -874,6 +933,18 @@ export function assertApiServerConfig(config: Config): void {
   ) {
     throw new ValidationError(
       "The SendGrid API process requires SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY or SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY_FILE.",
+    );
+  }
+}
+
+export function assertPortableWorkerConfig(config: Config): void {
+  if (
+    config.mode === "portable" &&
+    config.portableQueueWakeup === "gcp-pubsub" &&
+    (!config.gcpPubSubSubscription || config.gcpPubSubTopic)
+  ) {
+    throw new ValidationError(
+      "The worker process requires only HAYASEND_GCP_PUBSUB_SUBSCRIPTION when Pub/Sub wake-up is enabled.",
     );
   }
 }

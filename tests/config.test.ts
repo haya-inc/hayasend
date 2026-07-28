@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertApiServerConfig,
+  assertPortableWorkerConfig,
   loadConfig,
 } from "../src/config.js";
 
@@ -130,6 +131,7 @@ describe("loadConfig", () => {
       jobMaxAttempts: 10,
       jobRetentionDays: 7,
       portableObjectStorage: "disabled",
+      portableQueueWakeup: "disabled",
       s3ForcePathStyle: false,
     });
     expect(() =>
@@ -152,6 +154,85 @@ describe("loadConfig", () => {
         HAYASEND_TRANSPORT: "console",
       }),
     ).toThrow("not supported in production");
+  });
+
+  it("separates Pub/Sub publisher and subscriber process settings", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "aws-ses",
+      HAYASEND_QUEUE_WAKEUP: "gcp-pubsub",
+    };
+    const apiConfig = loadConfig({
+      ...base,
+      HAYASEND_GCP_PUBSUB_TOPIC:
+        "projects/hayasend-test/topics/hayasend-wakeup",
+    });
+    expect(apiConfig).toMatchObject({
+      portableQueueWakeup: "gcp-pubsub",
+      gcpPubSubTopic:
+        "projects/hayasend-test/topics/hayasend-wakeup",
+    });
+    expect(() => assertApiServerConfig(apiConfig)).not.toThrow();
+    expect(() => assertPortableWorkerConfig(apiConfig)).toThrow(
+      "worker process requires only",
+    );
+
+    const workerConfig = loadConfig({
+      ...base,
+      HAYASEND_GCP_PUBSUB_SUBSCRIPTION:
+        "projects/hayasend-test/subscriptions/hayasend-wakeup",
+    });
+    expect(workerConfig).toMatchObject({
+      portableQueueWakeup: "gcp-pubsub",
+      gcpPubSubSubscription:
+        "projects/hayasend-test/subscriptions/hayasend-wakeup",
+    });
+    expect(() => assertPortableWorkerConfig(workerConfig)).not.toThrow();
+    expect(() => assertApiServerConfig(workerConfig)).toThrow(
+      "API process requires only",
+    );
+  });
+
+  it("rejects ambiguous or unsafe Pub/Sub wake-up settings", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "aws-ses",
+    };
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_GCP_PUBSUB_TOPIC:
+          "projects/hayasend-test/topics/hayasend-wakeup",
+      }),
+    ).toThrow("require HAYASEND_QUEUE_WAKEUP");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_QUEUE_WAKEUP: "gcp-pubsub",
+        HAYASEND_GCP_PUBSUB_TOPIC:
+          "projects/hayasend-test/topics/../private",
+      }),
+    ).toThrow("fully qualified");
+    const ambiguous = loadConfig({
+      ...base,
+      HAYASEND_QUEUE_WAKEUP: "gcp-pubsub",
+      HAYASEND_GCP_PUBSUB_TOPIC:
+        "projects/hayasend-test/topics/hayasend-wakeup",
+      HAYASEND_GCP_PUBSUB_SUBSCRIPTION:
+        "projects/hayasend-test/subscriptions/hayasend-wakeup",
+    });
+    expect(() => assertApiServerConfig(ambiguous)).toThrow(
+      "requires only",
+    );
+    expect(() => assertPortableWorkerConfig(ambiguous)).toThrow(
+      "requires only",
+    );
   });
 
   it("loads provider-native portable object-storage settings", () => {
