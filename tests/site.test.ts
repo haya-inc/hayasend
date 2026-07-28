@@ -32,6 +32,12 @@ describe("project site", () => {
     expect(html).toContain(
       "https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md",
     );
+    expect(html).toContain('href="https://www.haya.company/contact"');
+    expect(html).toContain(
+      "https://github.com/haya-inc/hayasend/blob/main/docs/support-service-levels.md",
+    );
+    expect(html).toContain('href="https://www.haya.company/legal"');
+    expect(html).toContain("HayaSend remains early");
   });
 
   it("keeps public URLs and the Pages artifact aligned", async () => {
