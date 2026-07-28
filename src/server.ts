@@ -2,23 +2,65 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
+import { safeErrorCategory } from "./core/error-telemetry.js";
 import { createRuntime } from "./runtime.js";
 
-export function startServer() {
-  const config = loadConfig();
+export async function startServer(config: Config = loadConfig()) {
   const bootstrapKey =
     config.mode === "aws" && config.apiKeySecretArn
       ? createSecretValueProvider(config.apiKeySecretArn)
       : config.apiKey;
-  const app = createApp(createRuntime(config, bootstrapKey), {
+  const runtime = createRuntime(config, bootstrapKey);
+  try {
+    await runtime.checkReadiness();
+  } catch (error) {
+    await runtime.close();
+    throw error;
+  }
+  const app = createApp(runtime, {
     localPreview: config.mode === "local",
+    readiness: () => runtime.checkReadiness(),
   });
-  const server = serve({
-    fetch: app.fetch,
-    hostname: config.host,
-    port: config.port,
-  });
+  let server: ReturnType<typeof serve>;
+  try {
+    server = await new Promise<ReturnType<typeof serve>>(
+      (resolve, reject) => {
+        const candidate = serve(
+          {
+            fetch: app.fetch,
+            hostname: config.host,
+            port: config.port,
+          },
+          () => resolve(candidate),
+        );
+        candidate.once("error", reject);
+      },
+    );
+  } catch (error) {
+    await runtime.close();
+    throw error;
+  }
+  let closed = false;
+  const close = async () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    } finally {
+      await runtime.close();
+    }
+  };
   console.info(
     JSON.stringify({
       level: "info",
@@ -30,9 +72,54 @@ export function startServer() {
         : {}),
     }),
   );
-  return server;
+  return { server, runtime, close };
+}
+
+export async function runServerProcess(): Promise<void> {
+  const running = await startServer();
+  let stopping = false;
+  const stop = async (signal: NodeJS.Signals) => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    console.info(
+      JSON.stringify({
+        level: "info",
+        message: "HayaSend stopping",
+        signal,
+      }),
+    );
+    try {
+      await running.close();
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "HayaSend shutdown failed",
+          error_type: safeErrorCategory(error),
+        }),
+      );
+      process.exitCode = 1;
+    }
+  };
+  process.once("SIGTERM", () => {
+    void stop("SIGTERM");
+  });
+  process.once("SIGINT", () => {
+    void stop("SIGINT");
+  });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  startServer();
+  runServerProcess().catch((error) => {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "HayaSend failed to start",
+        error_type: safeErrorCategory(error),
+      }),
+    );
+    process.exitCode = 1;
+  });
 }

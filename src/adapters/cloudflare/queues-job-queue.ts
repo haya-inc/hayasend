@@ -1,6 +1,9 @@
-import { utf8ByteLength } from "../../core/bytes.js";
-import { requestHash } from "../../core/crypto.js";
 import { safeErrorCategory } from "../../core/error-telemetry.js";
+import {
+  createJobEnvelope,
+  parseJobEnvelope,
+  type JobEnvelope,
+} from "../../core/job-envelope.js";
 import type { Job } from "../../core/types.js";
 import type { JobQueue } from "../../ports/job-queue.js";
 import {
@@ -8,15 +11,9 @@ import {
   type CloudflareFaultInjector,
 } from "./fault-injection.js";
 
-const MAX_QUEUE_MESSAGE_BYTES = 128_000;
 const MAX_QUEUE_DELAY_SECONDS = 24 * 60 * 60;
 
-export interface CloudflareJobEnvelope {
-  schema_version: "1.0.0";
-  id: string;
-  created_at: string;
-  job: Job;
-}
+export type CloudflareJobEnvelope = JobEnvelope;
 
 export interface CloudflareQueueOptions {
   now?: (() => Date) | undefined;
@@ -35,69 +32,6 @@ export interface CloudflareQueueConsumerOptions
     | undefined;
 }
 
-function jobIdentity(job: Job): string {
-  const supplied =
-    job.type === "send_email"
-      ? job.job_id
-      : job.type === "reconcile_outbox"
-        ? job.outbox_id
-        : job.type === "deliver_webhook"
-          ? job.delivery_id
-          : undefined;
-  const suffix = supplied ?? requestHash(job);
-  return `job:v1:${job.type.replaceAll("_", "-")}:${suffix}`;
-}
-
-function isJob(value: unknown): value is Job {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-  const job = value as Partial<Job>;
-  if (job.type === "send_email") {
-    return (
-      typeof job.email_id === "string" &&
-      (job.job_id === undefined || typeof job.job_id === "string")
-    );
-  }
-  if (job.type === "reconcile_outbox") {
-    return (
-      job.outbox_id === undefined || typeof job.outbox_id === "string"
-    );
-  }
-  if (job.type === "publish_received_email") {
-    return typeof job.email_id === "string";
-  }
-  if (job.type === "deliver_webhook") {
-    return (
-      typeof job.webhook_id === "string" &&
-      (job.delivery_id === undefined ||
-        typeof job.delivery_id === "string") &&
-      job.event !== null &&
-      typeof job.event === "object"
-    );
-  }
-  return false;
-}
-
-function parseEnvelope(value: unknown): CloudflareJobEnvelope {
-  if (value === null || typeof value !== "object") {
-    throw new Error("Queue payload is not an object.");
-  }
-  const envelope = value as Partial<CloudflareJobEnvelope>;
-  if (
-    envelope.schema_version !== "1.0.0" ||
-    typeof envelope.id !== "string" ||
-    envelope.id.length > 2_048 ||
-    typeof envelope.created_at !== "string" ||
-    !Number.isFinite(Date.parse(envelope.created_at)) ||
-    !isJob(envelope.job) ||
-    envelope.id !== jobIdentity(envelope.job)
-  ) {
-    throw new Error("Queue payload is not a valid deterministic job.");
-  }
-  return structuredClone(envelope as CloudflareJobEnvelope);
-}
-
 function validateDelay(delaySeconds: number): void {
   if (
     !Number.isSafeInteger(delaySeconds) ||
@@ -114,20 +48,17 @@ export function createCloudflareJobEnvelope(
   job: Job,
   now = new Date(),
 ): CloudflareJobEnvelope {
-  const envelope: CloudflareJobEnvelope = {
-    schema_version: "1.0.0",
-    id: jobIdentity(job),
-    created_at: now.toISOString(),
-    job: structuredClone(job),
-  };
-  if (
-    utf8ByteLength(JSON.stringify(envelope)) > MAX_QUEUE_MESSAGE_BYTES
-  ) {
-    throw new Error(
-      `Cloudflare queue messages must not exceed ${MAX_QUEUE_MESSAGE_BYTES} bytes.`,
-    );
+  try {
+    return createJobEnvelope(job, now);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Queue messages must not exceed")
+    ) {
+      throw new Error(`Cloudflare ${error.message.toLowerCase()}`);
+    }
+    throw error;
   }
-  return envelope;
 }
 
 export class CloudflareJobQueue implements JobQueue {
@@ -168,7 +99,7 @@ export async function consumeCloudflareQueueBatch(
   for (const message of batch.messages) {
     let envelope: CloudflareJobEnvelope;
     try {
-      envelope = parseEnvelope(message.body);
+      envelope = parseJobEnvelope(message.body);
     } catch {
       await options.on_diagnostic?.({
         category: "invalid_data",
@@ -208,7 +139,7 @@ export async function recoverCloudflareDeadLetterBatch(
   for (const message of batch.messages) {
     let envelope: CloudflareJobEnvelope;
     try {
-      envelope = parseEnvelope(message.body);
+      envelope = parseJobEnvelope(message.body);
     } catch {
       await options.on_diagnostic?.({
         category: "invalid_data",

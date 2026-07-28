@@ -73,6 +73,7 @@ export class AttachmentService {
     apiBaseUrl: string,
     now = new Date(),
   ): Promise<CreatedAttachmentUpload> {
+    this.storage.assertConfigured?.();
     const id = createId("att");
     const uploadToken = createRandomToken();
     const uploadExpiresAt = new Date(

@@ -20,6 +20,7 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
 [Compatibility](docs/compatibility.md) ·
 [Provider capabilities](docs/provider-capabilities.md) ·
 [Runtime portability](docs/runtime-portability.md) ·
+[Portable PostgreSQL](docs/portable-postgres.md) ·
 [Cloudflare Workers](docs/cloudflare-workers.md) ·
 [Cloudflare deployment](docs/cloudflare-deployment.md) ·
 [Delivery model](docs/delivery-model.md) ·
@@ -64,6 +65,10 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   deterministic duplicate suppression, `email.received` webhooks, and
   Resend-shaped content, attachment retrieval, and SDK-assisted forwarding
 - local in-memory development mode
+- an executable PostgreSQL 18 portable foundation with separate migration,
+  API, and horizontally scalable worker processes, durable delayed jobs,
+  lease-loss recovery, readiness checks, and graceful shutdown (platform
+  deployment proofs and object storage still pending)
 - serverless AWS deployment with API Gateway, Lambda, SQS, EventBridge
   Scheduler, SNS, DynamoDB, and SES
 - compatibility tests against the official Resend Node and Python SDKs plus

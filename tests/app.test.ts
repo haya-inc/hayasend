@@ -164,9 +164,41 @@ describe("HTTP API", () => {
     const health = await app.request("/healthz");
     expect(health.status).toBe(200);
     await expect(health.json()).resolves.toMatchObject({ ok: true });
+    const ready = await app.request("/readyz");
+    expect(ready.status).toBe(200);
+    await expect(ready.json()).resolves.toMatchObject({ ok: true });
 
     const unauthorized = await request("/emails", {}, "wrong");
     expect(unauthorized.status).toBe(401);
+  });
+
+  it("reports readiness failures without exposing private diagnostics", async () => {
+    const result = fixture();
+    const app = createApp(
+      {
+        apiKeyService: result.apiKeys,
+        attachmentService: result.attachments,
+        domainService: result.domains,
+        emailService: result.emails,
+        receivedEmailService: result.receivedEmailService,
+        recoveryDiagnosticsService: result.recoveryDiagnostics,
+        suppressionService: result.suppressions,
+        templateService: result.templates,
+        webhookService: result.webhooks,
+      },
+      {
+        readiness: async () => {
+          throw new Error("postgres://private:secret@database.invalid");
+        },
+      },
+    );
+
+    const response = await app.request("/readyz");
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(body).toContain('"ok":false');
+    expect(body).not.toContain("private");
+    expect(body).not.toContain("secret");
   });
 
   it.each([

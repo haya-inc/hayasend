@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import applicationStoreMigration from "../../migrations/postgres/0002_application_store.sql?raw";
 import deliveryMigration from "../../migrations/postgres/0001_delivery.sql?raw";
+import jobsMigration from "../../migrations/postgres/0003_jobs.sql?raw";
 import {
   migratePostgres,
   POSTGRES_MIGRATIONS,
@@ -117,7 +118,11 @@ function webhookDelivery(
 describe("packaged PostgreSQL migrations", () => {
   it("keeps packaged SQL and executable migrations identical", () => {
     expect(POSTGRES_MIGRATIONS.map((migration) => migration.sql.trim())).toEqual(
-      [deliveryMigration.trim(), applicationStoreMigration.trim()],
+      [
+        deliveryMigration.trim(),
+        applicationStoreMigration.trim(),
+        jobsMigration.trim(),
+      ],
     );
   });
 });
@@ -177,6 +182,10 @@ if (!databaseUrl) {
         },
         {
           version: "0002_application_store",
+          checksum_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+        {
+          version: "0003_jobs",
           checksum_sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         },
       ]);

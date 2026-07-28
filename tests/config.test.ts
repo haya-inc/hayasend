@@ -73,6 +73,94 @@ describe("loadConfig", () => {
     });
   });
 
+  it("requires explicit production-impacting settings in portable mode", () => {
+    expect(() => loadConfig({ HAYASEND_MODE: "portable" })).toThrow(
+      "HAYASEND_DATABASE_URL",
+    );
+    expect(() =>
+      loadConfig({
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+      }),
+    ).toThrow("HAYASEND_API_KEY");
+    expect(() =>
+      loadConfig({
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      }),
+    ).toThrow("HAYASEND_TRANSPORT");
+  });
+
+  it("loads bounded portable API and worker settings", () => {
+    const config = loadConfig({
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "aws-ses",
+      HAYASEND_POSTGRES_POOL_MAX: "20",
+      HAYASEND_WORKER_CONCURRENCY: "8",
+    });
+
+    expect(config).toMatchObject({
+      mode: "portable",
+      host: "0.0.0.0",
+      databaseUrl:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      apiKey: "re_portable_bootstrap_key",
+      portableTransport: "aws-ses",
+      postgresPoolMax: 20,
+      postgresIdleTimeoutMs: 10_000,
+      postgresConnectionTimeoutMs: 5_000,
+      postgresMaxLifetimeSeconds: 3_600,
+      workerConcurrency: 8,
+      workerLeaseSeconds: 60,
+      workerPollIntervalMs: 500,
+      workerRetryDelaySeconds: 30,
+      workerOutboxIntervalMs: 1_000,
+      jobMaxAttempts: 10,
+      jobRetentionDays: 7,
+    });
+    expect(() =>
+      loadConfig({
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "console",
+        HAYASEND_WORKER_CONCURRENCY: "33",
+      }),
+    ).toThrow("HAYASEND_WORKER_CONCURRENCY");
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "postgresql://database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "console",
+      }),
+    ).toThrow("not supported in production");
+  });
+
+  it("rejects unknown runtime modes and credential-bearing non-PostgreSQL URLs", () => {
+    expect(() => loadConfig({ HAYASEND_MODE: "unknown" })).toThrow(
+      "local, aws, or portable",
+    );
+    expect(() =>
+      loadConfig({
+        HAYASEND_MODE: "portable",
+        HAYASEND_DATABASE_URL:
+          "https://private:secret@database.internal/hayasend",
+        HAYASEND_API_KEY: "re_portable_bootstrap_key",
+        HAYASEND_TRANSPORT: "console",
+      }),
+    ).toThrow("PostgreSQL connection URL");
+  });
+
   it("rejects unsafe inbound retention and S3-prefix settings", () => {
     expect(() =>
       loadConfig({ HAYASEND_INBOUND_RETENTION_DAYS: "31" }),

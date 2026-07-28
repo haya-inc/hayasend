@@ -40,7 +40,7 @@ import { suppressionCommand } from "./cli-suppressions.js";
 import { webhookCommand } from "./cli-webhooks.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
-import { startServer } from "./server.js";
+import { runServerProcess } from "./server.js";
 import { HAYASEND_VERSION } from "./version.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -1749,7 +1749,7 @@ export async function runCli(
       break;
     case "dev":
       validateOptions(args, {});
-      startServer();
+      await runServerProcess();
       break;
     case "deploy":
       await deployCommand(args.slice(1), dependencies);

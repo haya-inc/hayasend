@@ -1,7 +1,7 @@
 import { ValidationError } from "./core/errors.js";
 
 export interface Config {
-  mode: "local" | "aws";
+  mode: "local" | "aws" | "portable";
   apiKey?: string;
   apiKeySecretArn?: string;
   host: string;
@@ -25,10 +25,49 @@ export interface Config {
   webhookDeliveryRetentionDays: number;
   templateHistoryRetentionDays: number;
   templateHistoryLimit: number;
+  databaseUrl?: string;
+  portableTransport?: "console" | "aws-ses";
+  postgresPoolMax?: number;
+  postgresIdleTimeoutMs?: number;
+  postgresConnectionTimeoutMs?: number;
+  postgresMaxLifetimeSeconds?: number;
+  workerConcurrency?: number;
+  workerLeaseSeconds?: number;
+  workerPollIntervalMs?: number;
+  workerRetryDelaySeconds?: number;
+  workerOutboxIntervalMs?: number;
+  jobMaxAttempts?: number;
+  jobRetentionDays?: number;
+}
+
+function integerSetting(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const value = Number(env[name] ?? fallback);
+  if (
+    !Number.isSafeInteger(value) ||
+    value < minimum ||
+    value > maximum
+  ) {
+    throw new ValidationError(
+      `${name} must be an integer between ${minimum} and ${maximum}.`,
+    );
+  }
+  return value;
 }
 
 export function loadConfig(env = process.env): Config {
-  const mode = env.HAYASEND_MODE === "aws" ? "aws" : "local";
+  const requestedMode = env.HAYASEND_MODE ?? "local";
+  if (!["local", "aws", "portable"].includes(requestedMode)) {
+    throw new ValidationError(
+      "HAYASEND_MODE must be local, aws, or portable.",
+    );
+  }
+  const mode = requestedMode as Config["mode"];
   const apiKey =
     env.HAYASEND_API_KEY ??
     (mode === "local" ? "re_hayasend_dev" : undefined);
@@ -41,6 +80,53 @@ export function loadConfig(env = process.env): Config {
   if (mode === "aws" && apiKey) {
     throw new ValidationError(
       "HAYASEND_API_KEY is not supported in AWS mode; use Secrets Manager.",
+    );
+  }
+  const databaseUrl = env.HAYASEND_DATABASE_URL;
+  if (mode === "portable") {
+    if (!databaseUrl) {
+      throw new ValidationError(
+        "HAYASEND_DATABASE_URL is required in portable mode.",
+      );
+    }
+    let protocol = "";
+    try {
+      protocol = new URL(databaseUrl).protocol;
+    } catch {
+      // The public error deliberately excludes the credential-bearing value.
+    }
+    if (!["postgres:", "postgresql:"].includes(protocol)) {
+      throw new ValidationError(
+        "HAYASEND_DATABASE_URL must be a PostgreSQL connection URL.",
+      );
+    }
+    if (
+      !apiKey ||
+      apiKey.length < 16 ||
+      apiKey.length > 512 ||
+      !apiKey.startsWith("re_")
+    ) {
+      throw new ValidationError(
+        "HAYASEND_API_KEY must be a 16 to 512 character re_ key in portable mode.",
+      );
+    }
+  }
+  const portableTransport = env.HAYASEND_TRANSPORT;
+  if (
+    mode === "portable" &&
+    !["console", "aws-ses"].includes(portableTransport ?? "")
+  ) {
+    throw new ValidationError(
+      "HAYASEND_TRANSPORT must be console or aws-ses in portable mode.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    portableTransport === "console" &&
+    env.NODE_ENV === "production"
+  ) {
+    throw new ValidationError(
+      "The console transport is not supported in production portable mode.",
     );
   }
   const host =
@@ -133,6 +219,91 @@ export function loadConfig(env = process.env): Config {
     );
   }
 
+  const portableSettings =
+    mode === "portable"
+      ? {
+          databaseUrl: databaseUrl as string,
+          portableTransport: portableTransport as "console" | "aws-ses",
+          postgresPoolMax: integerSetting(
+            env,
+            "HAYASEND_POSTGRES_POOL_MAX",
+            10,
+            1,
+            100,
+          ),
+          postgresIdleTimeoutMs: integerSetting(
+            env,
+            "HAYASEND_POSTGRES_IDLE_TIMEOUT_MS",
+            10_000,
+            0,
+            600_000,
+          ),
+          postgresConnectionTimeoutMs: integerSetting(
+            env,
+            "HAYASEND_POSTGRES_CONNECTION_TIMEOUT_MS",
+            5_000,
+            1,
+            60_000,
+          ),
+          postgresMaxLifetimeSeconds: integerSetting(
+            env,
+            "HAYASEND_POSTGRES_MAX_LIFETIME_SECONDS",
+            3_600,
+            0,
+            86_400,
+          ),
+          workerConcurrency: integerSetting(
+            env,
+            "HAYASEND_WORKER_CONCURRENCY",
+            4,
+            1,
+            32,
+          ),
+          workerLeaseSeconds: integerSetting(
+            env,
+            "HAYASEND_WORKER_LEASE_SECONDS",
+            60,
+            5,
+            900,
+          ),
+          workerPollIntervalMs: integerSetting(
+            env,
+            "HAYASEND_WORKER_POLL_INTERVAL_MS",
+            500,
+            50,
+            60_000,
+          ),
+          workerRetryDelaySeconds: integerSetting(
+            env,
+            "HAYASEND_WORKER_RETRY_DELAY_SECONDS",
+            30,
+            0,
+            3_600,
+          ),
+          workerOutboxIntervalMs: integerSetting(
+            env,
+            "HAYASEND_WORKER_OUTBOX_INTERVAL_MS",
+            1_000,
+            100,
+            60_000,
+          ),
+          jobMaxAttempts: integerSetting(
+            env,
+            "HAYASEND_JOB_MAX_ATTEMPTS",
+            10,
+            1,
+            100,
+          ),
+          jobRetentionDays: integerSetting(
+            env,
+            "HAYASEND_JOB_RETENTION_DAYS",
+            7,
+            1,
+            30,
+          ),
+        }
+      : {};
+
   return {
     mode,
     host,
@@ -144,7 +315,10 @@ export function loadConfig(env = process.env): Config {
     webhookDeliveryRetentionDays,
     templateHistoryRetentionDays,
     templateHistoryLimit,
-    ...(mode === "local" && apiKey ? { apiKey } : {}),
+    ...((mode === "local" || mode === "portable") && apiKey
+      ? { apiKey }
+      : {}),
+    ...portableSettings,
     ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME
       ? { tableName: env.HAYASEND_TABLE_NAME }

@@ -21,7 +21,7 @@ ARG VERSION=dev
 ARG REVISION=unknown
 
 LABEL org.opencontainers.image.title="HayaSend" \
-      org.opencontainers.image.description="Resend-compatible, AWS-native email infrastructure" \
+      org.opencontainers.image.description="Resend-compatible, provider-portable email infrastructure" \
       org.opencontainers.image.source="https://github.com/haya-inc/hayasend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \

@@ -6,7 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { ValidationError } from "../core/errors.js";
+import { AppError, ValidationError } from "../core/errors.js";
 import type {
   AttachmentObjectReference,
   AttachmentUploadRecord,
@@ -184,5 +184,43 @@ export class MemoryAttachmentStorage implements AttachmentStorage {
     }
     validateContent(reference, stored);
     return Uint8Array.from(stored);
+  }
+}
+
+export class DisabledAttachmentStorage implements AttachmentStorage {
+  private unavailable(): never {
+    throw new AppError(
+      503,
+      "attachment_storage_not_configured",
+      "Direct attachment uploads are not enabled for this deployment. Inline base64 attachments remain available.",
+    );
+  }
+
+  assertConfigured(): void {
+    this.unavailable();
+  }
+
+  async createUploadTarget(
+    _record: AttachmentUploadRecord,
+    _uploadToken: string,
+    _apiBaseUrl: string,
+  ): Promise<AttachmentUploadTarget> {
+    return this.unavailable();
+  }
+
+  async upload(
+    _record: AttachmentUploadRecord,
+    _content: Uint8Array,
+    _contentType: string,
+  ): Promise<void> {
+    return this.unavailable();
+  }
+
+  async verify(_reference: AttachmentObjectReference): Promise<void> {
+    return this.unavailable();
+  }
+
+  async read(_reference: AttachmentObjectReference): Promise<Uint8Array> {
+    return this.unavailable();
   }
 }
