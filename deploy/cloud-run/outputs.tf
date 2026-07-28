@@ -28,9 +28,21 @@ output "attachment_bucket" {
   value       = google_storage_bucket.attachments.name
 }
 
-output "runtime_service_account" {
-  description = "Least-privilege runtime service account."
-  value       = google_service_account.runtime.email
+output "runtime_service_accounts" {
+  description = "Least-privilege identities for the API, worker, and migration workloads."
+  value = {
+    api       = google_service_account.api.email
+    worker    = google_service_account.worker.email
+    migration = google_service_account.migration.email
+  }
+}
+
+output "pubsub_wakeup" {
+  description = "Optional content-free Pub/Sub wake-up resources; null when disabled."
+  value = var.enable_pubsub_wakeup ? {
+    topic        = google_pubsub_topic.wakeup[0].id
+    subscription = google_pubsub_subscription.wakeup[0].id
+  } : null
 }
 
 output "vpc_network" {

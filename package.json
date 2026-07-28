@@ -110,6 +110,7 @@
     "@vercel/functions": "3.7.6",
     "@vercel/queue": "0.4.0",
     "esbuild": "0.28.1",
+    "google-auth-library": "10.9.1",
     "hono": "4.12.32",
     "html-to-text": "10.0.0",
     "pg": "8.22.0",
@@ -118,7 +119,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.18.8",
+    "@cloudflare/vitest-pool-workers": "0.19.0",
     "@react-email/render": "2.1.0",
     "@redocly/cli": "2.41.1",
     "@types/aws-lambda": "8.10.162",
@@ -134,7 +135,7 @@
     "tsx": "4.23.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
-    "wrangler": "4.114.0",
+    "wrangler": "4.115.0",
     "yaml": "2.9.0"
   },
   "overrides": {

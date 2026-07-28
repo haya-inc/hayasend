@@ -47,12 +47,12 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
       queue_wakeup: {
         status: "supported",
         notes:
-          "PostgreSQL jobs provide deterministic identities, ordered SKIP LOCKED leases, bounded retries, expired-lease recovery, and terminal failure isolation without requiring a managed queue.",
+          "PostgreSQL jobs remain authoritative and provide deterministic identities, ordered SKIP LOCKED leases, bounded retries, expired-lease recovery, and terminal failure isolation. Cloud Run can add a content-free Pub/Sub REST pull hint with split publisher/subscriber identities; publish, pull, acknowledgment, duplicate, or retention failure never changes durable job truth.",
       },
       scheduler_wakeup: {
         status: "conditional",
         notes:
-          "PostgreSQL due times retain the 30-day contract; platform scheduler and managed-queue accelerators remain deployment-pack work.",
+          "PostgreSQL due times retain the 30-day contract independently of optional immediate-work wake-up accelerators; hosted long-delay and redeploy evidence remains pending.",
       },
       periodic_reconciliation: {
         status: "supported",
@@ -133,6 +133,16 @@ export const PORTABLE_RUNTIME_CAPABILITIES =
         title: "Cloud Run Worker Pools",
         url: "https://docs.cloud.google.com/run/docs/deploy-worker-pools",
         checked_at: "2026-07-28",
+      },
+      {
+        title: "Google Cloud Pub/Sub pull subscriptions",
+        url: "https://docs.cloud.google.com/pubsub/docs/pull",
+        checked_at: "2026-07-29",
+      },
+      {
+        title: "Google Cloud Pub/Sub IAM roles",
+        url: "https://docs.cloud.google.com/iam/docs/roles-permissions/pubsub",
+        checked_at: "2026-07-29",
       },
       {
         title: "Render Blueprint YAML reference",

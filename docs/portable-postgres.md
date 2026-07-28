@@ -20,6 +20,7 @@ lost wake-up or process restart does not require an API client to retry.
 
 ```text
 API container ── transaction ──> PostgreSQL 18 <── SKIP LOCKED ── worker
+      └── optional fixed hint ──> managed wake-up ──────┘
                                       │
                                       └── durable schedule/outbox recovery
 ```
@@ -103,6 +104,23 @@ platforms that mount a secret rather than resolving it directly into an
 environment variable. Secret contents and credential-bearing paths are never
 included in diagnostics.
 
+## Optional Cloud Run Pub/Sub wake-up
+
+The Cloud Run pack can set `enable_pubsub_wakeup = true`. It gives the API
+process only `HAYASEND_GCP_PUBSUB_TOPIC` and publisher IAM, and gives the
+worker process only `HAYASEND_GCP_PUBSUB_SUBSCRIPTION` and subscriber IAM. The
+migration process receives neither. Application Default Credentials authorize
+the current Pub/Sub v1 REST publish, pull, and acknowledge methods.
+
+The API persists the deterministic job in PostgreSQL before best-effort
+publishing one fixed `hayasend_wakeup=1` attribute. No email ID, recipient,
+subject/body, attachment, provider payload, or customer metadata enters
+Pub/Sub. The worker treats a hint only as a reason to lease PostgreSQL. Pull
+timeouts, unavailable Pub/Sub, lost hints, acknowledgment failure, and
+redelivery all fall back to bounded database polling. Delayed jobs never enter
+Pub/Sub, so its ten-minute subscription retention cannot own or truncate the
+30-day scheduling contract.
+
 ## Attachment object storage
 
 Direct attachment uploads are enabled by selecting one provider:
@@ -131,8 +149,9 @@ Provider identity requirements are:
   attachment prefix. Portable mode uses checksum metadata for compatibility;
   require private access and encryption through bucket policy/defaults.
 - **Google Cloud Storage:** Application Default Credentials access the bucket.
-  V4 signing also requires the runtime service account to sign blobs (normally
-  `iam.serviceAccounts.signBlob`) in addition to scoped object access.
+  V4 signing also requires the API service account to sign blobs (normally
+  `iam.serviceAccounts.signBlob`) in addition to scoped object access. The
+  Cloud Run pack separates API, worker, and migration identities.
 - **Azure Blob:** `DefaultAzureCredential` uses Managed Identity or the normal
   developer credential chain. The identity must have scoped Blob data access
   and permission to generate a user delegation key. HayaSend caches the
@@ -254,6 +273,8 @@ Checked on 2026-07-29:
 - [Cloud Run resource model](https://docs.cloud.google.com/run/docs/resource-model)
 - [Cloud Run Worker Pools](https://docs.cloud.google.com/run/docs/deploy-worker-pools)
 - [Cloud Run with Cloud SQL for PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/connect-run)
+- [Pub/Sub pull subscriptions](https://docs.cloud.google.com/pubsub/docs/pull)
+- [Pub/Sub roles](https://docs.cloud.google.com/iam/docs/roles-permissions/pubsub)
 - [Render Blueprint YAML reference](https://render.com/docs/blueprint-spec)
 - [Render deployment lifecycle](https://render.com/docs/deploys)
 - [Render Postgres backups](https://render.com/docs/postgresql-backups)

@@ -81,6 +81,7 @@ jobs:
           GOOGLE_OAUTH_ACCESS_TOKEN: invalid-ci-token
           TF_VAR_api_key: re_DO_NOT_PERSIST_API_KEY_ABCDEFGHIJKL
           TF_VAR_database_password: DO_NOT_PERSIST_DATABASE_PASSWORD_1234
+          TF_VAR_enable_pubsub_wakeup: "true"
           TF_VAR_image: >-
             ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           TF_VAR_project_id: hayasend-test-project
@@ -90,7 +91,7 @@ jobs:
           terraform init -backend=false -input=false -lockfile=readonly
           terraform validate
           terraform test -no-color
-          shellcheck deploy.sh cleanup.sh
+          shellcheck deploy.sh cleanup.sh verify-zero-residue.sh
           trivy config \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
@@ -108,6 +109,15 @@ jobs:
             "$RUNNER_TEMP/cloud-run-plan.txt"
           grep --fixed-strings --quiet \
             'secret_data_wo         = (write-only attribute)' \
+            "$RUNNER_TEMP/cloud-run-plan.txt"
+          grep --fixed-strings --quiet \
+            'resource "google_pubsub_topic" "wakeup"' \
+            "$RUNNER_TEMP/cloud-run-plan.txt"
+          grep --fixed-strings --quiet \
+            'role    = "roles/pubsub.publisher"' \
+            "$RUNNER_TEMP/cloud-run-plan.txt"
+          grep --fixed-strings --quiet \
+            'role         = "roles/pubsub.subscriber"' \
             "$RUNNER_TEMP/cloud-run-plan.txt"
           if grep --fixed-strings --quiet \
             "$TF_VAR_api_key" "$RUNNER_TEMP/cloud-run-plan.txt"; then
@@ -607,8 +617,8 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 540 and
-            .size < 675000 and
+            .entryCount <= 550 and
+            .size < 690000 and
             .unpackedSize < 3500000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
@@ -650,6 +660,12 @@ jobs:
               index("dist/adapters/sendgrid/sendgrid-email-transport.js") != null) and
             ([.files[].path] |
               index("dist/adapters/sendgrid/sendgrid-email-events.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/google-pubsub-wakeup.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/wakeup-job-queue.js") != null) and
+            ([.files[].path] |
+              index("dist/ports/job-wakeup.js") != null) and
             ([.files[].path] |
               index("dist/adapters/vercel-blob-attachment-storage.js") != null) and
             ([.files[].path] |

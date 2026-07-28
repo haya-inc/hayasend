@@ -7,7 +7,9 @@ This experimental pack binds the shared `portable-postgres` runtime to:
 - a one-shot Cloud Run Job for checksum-pinned forward migrations;
 - Cloud SQL for PostgreSQL 18;
 - a private Google Cloud Storage attachment bucket; and
-- Secret Manager file mounts plus a dedicated runtime service account; and
+- optional content-free Pub/Sub wake-up hints;
+- Secret Manager file mounts plus separate API, worker, and migration service
+  accounts; and
 - a dedicated Direct VPC subnet plus Private Services Access for Cloud SQL.
 
 It is an implementation pack, not a production-readiness claim. Cloud Run
@@ -27,8 +29,11 @@ delivery, and controlled-receipt evidence are still required.
   Cloud Run connector and Unix socket over a dedicated Direct VPC subnet and
   Private Services Access. Connector enforcement rejects bypass connections.
 - The GCS bucket enforces public-access prevention and uniform bucket-level
-  access. The runtime gets object access only on that bucket and permission to
-  sign its own short-lived V4 upload URLs.
+  access. The API and worker get object access only on that bucket, while only
+  the API identity may sign its own short-lived V4 upload URLs.
+- When enabled, only the API identity can publish to the wake-up topic and only
+  the worker identity can consume the pull subscription. The migration job
+  receives neither Pub/Sub configuration nor Pub/Sub IAM.
 - The default Cloud SQL instance is regional, has SSD auto-growth, backups,
   point-in-time recovery, Query Insights, and deletion protection.
 
@@ -49,12 +54,18 @@ cannot delete its own audit trail or state lock.
 
 ## Versions
 
-The pack was validated on 2026-07-28 with:
+The pack was validated on 2026-07-29 with:
 
 - Terraform `1.15.8`;
 - HashiCorp Google provider `7.41.0`;
 - Google Cloud PostgreSQL `18`; and
 - the Cloud Run v2 Service, Job, and Worker Pool resources.
+
+The optional wake-up adapter uses `google-auth-library` 10.9.1 and the current
+Pub/Sub v1 REST publish/pull/acknowledge contract. The latest
+`@google-cloud/pubsub` 5.3.1 package was evaluated but not adopted because its
+then-current dependency graph introduced known audit findings. HayaSend keeps
+`npm audit` at zero rather than overriding incompatible transitive majors.
 
 The exact constraints and multi-platform provider checksums are committed.
 
@@ -145,10 +156,18 @@ Google Cloud SES-equivalent does not exist.
 - Attachment objects expire after 30 days. Cloud Storage soft delete retains
   deleted objects for seven days by default.
 
-No Cloud Tasks or Pub/Sub resource is created yet: PostgreSQL remains the
-authority and the continuous worker already recovers lost wakeups. A managed
-queue may be added only as an accelerator after its duplicate/loss contract is
-tested; it will never own the 30-day schedule.
+Set `enable_pubsub_wakeup = true` to provision one topic and one pull
+subscription. The API commits a deterministic PostgreSQL job first and then
+best-effort publishes the fixed `hayasend_wakeup=1` attribute. It never
+publishes message IDs, recipient addresses, subject/body content, attachments,
+provider payloads, or customer metadata.
+
+The worker performs bounded REST pulls through Application Default
+Credentials, acknowledges each hint, and immediately leases PostgreSQL. A
+timeout, malformed response, acknowledgment failure, duplicate, expired hint,
+or Pub/Sub outage falls back to PostgreSQL polling. Delayed jobs are never
+published to Pub/Sub; PostgreSQL due rows own the full 30-day schedule. The
+accelerator defaults off and creates no Pub/Sub API or resource unless enabled.
 
 ## Rotation
 
@@ -183,18 +202,23 @@ remain enabled by default so a deployment pack cannot disrupt a shared
 project. Set
 `disable_apis_on_destroy=true` only in a dedicated disposable project.
 
-Before claiming zero residue, independently query Cloud Run services, jobs,
-worker pools, Cloud SQL, buckets, secrets, service accounts, and HayaSend IAM
-bindings in the exact project. Do not publish secret values, addresses,
-message content, provider payloads, database dumps, or attachment data as
-evidence.
+`cleanup.sh` now runs `verify-zero-residue.sh` after Terraform destroy. The
+independent verifier queries Cloud Run services, jobs, and worker pools; Cloud
+SQL; buckets; secrets; service accounts; VPC resources; Pub/Sub topics and
+subscriptions; and HayaSend IAM bindings in the exact project. It fails closed
+on query errors or residue and never prints secret values, addresses, message
+content, provider payloads, database dumps, or attachment data.
 
 ## Official references
 
-Checked on 2026-07-28:
+Checked on 2026-07-29:
 
 - [Cloud Run resource model](https://docs.cloud.google.com/run/docs/resource-model)
 - [Deploy Worker Pools](https://docs.cloud.google.com/run/docs/deploy-worker-pools)
+- [Pub/Sub pull subscriptions](https://docs.cloud.google.com/pubsub/docs/pull)
+- [Pub/Sub REST publish](https://docs.cloud.google.com/pubsub/docs/reference/rest/v1/projects.topics/publish)
+- [Pub/Sub REST pull](https://docs.cloud.google.com/pubsub/docs/reference/rest/v1/projects.subscriptions/pull)
+- [Pub/Sub IAM roles](https://docs.cloud.google.com/iam/docs/roles-permissions/pubsub)
 - [Cloud Run and Cloud SQL for PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/connect-run)
 - [Cloud Run Direct VPC](https://docs.cloud.google.com/run/docs/configuring/vpc-direct-vpc)
 - [Worker Pool secrets](https://docs.cloud.google.com/run/docs/configuring/workerpools/secrets)

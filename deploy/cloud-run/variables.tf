@@ -356,6 +356,34 @@ variable "worker_concurrency" {
   }
 }
 
+variable "worker_poll_interval_ms" {
+  description = "Bounded PostgreSQL polling interval when the optional Pub/Sub accelerator is disabled."
+  type        = number
+  default     = 500
+
+  validation {
+    condition     = floor(var.worker_poll_interval_ms) == var.worker_poll_interval_ms && var.worker_poll_interval_ms >= 50 && var.worker_poll_interval_ms <= 60000
+    error_message = "worker_poll_interval_ms must be an integer between 50 and 60000."
+  }
+}
+
+variable "enable_pubsub_wakeup" {
+  description = "Provision a content-free Pub/Sub hint path. PostgreSQL remains the only durable queue authority."
+  type        = bool
+  default     = false
+}
+
+variable "pubsub_pull_timeout_ms" {
+  description = "Bounded unary pull request timeout and PostgreSQL fallback interval when Pub/Sub wake-up is enabled."
+  type        = number
+  default     = 5000
+
+  validation {
+    condition     = floor(var.pubsub_pull_timeout_ms) == var.pubsub_pull_timeout_ms && var.pubsub_pull_timeout_ms >= 1000 && var.pubsub_pull_timeout_ms <= 60000
+    error_message = "pubsub_pull_timeout_ms must be an integer between 1000 and 60000."
+  }
+}
+
 variable "allow_public_api" {
   description = "Grant allUsers Cloud Run invocation. HayaSend API-key authentication still applies."
   type        = bool

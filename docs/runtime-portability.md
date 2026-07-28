@@ -91,8 +91,10 @@ operational evidence, not a fork of core delivery logic.
 The first thin pack is now published for
 [Cloud Run + Cloud SQL + GCS](../deploy/cloud-run/README.md). It uses a Cloud
 Run Service, migration Job, and Beta Worker Pool with write-only Terraform
-secrets and a migration-first rollout. It remains experimental until its
-hosted lifecycle, backup/restore, rollback, cleanup, and exact transport
+secrets, split workload identities, a migration-first rollout, and an optional
+content-free Pub/Sub hint path. PostgreSQL remains authoritative and bounded
+polling recovers every lost or unavailable hint. It remains experimental until
+its hosted lifecycle, backup/restore, rollback, cleanup, and exact transport
 evidence pass.
 
 The second thin pack targets
@@ -258,7 +260,7 @@ Checked on 2026-07-29:
 - [Azure Communication Services Email events](https://learn.microsoft.com/en-us/azure/event-grid/communication-services-email-events)
 - [Google Cloud guidance for sending email](https://docs.cloud.google.com/compute/docs/tutorials/sending-mail)
 - [Cloud Run overview](https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run)
-- [Cloud Tasks with Cloud Run](https://docs.cloud.google.com/run/docs/triggering/using-tasks)
+- [Pub/Sub pull subscriptions](https://docs.cloud.google.com/pubsub/docs/pull)
 - [Vercel Queues](https://vercel.com/docs/queues)
 - [Vercel Queues seven-day TTL](https://vercel.com/changelog/queues-now-supports-7-day-ttl)
 - [Vercel Functions limits](https://vercel.com/docs/functions/limitations)

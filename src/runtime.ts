@@ -18,6 +18,7 @@ import {
   AwsEmailScheduler,
   QueueEmailScheduler,
 } from "./adapters/email-scheduler.js";
+import { createGooglePubSubWakeupPublisher } from "./adapters/google-pubsub-wakeup.js";
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { ACS_EMAIL_CAPABILITIES } from "./adapters/azure/acs-email-capabilities.js";
 import { AcsDomainProvider } from "./adapters/azure/acs-domain-provider.js";
@@ -60,11 +61,13 @@ import {
   assertSendGridEmailRecordPreflight,
   SendGridMailTransport,
 } from "./adapters/sendgrid/sendgrid-email-transport.js";
+import { WakeupJobQueue } from "./adapters/wakeup-job-queue.js";
 import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
 import type { AttachmentStorage } from "./ports/attachment-storage.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
+import type { JobWakeupPublisher } from "./ports/job-wakeup.js";
 import type { TransportEventIngress } from "./ports/transport-event-ingress.js";
 import { HAYASEND_VERSION } from "./version.js";
 import {
@@ -346,6 +349,7 @@ export function createPortableRuntime(
   config: Config,
   pool: Pool = createPostgresPool(config, "hayasend"),
   attachmentStorage: AttachmentStorage = new DisabledAttachmentStorage(),
+  wakeupPublisher?: JobWakeupPublisher,
 ): PortableRuntime {
   if (
     config.mode !== "portable" ||
@@ -356,9 +360,12 @@ export function createPortableRuntime(
     throw new Error("Portable runtime settings are incomplete.");
   }
   const store = new PostgresStore(pool);
-  const queue = new PostgresJobQueue(pool, {
+  const durableQueue = new PostgresJobQueue(pool, {
     max_attempts: config.jobMaxAttempts,
   });
+  const queue = wakeupPublisher
+    ? new WakeupJobQueue(durableQueue, wakeupPublisher)
+    : durableQueue;
   const webhooks = new WebhookService(store, queue, {
     httpFetch: createSafeWebhookFetch(),
     validateEndpoint: assertPublicWebhookEndpoint,
@@ -538,7 +545,7 @@ export function createPortableRuntime(
         };
   const recoveryDiagnosticsService = new RecoveryDiagnosticsService(
     store,
-    queue,
+    durableQueue,
     providerEvidence,
   );
   const outbox = new OutboxReconciler(store, queue, {
@@ -587,7 +594,7 @@ export function createPortableRuntime(
     recoveryDiagnosticsService,
     suppressionService: suppressions,
     webhookService: webhooks,
-    jobQueue: queue,
+    jobQueue: durableQueue,
     ...(transportEventIngress ? { transportEventIngress } : {}),
     ...(sendGridEventIngress ? { sendGridEventIngress } : {}),
     dispatchOutbox: (now) => outbox.sweep(now),
@@ -635,6 +642,7 @@ export function createRuntime(
       config,
       undefined,
       portableAttachmentStorage,
+      createGooglePubSubWakeupPublisher(config),
     );
   }
   if (!bootstrapKey) {
