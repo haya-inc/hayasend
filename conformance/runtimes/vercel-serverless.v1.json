@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0.0",
+  "runtime": "vercel-serverless",
+  "adapter_version": "0.2.0",
+  "checked_at": "2026-07-28",
+  "service_maturity": "experimental",
+  "runtime_class": "serverless",
+  "required_plan": "A dedicated Vercel Pro project with Fluid compute, Vercel Queues public Beta, a private Vercel Blob store, an external PostgreSQL 18 database colocated with hnd1, and separately configured transport credentials.",
+  "limits": {
+    "max_payload_bytes": 4500000,
+    "max_schedule_delay_seconds": 2592000,
+    "reconciliation_interval_seconds": 60
+  },
+  "authority": {
+    "durable_store": "metadata-ledger-outbox",
+    "atomic_message_outbox_commit": true,
+    "queue_is_source_of_truth": false,
+    "scheduler_is_source_of_truth": false,
+    "due_row_reconciliation": true
+  },
+  "components": {
+    "atomic_store": {
+      "status": "supported",
+      "notes": "External PostgreSQL transactions atomically persist the message, recipient ledger, idempotency claim, durable job, and deterministic outbox intent."
+    },
+    "recipient_ledger": {
+      "status": "supported",
+      "notes": "External PostgreSQL is the sole authority for recipients, attempts, immutable events, scheduling, and retries."
+    },
+    "payload_store": {
+      "status": "supported",
+      "notes": "Private Vercel Blob signed PUT URLs bind one exact pathname, content type, size, expiry, and no-overwrite policy; HayaSend checks stored size and re-hashes bytes before submission."
+    },
+    "queue_wakeup": {
+      "status": "conditional",
+      "notes": "Vercel Queues public Beta carries only content-free reconciliation wakeups with at-least-once delivery. PostgreSQL retains deterministic jobs and retry authority because Queue retention is seven days and deduplication is at most 24 hours."
+    },
+    "scheduler_wakeup": {
+      "status": "supported",
+      "notes": "PostgreSQL retains the full 30-day due time; a minute Vercel Cron and successful mutation wakeups materialize work without placing long schedules in Queues."
+    },
+    "periodic_reconciliation": {
+      "status": "supported",
+      "notes": "An authenticated, idempotent minute Cron runs bounded worker bursts, while PostgreSQL leases make duplicate or overlapping invocations safe."
+    },
+    "secret_injection": {
+      "status": "supported",
+      "notes": "Vercel production environment variables inject the API key, PostgreSQL URL, Blob token, Cron secret, and transport credentials; no secret is accepted in source or command arguments."
+    },
+    "provider_event_ingress": {
+      "status": "conditional",
+      "notes": "The shared ACS Event Grid ingress can run in the Hono function when its independent header secret is configured; hosted Vercel delivery evidence is pending."
+    },
+    "webhook_egress": {
+      "status": "supported",
+      "notes": "Bounded worker bursts deliver signed webhooks from durable PostgreSQL jobs with endpoint validation and privacy-safe errors."
+    },
+    "backup_restore": {
+      "status": "unsupported",
+      "notes": "The external PostgreSQL service and private Blob store still require a provider-specific isolated restore drill."
+    }
+  },
+  "lifecycle": {
+    "safe_deploy": {
+      "status": "conditional",
+      "notes": "The pinned deployment pack runs checksum-locked migrations before a production deployment and verifies the exact deployment, private Queue route, readiness, and authenticated Cron; hosted proof is pending."
+    },
+    "doctor": {
+      "status": "conditional",
+      "notes": "Readiness verifies PostgreSQL migrations and Blob access, but plan, region, environment-variable scope, retention, and billing require platform inventory evidence."
+    },
+    "upgrade": {
+      "status": "conditional",
+      "notes": "Forward-only migrations are checksum-pinned and advisory-lock serialized; exact hosted upgrade evidence remains open."
+    },
+    "rollback": {
+      "status": "conditional",
+      "notes": "The pack targets one reviewed READY deployment, but Vercel rollback does not automatically change the active Cron definition and hosted rollback evidence remains open."
+    },
+    "cleanup": {
+      "status": "conditional",
+      "notes": "Cleanup refuses a non-dedicated project, non-empty Blob store, or unconfirmed external PostgreSQL cleanup; exact zero-residue hosted evidence remains open."
+    }
+  },
+  "privacy": {
+    "content_stored_in_customer_account": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_operational_errors_retained": false
+  },
+  "sources": [
+    {
+      "title": "Vercel Queues",
+      "url": "https://vercel.com/docs/queues",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Vercel Queues seven-day TTL",
+      "url": "https://vercel.com/changelog/queues-now-supports-7-day-ttl",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Managing Vercel Cron Jobs",
+      "url": "https://vercel.com/docs/cron-jobs/manage-cron-jobs",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Vercel Functions limits",
+      "url": "https://vercel.com/docs/functions/limitations",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Vercel Blob private storage",
+      "url": "https://vercel.com/docs/vercel-blob/private-storage",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Vercel Blob signed URLs",
+      "url": "https://vercel.com/changelog/signed-urls-are-now-available-for-vercel-blob",
+      "checked_at": "2026-07-28"
+    },
+    {
+      "title": "Vercel Marketplace storage",
+      "url": "https://vercel.com/docs/marketplace-storage",
+      "checked_at": "2026-07-28"
+    }
+  ],
+  "limitations": [
+    "Vercel Queues and private Blob remain Beta, and no hosted lifecycle, interruption, backup/restore, terminal-delivery, controlled-receipt, or zero-residue proof has passed.",
+    "Vercel Functions cap request and response bodies at 4.5 MB; use signed direct Blob upload for attachments and keep API metadata below that platform limit.",
+    "Queue retention is at most seven days and idempotency deduplication is at most 24 hours; PostgreSQL and Cron, not Queues, preserve HayaSend's 30-day scheduling contract.",
+    "The deployment needs an external pooled PostgreSQL service in or near hnd1 and a separately certified mail transport; Vercel does not supply either."
+  ]
+}

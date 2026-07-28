@@ -147,13 +147,19 @@ transports, backup/restore drills, the remaining platform packs, and exact
 hosted evidence remain prerequisites before this profile can be claimed as a
 supported Beta deployment.
 
-### `vercel-serverless` (planned experimental)
+### `vercel-serverless` (executable experimental)
 
-The Vercel profile is expected to use Functions, Vercel Queues, an external
-PostgreSQL authority, object storage, and Cron reconciliation. Vercel Queues
-is currently Beta and retains messages for at most 24 hours. HayaSend's
-30-day scheduling contract must therefore remain in PostgreSQL and be
-materialized into the queue only when work approaches its due time.
+The [Vercel pack](../deploy/vercel/README.md) now uses a Hono Function,
+Vercel Queues, private Vercel Blob, an external PostgreSQL 18 authority, and
+authenticated minute Cron reconciliation. Successful mutations send only a
+content-free reconciliation wakeup. Queue and Cron invocations run bounded
+worker bursts; PostgreSQL jobs and leases remain authoritative.
+
+Vercel Queues is public Beta and now retains messages for at most seven days.
+Its idempotency window remains at most 24 hours. HayaSend's 30-day scheduling
+contract therefore remains entirely in PostgreSQL, with Cron recovering lost
+or expired wakeups. Signed direct Blob uploads avoid the Vercel Function
+4.5 MB body limit.
 
 The profile remains experimental until duplicate delivery, visibility timeout,
 function interruption, deploy interruption, retry exhaustion, long-delay
@@ -189,7 +195,7 @@ HayaSend does not plan to build or operate a custom MTA.
 | Render | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
 | Railway | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
 | Fly.io | `portable-postgres` | Certified external adapter | Experimental pack; hosted proof pending |
-| Vercel | `vercel-serverless` | Certified external adapter | Planned experimental proof |
+| Vercel | `vercel-serverless` | Certified external adapter | Executable experimental pack; hosted proof pending |
 
 These are roadmap targets, not current support claims. Generated capability
 documents are the deployment truth.
@@ -201,6 +207,7 @@ Runtime documents:
 - [`conformance/runtimes/aws-native.v1.json`](../conformance/runtimes/aws-native.v1.json)
 - [`conformance/runtimes/cloudflare-native.v1.json`](../conformance/runtimes/cloudflare-native.v1.json)
 - [`conformance/runtimes/portable-postgres.v1.json`](../conformance/runtimes/portable-postgres.v1.json)
+- [`conformance/runtimes/vercel-serverless.v1.json`](../conformance/runtimes/vercel-serverless.v1.json)
 
 Provider documents:
 
@@ -245,7 +252,9 @@ Checked on 2026-07-29:
 - [Cloud Run overview](https://docs.cloud.google.com/run/docs/overview/what-is-cloud-run)
 - [Cloud Tasks with Cloud Run](https://docs.cloud.google.com/run/docs/triggering/using-tasks)
 - [Vercel Queues](https://vercel.com/docs/queues)
-- [Vercel Queues API and limits](https://vercel.com/docs/queues/api)
+- [Vercel Queues seven-day TTL](https://vercel.com/changelog/queues-now-supports-7-day-ttl)
+- [Vercel Functions limits](https://vercel.com/docs/functions/limitations)
+- [Vercel Blob private storage](https://vercel.com/docs/vercel-blob/private-storage)
 - [Render background workers](https://render.com/docs/background-workers)
 - [Railway Infrastructure as Code](https://docs.railway.com/infrastructure-as-code)
 - [Railway Storage Buckets](https://docs.railway.com/storage-buckets)

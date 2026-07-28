@@ -10,6 +10,7 @@ import {
 } from "./attachment-storage.js";
 import { AzureBlobAttachmentStorage } from "./azure-blob-attachment-storage.js";
 import { GoogleCloudStorageAttachmentStorage } from "./google-cloud-storage-attachment-storage.js";
+import { VercelBlobAttachmentStorage } from "./vercel-blob-attachment-storage.js";
 
 function requiredBucket(
   config: Config,
@@ -69,6 +70,12 @@ export function createPortableAttachmentStorage(
         requiredBucket(config),
         client,
       );
+    }
+    case "vercel-blob": {
+      if (!config.vercelBlobToken) {
+        throw new Error("Vercel Blob storage settings are incomplete.");
+      }
+      return new VercelBlobAttachmentStorage(config.vercelBlobToken);
     }
     default:
       throw new Error("Unsupported portable object-storage provider.");

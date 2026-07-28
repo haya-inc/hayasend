@@ -38,8 +38,14 @@ export interface Config {
     | "console"
     | "aws-ses"
     | "azure-communication-services";
-  portableObjectStorage?: "disabled" | "s3" | "gcs" | "azure-blob";
+  portableObjectStorage?:
+    | "disabled"
+    | "s3"
+    | "gcs"
+    | "azure-blob"
+    | "vercel-blob";
   objectStorageBucket?: string;
+  vercelBlobToken?: string;
   s3Endpoint?: string;
   s3ForcePathStyle?: boolean;
   gcsProjectId?: string;
@@ -319,18 +325,18 @@ export function loadConfig(env = process.env): Config {
   const portableObjectStorage = env.HAYASEND_OBJECT_STORAGE ?? "disabled";
   if (
     mode === "portable" &&
-    !["disabled", "s3", "gcs", "azure-blob"].includes(
+    !["disabled", "s3", "gcs", "azure-blob", "vercel-blob"].includes(
       portableObjectStorage,
     )
   ) {
     throw new ValidationError(
-      "HAYASEND_OBJECT_STORAGE must be disabled, s3, gcs, or azure-blob in portable mode.",
+      "HAYASEND_OBJECT_STORAGE must be disabled, s3, gcs, azure-blob, or vercel-blob in portable mode.",
     );
   }
   const objectStorageBucket = env.HAYASEND_OBJECT_STORAGE_BUCKET;
   if (
     mode === "portable" &&
-    portableObjectStorage !== "disabled" &&
+    !["disabled", "vercel-blob"].includes(portableObjectStorage) &&
     !objectStorageBucket
   ) {
     throw new ValidationError(
@@ -344,6 +350,15 @@ export function loadConfig(env = process.env): Config {
   ) {
     throw new ValidationError(
       "HAYASEND_OBJECT_STORAGE_BUCKET requires an enabled HAYASEND_OBJECT_STORAGE provider.",
+    );
+  }
+  if (
+    mode === "portable" &&
+    portableObjectStorage === "vercel-blob" &&
+    objectStorageBucket
+  ) {
+    throw new ValidationError(
+      "HAYASEND_OBJECT_STORAGE_BUCKET is not used by Vercel Blob.",
     );
   }
   if (
@@ -393,6 +408,18 @@ export function loadConfig(env = process.env): Config {
         "HAYASEND_AZURE_BLOB_ENDPOINT",
       )
     : undefined;
+  const vercelBlobToken = secretSetting(env, "BLOB_READ_WRITE_TOKEN");
+  if (
+    mode === "portable" &&
+    portableObjectStorage === "vercel-blob" &&
+    (!vercelBlobToken ||
+      vercelBlobToken.length < 32 ||
+      vercelBlobToken.length > 4_096)
+  ) {
+    throw new ValidationError(
+      "BLOB_READ_WRITE_TOKEN must contain 32 to 4096 characters for Vercel Blob storage.",
+    );
+  }
   if (
     mode === "portable" &&
     portableTransport === "console" &&
@@ -504,7 +531,8 @@ export function loadConfig(env = process.env): Config {
             | "disabled"
             | "s3"
             | "gcs"
-            | "azure-blob",
+            | "azure-blob"
+            | "vercel-blob",
           ...(objectStorageBucket
             ? { objectStorageBucket }
             : {}),
@@ -523,6 +551,7 @@ export function loadConfig(env = process.env): Config {
           ...(azureBlobEndpoint
             ? { azureBlobEndpoint }
             : {}),
+          ...(vercelBlobToken ? { vercelBlobToken } : {}),
           ...(azureCommunicationEmailEndpoint
             ? { azureCommunicationEmailEndpoint }
             : {}),

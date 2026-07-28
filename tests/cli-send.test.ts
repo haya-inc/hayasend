@@ -584,6 +584,15 @@ describe("production email send CLI", () => {
       env: {},
     },
     {
+      name: "private Vercel Blob",
+      uploadUrl:
+        "https://storeabc.private.blob.vercel-storage.com/attachments/object?signed=true",
+      uploadHeaders: () => ({
+        "content-type": "text/plain",
+      }),
+      env: {},
+    },
+    {
       name: "explicit S3-compatible origin",
       uploadUrl: "https://objects.example.com/bucket/object?signed=true",
       uploadHeaders: (checksum: string) => ({

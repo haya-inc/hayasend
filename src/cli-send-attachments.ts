@@ -177,11 +177,20 @@ function isAzureBlobHostname(hostname: string) {
   );
 }
 
+function isVercelBlobHostname(hostname: string) {
+  const suffix = ".blob.vercel-storage.com";
+  return (
+    hostname.endsWith(suffix) &&
+    hostname.length > suffix.length
+  );
+}
+
 function isBuiltInObjectStorageHostname(hostname: string) {
   return (
     isAwsS3Hostname(hostname) ||
     isGoogleCloudStorageHostname(hostname) ||
-    isAzureBlobHostname(hostname)
+    isAzureBlobHostname(hostname) ||
+    isVercelBlobHostname(hostname)
   );
 }
 

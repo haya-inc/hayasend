@@ -273,6 +273,44 @@ jobs:
             deploy/flyio/rollback.sh \
             deploy/flyio/cleanup.sh
 
+  vercel-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - name: Install npm
+        run: npm install --global --ignore-scripts npm@12.0.1
+      - run: npm ci
+      - name: Verify the pinned Vercel SDKs, CLI, and deployment pack
+        run: |
+          set -euo pipefail
+          npm run validate:vercel
+          shellcheck -x \
+            deploy/vercel/lib.sh \
+            deploy/vercel/deploy.sh \
+            deploy/vercel/verify.sh \
+            deploy/vercel/rollback.sh \
+            deploy/vercel/cleanup.sh
+          node --check deploy/vercel/blob-count.mjs
+          version="$(< deploy/vercel/.vercel-cli-version)"
+          expected_integrity="$(< deploy/vercel/.vercel-cli-integrity)"
+          metadata="$(npm view "vercel@$version" version dist.integrity --json)"
+          test "$(
+            jq --raw-output \
+              '(if type == "array" then .[0] else . end).version' \
+              <<<"$metadata"
+          )" = "$version"
+          test "$(
+            jq --raw-output \
+              '(if type == "array" then .[0] else . end).["dist.integrity"]' \
+              <<<"$metadata"
+          )" = \
+            "$expected_integrity"
+
   postgres-substrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -328,6 +366,7 @@ jobs:
       - run: npm run validate:flyio
       - run: npm run validate:railway
       - run: npm run validate:render
+      - run: npm run validate:vercel
       - run: npm test
       - run: npm run build
       - name: Validate CloudFormation
@@ -568,9 +607,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 500 and
-            .size < 620000 and
-            .unpackedSize < 3150000 and
+            .entryCount <= 520 and
+            .size < 650000 and
+            .unpackedSize < 3250000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -605,6 +644,20 @@ jobs:
               index("dist/adapters/azure/acs-email-transport.js") != null) and
             ([.files[].path] |
               index("dist/adapters/azure/acs-email-events.js") != null) and
+            ([.files[].path] |
+              index("dist/adapters/vercel-blob-attachment-storage.js") != null) and
+            ([.files[].path] |
+              index("dist/vercel/functions.js") != null) and
+            ([.files[].path] | index("app.ts") != null) and
+            ([.files[].path] | index("api/queue.ts") != null) and
+            ([.files[].path] | index("api/reconcile.ts") != null) and
+            ([.files[].path] | index("vercel.json") != null) and
+            ([.files[].path] |
+              index("deploy/vercel/deploy.sh") != null) and
+            ([.files[].path] |
+              index("deploy/vercel/.vercel-cli-version") != null) and
+            ([.files[].path] |
+              index("conformance/runtimes/vercel-serverless.v1.json") != null) and
             ([.files[].path] |
               index("deploy/cloud-run/main.tf") != null) and
             ([.files[].path] |
@@ -659,7 +712,7 @@ jobs:
           ' "$RUNNER_TEMP/npm-pack-metadata.json" > /dev/null
           if tar --list --gzip --file "$RUNNER_TEMP/$archive" |
             grep --extended-regexp --invert-match --quiet \
-              '^package/(LICENSE|NOTICE|README\.md|package\.json|conformance/.*|deploy/.*|dist/.*|migrations/.*|schemas/.*|scripts/(clean-dist|cloudflare-cost-model|npm-sam-compat)\.mjs|src/.*|template\.yaml)$'; then
+              '^package/(LICENSE|NOTICE|README\.md|package\.json|api/.*|app\.ts|conformance/.*|deploy/.*|dist/.*|migrations/.*|schemas/.*|scripts/(clean-dist|cloudflare-cost-model|npm-sam-compat|validate-vercel-config)\.mjs|src/.*|template\.yaml|vercel\.json)$'; then
             echo "The npm package contains an unexpected path."
             tar --list --gzip --file "$RUNNER_TEMP/$archive"
             exit 1

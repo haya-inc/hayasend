@@ -1,9 +1,9 @@
 # Portable PostgreSQL runtime
 
-The portable runtime is the shared container foundation for Cloud Run, Azure
-Container Apps, Render, Railway, and Fly.io. It is executable, but is not yet
-a supported Beta deployment: hosted provider-event, backup/restore, and
-platform lifecycle proofs remain open.
+The portable runtime is the shared durable foundation for Cloud Run, Azure
+Container Apps, Render, Railway, Fly.io, and the Vercel serverless adapter. It
+is executable, but is not yet a supported Beta deployment: hosted
+provider-event, backup/restore, and platform lifecycle proofs remain open.
 
 ## Process model
 
@@ -84,13 +84,14 @@ Direct attachment uploads are enabled by selecting one provider:
 
 | Variable | Values / meaning |
 | --- | --- |
-| `HAYASEND_OBJECT_STORAGE` | `disabled` (default), `s3`, `gcs`, or `azure-blob` |
-| `HAYASEND_OBJECT_STORAGE_BUCKET` | Private bucket or Azure Blob container |
+| `HAYASEND_OBJECT_STORAGE` | `disabled` (default), `s3`, `gcs`, `azure-blob`, or `vercel-blob` |
+| `HAYASEND_OBJECT_STORAGE_BUCKET` | Private bucket or Azure Blob container; omit for `vercel-blob` |
 | `HAYASEND_S3_ENDPOINT` | Optional HTTPS origin for an S3-compatible service |
 | `HAYASEND_S3_FORCE_PATH_STYLE` | `true` only when the S3-compatible service requires path-style requests |
 | `GOOGLE_CLOUD_PROJECT` | Optional explicit GCP project; ADC remains authoritative |
 | `AZURE_STORAGE_ACCOUNT_NAME` | Required for `azure-blob` |
 | `HAYASEND_AZURE_BLOB_ENDPOINT` | Optional HTTPS service origin for a sovereign cloud or emulator |
+| `BLOB_READ_WRITE_TOKEN` | Required 32–4096 character private-store token for `vercel-blob` |
 
 The API issues a 15-minute, create/write-only upload URL. The signed contract
 binds the declared SHA-256 as a native S3 checksum or provider metadata.
@@ -111,6 +112,10 @@ Provider identity requirements are:
   developer credential chain. The identity must have scoped Blob data access
   and permission to generate a user delegation key. HayaSend caches the
   one-hour delegation key and issues only HTTPS `cw` SAS tokens.
+- **Vercel Blob:** use a private store and its production-scoped
+  `BLOB_READ_WRITE_TOKEN`. HayaSend issues a no-overwrite signed URL for one
+  exact pathname, content type, byte size, and expiry, then performs a private
+  read and byte-level SHA-256 verification before transport submission.
 
 Create the bucket/container ahead of the processes, keep public access
 disabled, and apply provider lifecycle retention intentionally. Browser-based
@@ -118,10 +123,11 @@ direct uploads also need provider CORS allowing `PUT`, the documented checksum
 metadata header, and the exact application origin. HayaSend never exports the
 object, signed URL, body, or attachment to a Haya management plane.
 
-The CLI trusts AWS S3, Google Cloud Storage, and Azure Blob upload hosts by
-default. For a custom S3-compatible origin, set the exact comma-separated
-HTTPS origins in `HAYASEND_ATTACHMENT_UPLOAD_ORIGINS`; redirects remain
-disabled and only the documented upload headers are forwarded.
+The CLI trusts AWS S3, Google Cloud Storage, Azure Blob, and exact
+`*.blob.vercel-storage.com` upload hosts by default. For a custom
+S3-compatible origin, set the exact comma-separated HTTPS origins in
+`HAYASEND_ATTACHMENT_UPLOAD_ORIGINS`; redirects remain disabled and only the
+documented upload headers are forwarded.
 
 The API binds to `0.0.0.0:$HAYASEND_PORT` in portable mode. `/healthz` is a
 process liveness check. `/readyz` verifies that PostgreSQL is reachable, all
@@ -195,15 +201,15 @@ do not log the URL because it may contain credentials.
   remains experimental until exact hosted terminal-delivery, controlled
   receipt, quota, lifecycle, rollback, backup/restore, and cleanup evidence
   pass.
-- No Cloud Run, Azure Container Apps, Render, Railway, or Fly.io deployment is
-  claimed supported until its pinned deployment pack and lifecycle,
+- No Cloud Run, Azure Container Apps, Render, Railway, Fly.io, or Vercel
+  deployment is claimed supported until its pinned deployment pack and lifecycle,
   backup/restore, terminal-delivery, and cleanup evidence pass. The
   [experimental Cloud Run pack](../deploy/cloud-run/README.md) is published,
   as are the [experimental Render pack](../deploy/render/README.md) and
   [experimental Railway pack](../deploy/railway/README.md) and
   [experimental Fly.io pack](../deploy/flyio/README.md) and
-  [experimental Azure Container Apps pack](../deploy/azure-container-apps/README.md),
-  but their hosted
+  [experimental Azure Container Apps pack](../deploy/azure-container-apps/README.md)
+  and [experimental Vercel pack](../deploy/vercel/README.md), but their hosted
   evidence is still pending. Fly Managed Postgres currently uses PostgreSQL
   17 rather than the PostgreSQL 18 primary test substrate.
 

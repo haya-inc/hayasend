@@ -6,6 +6,7 @@ import { ACS_EMAIL_CAPABILITIES } from "../src/adapters/azure/acs-email-capabili
 import { CLOUDFLARE_EMAIL_CONFORMANCE_REPORT } from "../src/adapters/cloudflare/cloudflare-email-conformance.js";
 import { CLOUDFLARE_RUNTIME_CAPABILITIES } from "../src/adapters/cloudflare-runtime-capabilities.js";
 import { PORTABLE_RUNTIME_CAPABILITIES } from "../src/adapters/portable-runtime-capabilities.js";
+import { VERCEL_RUNTIME_CAPABILITIES } from "../src/adapters/vercel-runtime-capabilities.js";
 import {
   CONFORMANCE_CASES,
   conformanceCaseCatalogSchema,
@@ -56,6 +57,8 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     CLOUDFLARE_RUNTIME_CAPABILITIES,
   "conformance/runtimes/portable-postgres.v1.json":
     PORTABLE_RUNTIME_CAPABILITIES,
+  "conformance/runtimes/vercel-serverless.v1.json":
+    VERCEL_RUNTIME_CAPABILITIES,
   "conformance/deployments/aws-ses.v1.json":
     AWS_SES_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloudflare-email.v1.json":
