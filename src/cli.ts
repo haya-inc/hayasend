@@ -41,6 +41,7 @@ import { webhookCommand } from "./cli-webhooks.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { startServer } from "./server.js";
+import { HAYASEND_VERSION } from "./version.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -1579,6 +1580,9 @@ function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
 Commands:
+  version, --version, -v
+      Print the exact HayaSend package version.
+
   init [--dir DIRECTORY]
       Create a pinned, hardened local Compose setup without overwriting files.
 
@@ -1727,6 +1731,13 @@ export async function runCli(
     ...overrides,
   };
   const command = args[0] ?? "help";
+  if (
+    args.length === 1 &&
+    (command === "--version" || command === "-v" || command === "version")
+  ) {
+    dependencies.io.log(HAYASEND_VERSION);
+    return;
+  }
   if (hasFlag(args, "help") || command === "help") {
     help(dependencies);
     return;

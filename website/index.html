@@ -19,8 +19,8 @@
       property="og:description"
       content="A modern transactional email API backed by Amazon SES and deployed into your AWS account."
     />
-    <meta property="og:url" content="https://haya-inc.github.io/hayasend/" />
-    <link rel="canonical" href="https://haya-inc.github.io/hayasend/" />
+    <meta property="og:url" content="https://hayasend.com/" />
+    <link rel="canonical" href="https://hayasend.com/" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
     <title>HayaSend — Own the path to delivery</title>
@@ -69,6 +69,16 @@
             Keep the developer experience of a modern email API while Amazon SES
             handles delivery. Your queues, metadata, and message payloads remain
             under your control.
+          </p>
+          <p class="release-context">
+            Latest packaged release:
+            <a
+              href="https://github.com/haya-inc/hayasend/releases/tag/v0.2.0"
+            >
+              v0.2.0
+            </a>
+            <span aria-hidden="true">·</span>
+            This site tracks <code>main</code> and may describe unreleased changes.
           </p>
           <div class="hero-actions">
             <a
@@ -287,7 +297,9 @@
         <div class="quickstart-command">
           <div>
             <span class="terminal-prompt" aria-hidden="true">$</span>
-            <code id="quickstart-code">docker compose up --build</code>
+            <code
+              id="quickstart-code"
+            >npx --yes @haya-inc/hayasend@0.2.0 init &amp;&amp; docker compose -f compose.hayasend.yaml up -d --wait</code>
           </div>
           <button
             class="copy-button copy-button-light"

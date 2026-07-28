@@ -19,6 +19,7 @@ const apiReferencePath = join(siteOutputDirectory, "api-reference.html");
 const websiteAssets = Object.freeze([
   "404.html",
   "app.js",
+  "CNAME",
   "favicon.svg",
   "index.html",
   "robots.txt",
@@ -208,7 +209,7 @@ export function hardenApiReference(
   <meta name="description" content="HayaSend API reference generated from the versioned OpenAPI contract." />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}" />
-  <link rel="canonical" href="https://haya-inc.github.io/hayasend/api-reference.html" />
+  <link rel="canonical" href="https://hayasend.com/api-reference.html" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <title>HayaSend API Reference</title>
   <style>

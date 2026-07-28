@@ -12,13 +12,14 @@ function requireText(value, expected, label) {
 }
 
 async function verifySite() {
-  const [index, reference, contract, sourceContract, sitemap] =
+  const [index, reference, contract, sourceContract, sitemap, customDomain] =
     await Promise.all([
       readFile(join(SITE_OUTPUT_DIRECTORY, "index.html"), "utf8"),
       readFile(join(SITE_OUTPUT_DIRECTORY, "api-reference.html"), "utf8"),
       readFile(join(SITE_OUTPUT_DIRECTORY, "openapi.yaml"), "utf8"),
       readFile(new URL("../openapi.yaml", import.meta.url), "utf8"),
       readFile(join(SITE_OUTPUT_DIRECTORY, "sitemap.xml"), "utf8"),
+      readFile(join(SITE_OUTPUT_DIRECTORY, "CNAME"), "utf8"),
     ]);
   if (contract !== sourceContract) {
     throw new Error("The published OpenAPI contract differs from its source.");
@@ -28,9 +29,12 @@ async function verifySite() {
   }
   requireText(
     sitemap,
-    "<loc>https://haya-inc.github.io/hayasend/api-reference.html</loc>",
+    "<loc>https://hayasend.com/api-reference.html</loc>",
     "Sitemap",
   );
+  if (customDomain !== "hayasend.com\n") {
+    throw new Error("The Pages artifact has an unexpected custom domain.");
+  }
   for (const expected of [
     "<title>HayaSend API Reference</title>",
     "HayaSend API",

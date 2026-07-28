@@ -14,7 +14,7 @@ describe("npm CLI distribution", () => {
     expect(packageJson.version).toBe(HAYASEND_VERSION);
     expect(packageJson).toMatchObject({
       name: "@haya-inc/hayasend",
-      homepage: "https://haya-inc.github.io/hayasend/",
+      homepage: "https://hayasend.com/",
       repository: {
         type: "git",
         url: "git+https://github.com/haya-inc/hayasend.git",
