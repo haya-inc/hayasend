@@ -62,12 +62,15 @@ retained-resource and stack-deletion controls.
 The checked-in bootstrap policy is action-scoped to the AWS services generated
 by `template.yaml`; it is not AdministratorAccess. IAM role creation and
 passing are restricted to the application stack prefix and approved AWS
-services. Some other CloudFormation service actions still require
-`Resource: "*"`, especially create-time Lambda, API Gateway, backup, KMS, and
-SES operations whose final ARN does not yet exist. Treat the optional
-organizational permissions boundary and SCPs as the outer guardrail. CI
-rejects a newly introduced application resource type until its required
-service prefix is reviewed in the bootstrap-policy conformance test.
+services. The service role may call `cloudformation:CreateChangeSet` only on
+the regional AWS-owned `Serverless-2016-10-31` transform required to expand
+the SAM template; it cannot create arbitrary CloudFormation stacks or change
+sets. Some other CloudFormation service actions still require `Resource: "*"`,
+especially create-time Lambda, API Gateway, backup, KMS, and SES operations
+whose final ARN does not yet exist. Treat the optional organizational
+permissions boundary and SCPs as the outer guardrail. CI rejects a newly
+introduced application resource type until its required service prefix is
+reviewed in the bootstrap-policy conformance test.
 
 `cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
 protected stack, `cloudformation:UpdateTerminationProtection` in addition to

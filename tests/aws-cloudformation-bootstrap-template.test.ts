@@ -101,6 +101,16 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       bootstrap.indexOf("  CloudFormationServiceRole:"),
       bootstrap.indexOf("\n  OperatorPolicy:"),
     );
+    expect(serviceRoleSection).toContain("Sid: UseOnlyTheSAMTransform");
+    expect(serviceRoleSection).toContain(
+      "Action: cloudformation:CreateChangeSet",
+    );
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31"',
+    );
+    expect(serviceRoleSection).not.toContain(
+      "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/*",
+    );
     expect(serviceRoleSection).toContain(
       'Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"',
     );
