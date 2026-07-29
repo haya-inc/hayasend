@@ -6,6 +6,16 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.3 - 2026-07-30
+
+- Add a hosted, alarm-driven AWS CodeDeploy canary failure proof that requires
+  the automatic rollback deployment, exact Lambda alias restoration,
+  `UPDATE_ROLLBACK_COMPLETE`, and a healthy public endpoint before continuing.
+- Purge every version and delete marker under the exact run-scoped SAM artifact
+  prefix, then verify stack, retained data, restore targets, backup recovery
+  points, log groups, and build artifacts leave zero unintended residue.
+- Update the AWS SDK packages to 3.1098.0 and the Railway IaC SDK to 3.7.0.
+
 ## 0.3.2 - 2026-07-29
 
 - Add a plan-first AWS lifecycle with a reusable least-privilege deployment
