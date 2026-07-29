@@ -1436,6 +1436,7 @@ async function deployCommand(
       "template-history-retention-days",
       "template-history-limit",
       "worker-reserved-concurrency",
+      "deployment-preference-type",
     ],
     booleans: [
       "apply",
@@ -1471,6 +1472,10 @@ async function deployCommand(
   );
   const templateHistoryLimit = flag(args, "template-history-limit");
   const workerReservedConcurrency = flag(args, "worker-reserved-concurrency");
+  const deploymentPreferenceType = flag(
+    args,
+    "deployment-preference-type",
+  );
   await deployAws(
     {
       ...(account ? { account } : {}),
@@ -1499,6 +1504,7 @@ async function deployCommand(
       ...(workerReservedConcurrency !== undefined
         ? { workerReservedConcurrency }
         : {}),
+      ...(deploymentPreferenceType ? { deploymentPreferenceType } : {}),
       tags: flags(args, "tag"),
     },
     {
@@ -1797,7 +1803,9 @@ Commands:
       Validate tools, identity, SES readiness, the SAM template, and a local
       build without changing AWS. Add --apply to create, inspect, and execute
       an exact CloudFormation change set. Destructive changes require the
-      additional --allow-destructive-changes acknowledgement.
+      additional --allow-destructive-changes acknowledgement. The first apply
+      creates live Lambda aliases; the next upgrade enables alarm-driven
+      canary traffic shifting and automatic rollback.
 
   status aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Show the stack, SES readiness, CloudFormation resources, CloudWatch

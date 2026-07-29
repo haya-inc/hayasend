@@ -38,6 +38,8 @@ AWS Budget and root-account alerts before the first run. The workflow:
 - fails if STS returns an account other than `AWS_TEST_ACCOUNT_ID`;
 - runs through the protected `aws-integration` GitHub environment;
 - creates a unique CloudFormation stack per run;
+- proves the required two-phase Lambda rollout by creating aliases first and
+  enabling alarm-driven CodeDeploy deployment groups on the reviewed update;
 - sends no email to SES;
 - cancels every test schedule and deletes its temporary SES identity;
 - deletes the synthetic legacy and stack-owned CloudWatch log groups;

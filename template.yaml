@@ -103,6 +103,26 @@ Parameters:
     MinValue: 0
     MaxValue: 1000
     Description: Reserved worker concurrency. Set to 0 to use the account's unreserved pool.
+  EnableGradualDeployments:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Enable CodeDeploy traffic shifting after every application Lambda has a live alias.
+  DeploymentPreferenceType:
+    Type: String
+    Default: Canary10Percent5Minutes
+    AllowedValues:
+      - Canary10Percent5Minutes
+      - Canary10Percent10Minutes
+      - Canary10Percent15Minutes
+      - Canary10Percent30Minutes
+      - Linear10PercentEvery1Minute
+      - Linear10PercentEvery2Minutes
+      - Linear10PercentEvery3Minutes
+      - Linear10PercentEvery10Minutes
+    Description: AWS SAM CodeDeploy traffic-shifting strategy for application Lambda updates.
 
 Conditions:
   CreateBootstrapSecret: !Equals [!Ref BootstrapSecretArn, ""]
@@ -219,6 +239,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/api.handler
+      AutoPublishAlias: live
+      # HAYASEND_GRADUAL_DEPLOYMENT: ApiFunctionAliasErrorAlarm
       LoggingConfig:
         LogGroup: !Ref ApiLogGroup
       Environment:
@@ -321,6 +343,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/worker.handler
+      AutoPublishAlias: live
+      # HAYASEND_GRADUAL_DEPLOYMENT: WorkerFunctionAliasErrorAlarm
       LoggingConfig:
         LogGroup: !Ref WorkerLogGroup
       ReservedConcurrentExecutions: !If
@@ -380,6 +404,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/dispatcher.handler
+      AutoPublishAlias: live
+      # HAYASEND_GRADUAL_DEPLOYMENT: DispatcherFunctionAliasErrorAlarm
       LoggingConfig:
         LogGroup: !Ref DispatcherLogGroup
       Policies:
@@ -421,6 +447,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/ses-events.handler
+      AutoPublishAlias: live
+      # HAYASEND_GRADUAL_DEPLOYMENT: SesEventsFunctionAliasErrorAlarm
       LoggingConfig:
         LogGroup: !Ref SesEventsLogGroup
       Policies:
@@ -452,6 +480,8 @@ Resources:
     Properties:
       CodeUri: .
       Handler: src/aws/inbound.handler
+      AutoPublishAlias: live
+      # HAYASEND_GRADUAL_DEPLOYMENT_CONDITIONAL: InboundFunctionAliasErrorAlarm
       LoggingConfig:
         LogGroup: !Ref InboundLogGroup
       Environment:
@@ -891,6 +921,107 @@ Resources:
 
   AlarmTopic:
     Type: AWS::SNS::Topic
+
+  ApiFunctionAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The active HayaSend API Lambda alias returned an error during or after deployment.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+        - Name: Resource
+          Value: !Sub "${ApiFunction}:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  WorkerFunctionAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The active HayaSend worker Lambda alias returned an error during or after deployment.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WorkerFunction
+        - Name: Resource
+          Value: !Sub "${WorkerFunction}:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  DispatcherFunctionAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The active HayaSend outbox dispatcher Lambda alias returned an error during or after deployment.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DispatcherFunction
+        - Name: Resource
+          Value: !Sub "${DispatcherFunction}:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  SesEventsFunctionAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The active HayaSend SES event Lambda alias returned an error during or after deployment.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SesEventsFunction
+        - Name: Resource
+          Value: !Sub "${SesEventsFunction}:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  InboundFunctionAliasErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: InboundEnabled
+    Properties:
+      AlarmDescription: The active HayaSend inbound Lambda alias returned an error during or after deployment.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref InboundFunction
+        - Name: Resource
+          Value: !Sub "${InboundFunction}:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
 
   DeadLetterQueueAlarm:
     Type: AWS::CloudWatch::Alarm

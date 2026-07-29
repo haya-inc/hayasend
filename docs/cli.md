@@ -597,7 +597,10 @@ The plan:
    empty SAM configuration, so repository or user defaults cannot silently
    change the plan. A package-owned compatibility adapter removes only SAM's
    obsolete `--unsafe-perm` npm argument; all other arguments still reach the
-   installed npm CLI unchanged, including npm 12's script allowlist checks;
+   installed npm CLI unchanged, including npm 12's script allowlist checks.
+   The CLI also inspects stack-owned Lambda aliases before rendering the
+   temporary template: a missing alias gets an alias-only first deployment,
+   while an existing alias gets CodeDeploy traffic shifting;
 5. prints the template SHA-256, effective parameters, tags, current stack
    state, and exact apply command as newline-delimited JSON. Plan mode emits
    one JSON object; apply mode emits one object per review or result event.
@@ -646,6 +649,7 @@ template are not replayed. Supported overrides are:
 - `--template-history-limit 1..50`;
 - `--worker-reserved-concurrency 0..1000` (`0` uses the account's unreserved
   concurrency pool);
+- `--deployment-preference-type Canary10Percent5Minutes|Canary10Percent10Minutes|Canary10Percent15Minutes|Canary10Percent30Minutes|Linear10PercentEvery1Minute|Linear10PercentEvery2Minutes|Linear10PercentEvery3Minutes|Linear10PercentEvery10Minutes`;
 - repeatable `--tag KEY=VALUE`.
 
 Enabling inbound receiving requires explicit non-`.invalid` recipient
@@ -684,6 +688,16 @@ resources and enables termination protection. The result is not successful
 unless both controls are read back and verified. This protection is also
 reconciled when an apply has no template changes.
 
+AWS requires the first gradual Lambda deployment to have an earlier version
+to shift traffic from. HayaSend therefore performs this safely in two reviewed
+updates. The initial apply creates `live` aliases without CodeDeploy. Its JSON
+result prints the exact `upgrade aws` command. Review and apply that upgrade
+once; the CLI observes the aliases, adds alarm-driven CodeDeploy deployment
+groups, and records `EnableGradualDeployments=true`. Later code updates use
+the selected strategy (default `Canary10Percent5Minutes`) and roll back
+automatically on an alias error alarm or CodeDeploy failure. Enabling inbound
+later uses the same alias-first rule for the newly created inbound function.
+
 ## Inspect AWS status
 
 Use the same expected-account gate for an infrastructure and sending-readiness
@@ -706,10 +720,11 @@ problematic resources and alarms are expanded in the result. The output also
 links the generated dashboard and prints exact drift, `upgrade aws`, `cleanup
 aws`, and authenticated `doctor` next steps.
 
-`operational` covers infrastructure, alarms, and public health. `send_ready`
-also requires SES production access and sending to be enabled. A missing stack
-is a successful read-only inspection with both values false and an exact
-`deploy aws` plan command.
+`operational` covers infrastructure, alarms, public health, all required
+`live` aliases, and their CodeDeploy deployment groups. `send_ready` also
+requires SES production access and sending to be enabled. A missing stack or
+an alias-bootstrap-only first deployment is a successful inspection with both
+values false and an exact next command.
 
 ## Upgrade AWS
 

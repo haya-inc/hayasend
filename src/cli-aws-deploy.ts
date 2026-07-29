@@ -56,6 +56,8 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   TemplateHistoryRetentionDays: "90",
   TemplateHistoryLimit: "50",
   WorkerReservedConcurrency: "10",
+  EnableGradualDeployments: "false",
+  DeploymentPreferenceType: "Canary10Percent5Minutes",
 };
 
 const LEGACY_STACK_DEFAULTS: Record<string, string> = {
@@ -76,6 +78,52 @@ const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
   "PayloadBucket",
   "InboundKey",
   "InboundBucket",
+]);
+
+const CORE_LAMBDA_ALIAS_LOGICAL_IDS = [
+  "ApiFunctionAliaslive",
+  "WorkerFunctionAliaslive",
+  "DispatcherFunctionAliaslive",
+  "SesEventsFunctionAliaslive",
+] as const;
+
+const APPLICATION_LAMBDA_DEPLOYMENTS = [
+  {
+    aliasLogicalId: "ApiFunctionAliaslive",
+    alarmLogicalId: "ApiFunctionAliasErrorAlarm",
+    conditional: false,
+  },
+  {
+    aliasLogicalId: "WorkerFunctionAliaslive",
+    alarmLogicalId: "WorkerFunctionAliasErrorAlarm",
+    conditional: false,
+  },
+  {
+    aliasLogicalId: "DispatcherFunctionAliaslive",
+    alarmLogicalId: "DispatcherFunctionAliasErrorAlarm",
+    conditional: false,
+  },
+  {
+    aliasLogicalId: "SesEventsFunctionAliaslive",
+    alarmLogicalId: "SesEventsFunctionAliasErrorAlarm",
+    conditional: false,
+  },
+  {
+    aliasLogicalId: "InboundFunctionAliaslive",
+    alarmLogicalId: "InboundFunctionAliasErrorAlarm",
+    conditional: true,
+  },
+] as const;
+
+const DEPLOYMENT_PREFERENCE_TYPES = new Set([
+  "Canary10Percent5Minutes",
+  "Canary10Percent10Minutes",
+  "Canary10Percent15Minutes",
+  "Canary10Percent30Minutes",
+  "Linear10PercentEvery1Minute",
+  "Linear10PercentEvery2Minutes",
+  "Linear10PercentEvery3Minutes",
+  "Linear10PercentEvery10Minutes",
 ]);
 
 const STACK_POLICY = {
@@ -143,6 +191,7 @@ export interface AwsDeployOptions {
   templateHistoryRetentionDays?: string;
   templateHistoryLimit?: string;
   workerReservedConcurrency?: string;
+  deploymentPreferenceType?: string;
   tags: string[];
 }
 
@@ -315,6 +364,43 @@ export function redactAwsDiagnostics(value: string) {
       "$1[REDACTED]",
     )
     .slice(0, 4_000);
+}
+
+export function renderAwsTemplate(
+  source: string,
+  gradualAliasLogicalIds: ReadonlySet<string>,
+) {
+  let rendered = source;
+  for (const deployment of APPLICATION_LAMBDA_DEPLOYMENTS) {
+    const markerName = deployment.conditional
+      ? "HAYASEND_GRADUAL_DEPLOYMENT_CONDITIONAL"
+      : "HAYASEND_GRADUAL_DEPLOYMENT";
+    const marker = `      # ${markerName}: ${deployment.alarmLogicalId}\n`;
+    if (rendered.split(marker).length !== 2) {
+      throw new Error(
+        `The packaged AWS template must contain exactly one ${deployment.alarmLogicalId} gradual-deployment marker.`,
+      );
+    }
+    const preference = gradualAliasLogicalIds.has(deployment.aliasLogicalId)
+      ? [
+          "      DeploymentPreference:",
+          "        Type: !Ref DeploymentPreferenceType",
+          "        Alarms:",
+          `          - !Ref ${deployment.alarmLogicalId}`,
+          ...(deployment.conditional
+            ? ["        PassthroughCondition: true"]
+            : []),
+          "",
+        ].join("\n")
+      : "";
+    rendered = rendered.replace(marker, preference);
+  }
+  if (rendered.includes("HAYASEND_GRADUAL_DEPLOYMENT")) {
+    throw new Error(
+      "The packaged AWS template contains an unknown gradual-deployment marker.",
+    );
+  }
+  return rendered;
 }
 
 function requireInteger(
@@ -564,6 +650,15 @@ function normalizeOptions(
   );
   if (workerReservedConcurrency !== undefined) {
     explicitParameters.WorkerReservedConcurrency = workerReservedConcurrency;
+  }
+  if (options.deploymentPreferenceType !== undefined) {
+    if (!DEPLOYMENT_PREFERENCE_TYPES.has(options.deploymentPreferenceType)) {
+      throw new Error(
+        "--deployment-preference-type must be a supported AWS SAM canary or linear deployment strategy.",
+      );
+    }
+    explicitParameters.DeploymentPreferenceType =
+      options.deploymentPreferenceType;
   }
 
   return {
@@ -1165,6 +1260,50 @@ function problematicResources(resources: StackResource[]) {
     }));
 }
 
+function gradualDeploymentSummary(
+  parameters: Record<string, string>,
+  resources: StackResource[],
+) {
+  const requiredAliases = [
+    ...CORE_LAMBDA_ALIAS_LOGICAL_IDS,
+    ...(parameters.EnableInbound === "true"
+      ? ["InboundFunctionAliaslive"]
+      : []),
+  ];
+  const availableAliases = availableLambdaAliases(resources);
+  const missingAliases = requiredAliases.filter(
+    (logicalId) => !availableAliases.has(logicalId),
+  );
+  const requiredDeploymentGroups = requiredAliases.map((logicalId) =>
+    logicalId.replace(/Aliaslive$/, "DeploymentGroup"),
+  );
+  const availableDeploymentGroups = new Set(
+    resources
+      .filter(
+        (resource) =>
+          resource.type === "AWS::CodeDeploy::DeploymentGroup" &&
+          ["CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"].includes(
+            resource.status,
+          ),
+      )
+      .map((resource) => resource.logicalId),
+  );
+  const missingDeploymentGroups = requiredDeploymentGroups.filter(
+    (logicalId) => !availableDeploymentGroups.has(logicalId),
+  );
+  return {
+    enabled: parameters.EnableGradualDeployments === "true",
+    strategy:
+      parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
+    aliases_ready: missingAliases.length === 0,
+    deployment_groups_ready: missingDeploymentGroups.length === 0,
+    required_aliases: requiredAliases,
+    missing_aliases: missingAliases,
+    required_deployment_groups: requiredDeploymentGroups,
+    missing_deployment_groups: missingDeploymentGroups,
+  };
+}
+
 function dashboardUrl(region: string, dashboardName: string) {
   return `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${encodeURIComponent(
     region,
@@ -1358,9 +1497,24 @@ function validateBootstrapSecret(value: string, options: NormalizedOptions) {
   }
 }
 
+function availableLambdaAliases(resources: StackResource[]) {
+  return new Set(
+    resources
+      .filter(
+        (resource) =>
+          resource.type === "AWS::Lambda::Alias" &&
+          ["CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"].includes(
+            resource.status,
+          ),
+      )
+      .map((resource) => resource.logicalId),
+  );
+}
+
 function effectiveParameters(
   options: NormalizedOptions,
   stack: StackDescription,
+  resources: StackResource[],
 ) {
   const parameters = {
     ...TEMPLATE_DEFAULTS,
@@ -1372,6 +1526,17 @@ function effectiveParameters(
     ),
     ...options.explicitParameters,
   };
+  const requiredAliases = [
+    ...CORE_LAMBDA_ALIAS_LOGICAL_IDS,
+    ...(parameters.EnableInbound === "true"
+      ? ["InboundFunctionAliaslive"]
+      : []),
+  ];
+  const readyAliases = availableLambdaAliases(resources);
+  parameters.EnableGradualDeployments = String(
+    stack.exists &&
+      requiredAliases.every((logicalId) => readyAliases.has(logicalId)),
+  );
   validateBootstrapSecret(parameters.BootstrapSecretArn ?? "", options);
   if (parameters.EnableInbound === "true") {
     const suffixes = (parameters.InboundRecipientSuffixes ?? "").split(",");
@@ -1447,6 +1612,8 @@ function applyCommand(
     parameters.TemplateHistoryLimit ?? "50",
     "--worker-reserved-concurrency",
     parameters.WorkerReservedConcurrency ?? "10",
+    "--deployment-preference-type",
+    parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
     ...(parameters.BootstrapSecretArn
       ? ["--bootstrap-secret-arn", parameters.BootstrapSecretArn]
       : []),
@@ -1755,6 +1922,7 @@ export async function statusAws(
   const stackPolicy = await inspectStackPolicy(dependencies, options);
   const resources = await listStackResources(dependencies, options);
   const problems = problematicResources(resources);
+  const deployments = gradualDeploymentSummary(stack.parameters, resources);
   const alarms = await alarmSummary(dependencies, options, resources);
   const health = stack.outputs.ApiBaseUrl
     ? await publicHealth(stack.outputs.ApiBaseUrl, dependencies)
@@ -1774,6 +1942,9 @@ export async function statusAws(
     stackStable &&
     driftHealthy &&
     protectionsHealthy &&
+    deployments.enabled &&
+    deployments.aliases_ready &&
+    deployments.deployment_groups_ready &&
     problems.length === 0 &&
     alarms.total > 0 &&
     alarms.problems.length === 0 &&
@@ -1823,6 +1994,7 @@ export async function statusAws(
           total: resources.length,
           problems,
         },
+        deployments,
       },
       ses: {
         production_access: ses.productionAccess,
@@ -2143,17 +2315,33 @@ export async function deployAws(
     ["--version"],
     "npm CLI",
   );
-  const parameters = effectiveParameters(options, stack);
+  const stackResources = stack.exists
+    ? await listStackResources(dependencies, options)
+    : [];
+  const parameters = effectiveParameters(options, stack, stackResources);
+  const deployments = gradualDeploymentSummary(parameters, stackResources);
+  const deploymentTemplate = renderAwsTemplate(
+    template,
+    availableLambdaAliases(stackResources),
+  );
   const tags = effectiveTags(options, stack);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "hayasend-deploy-"));
   try {
     const emptyConfig = join(temporaryDirectory, "samconfig.toml");
+    const deploymentTemplatePath = join(
+      temporaryDirectory,
+      "template.yaml",
+    );
     const buildDirectory = join(temporaryDirectory, "build");
     const samBuildEnvironment = await npmSamCompatibilityEnvironment(
       dependencies,
       temporaryDirectory,
     );
     await writeFile(emptyConfig, "", { encoding: "utf8", mode: 0o600 });
+    await writeFile(deploymentTemplatePath, deploymentTemplate, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     const configArgs = [
       "--config-file",
       emptyConfig,
@@ -2167,7 +2355,7 @@ export async function deployAws(
         "validate",
         "--lint",
         "--template-file",
-        templatePath,
+        deploymentTemplatePath,
         ...configArgs,
       ]),
       "SAM template validation",
@@ -2180,7 +2368,7 @@ export async function deployAws(
         "build",
         "--parallel",
         "--template-file",
-        templatePath,
+        deploymentTemplatePath,
         "--base-dir",
         applicationDirectory,
         "--build-dir",
@@ -2227,7 +2415,9 @@ export async function deployAws(
         },
         template: {
           source: "package:template.yaml",
-          sha256: createHash("sha256").update(template).digest("hex"),
+          sha256: createHash("sha256")
+            .update(deploymentTemplate)
+            .digest("hex"),
           validation: "pass",
           build: "pass",
         },
@@ -2237,6 +2427,12 @@ export async function deployAws(
           termination_protection: "enabled_on_apply",
           retained_resource_stack_policy: "enforced_on_apply",
           retained_logical_ids: [...RETAINED_RESOURCE_LOGICAL_IDS].sort(),
+        },
+        deployments: {
+          ...deployments,
+          mode: deployments.enabled
+            ? "alarm_rollback"
+            : "alias_bootstrap",
         },
         dns_changes: "never",
         ...(options.apply
@@ -2301,6 +2497,10 @@ export async function deployAws(
               protectedStack.terminationProtectionEnabled === true,
             retained_resource_stack_policy: stack.exists,
           },
+          deployments: gradualDeploymentSummary(
+            protectedStack.parameters,
+            stackResources,
+          ),
           outputs: protectedStack.outputs,
         }),
       );
@@ -2414,6 +2614,10 @@ export async function deployAws(
           termination_protection: true,
           retained_resource_stack_policy: true,
         },
+        deployments: gradualDeploymentSummary(
+          deployed.parameters,
+          await listStackResources(dependencies, options),
+        ),
         outputs: deployed.outputs,
         next: {
           environment: {
@@ -2427,6 +2631,15 @@ export async function deployAws(
               "Keep the bootstrap key out of logs and unset it after issuing scoped application keys.",
           },
           doctor_command: ["npm", "run", "cli", "--", "doctor"],
+          ...(parameters.EnableGradualDeployments === "true"
+            ? {}
+            : {
+                enable_gradual_deployments: {
+                  command: targetCommand("upgrade", options),
+                  handling:
+                    "Review and apply the next upgrade after live aliases exist; HayaSend will then enable alarm-driven traffic shifting.",
+                },
+              }),
           dns: deployed.outputs.InboundMxRecord
             ? "Review receiving webhooks, then create the documented MX record manually."
             : "No DNS change is required by this deployment.",

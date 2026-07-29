@@ -70,13 +70,23 @@ an incident, and before a production canary. Do not treat `operational: true`
 as proof of mail delivery: require `send_ready: true`, then complete a
 controlled send and confirm the terminal recipient event and mailbox receipt.
 
-For an update, review the plan before apply:
+Immediately after a first deployment, review and apply one upgrade to move
+from alias bootstrap to alarm-driven CodeDeploy. `status aws` deliberately
+keeps `operational` false until all required `live` aliases and deployment
+groups are present. For that activation and every later update, review the
+plan before apply:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 ```
+
+The default is `Canary10Percent5Minutes`. During traffic shifting, any error
+on the active alias alarm stops CodeDeploy and restores the previous Lambda
+version. Treat a rollback as an incident: preserve the deployment and alarm
+evidence, diagnose the candidate version, and submit a new reviewed update
+rather than forcing the alias forward.
 
 For decommissioning, first record a disposition for retained customer data:
 

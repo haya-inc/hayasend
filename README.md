@@ -448,6 +448,12 @@ physical IDs for a separate retention or destruction decision. See the
 copy-paste [AWS quickstart](docs/aws-quickstart.md) and the
 [operations runbook](docs/operations.md).
 
+The first apply creates versioned `live` Lambda aliases. Apply the returned
+`upgrade aws` command once to enable the default 10%-for-5-minutes canary and
+alarm-driven CodeDeploy rollback. `status aws` remains non-operational until
+both phases are complete. This two-step activation follows AWS's requirement
+that the first gradual deployment have an earlier function version.
+
 Before choosing a Region or comparing hosted alternatives, review the
 [reproducible AWS cost model](docs/aws-costs.md). It separates SES charges
 from HayaSend infrastructure, shows list price and recurring free allowances
@@ -468,6 +474,10 @@ cp samconfig.toml.example samconfig.toml
 sam build
 sam deploy --guided
 ```
+
+The manual template intentionally performs the safe alias-bootstrap phase.
+Use the lifecycle CLI for the reviewed second phase and all later
+alarm-controlled updates.
 
 The stack generates a 48-character bootstrap administrator key in AWS Secrets
 Manager. To supply an existing 32-character-or-longer secret instead, set the

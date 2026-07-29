@@ -1,9 +1,11 @@
 import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   redactAwsDiagnostics,
+  renderAwsTemplate,
   type CommandResult,
   type CommandRunner,
 } from "../src/cli-aws-deploy.js";
@@ -115,6 +117,13 @@ function baseRunner(
     if (
       command === "aws" &&
       args[0] === "cloudformation" &&
+      args[1] === "list-stack-resources"
+    ) {
+      return json({ StackResourceSummaries: [] });
+    }
+    if (
+      command === "aws" &&
+      args[0] === "cloudformation" &&
       args[1] === "get-stack-policy"
     ) {
       return stackPolicy();
@@ -134,6 +143,33 @@ function baseRunner(
 }
 
 describe("plan-first AWS deployment CLI", () => {
+  it("renders the reviewed two-phase SAM template without enabling a first-deploy canary", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../template.yaml", import.meta.url)),
+      "utf8",
+    );
+    const bootstrap = renderAwsTemplate(source, new Set());
+    expect(bootstrap).not.toContain("DeploymentPreference:");
+    expect(bootstrap).not.toContain("HAYASEND_GRADUAL_DEPLOYMENT");
+    expect(bootstrap.match(/AutoPublishAlias: live/g)).toHaveLength(5);
+
+    const gradual = renderAwsTemplate(
+      source,
+      new Set([
+        "ApiFunctionAliaslive",
+        "WorkerFunctionAliaslive",
+        "DispatcherFunctionAliaslive",
+        "SesEventsFunctionAliaslive",
+        "InboundFunctionAliaslive",
+      ]),
+    );
+    expect(gradual.match(/DeploymentPreference:/g)).toHaveLength(5);
+    expect(gradual).toContain("!Ref ApiFunctionAliasErrorAlarm");
+    expect(gradual).toContain("!Ref InboundFunctionAliasErrorAlarm");
+    expect(gradual).toContain("PassthroughCondition: true");
+    expect(gradual).not.toContain("HAYASEND_GRADUAL_DEPLOYMENT");
+  });
+
   it("renders a read-only plan with identity, SES quota, and exact inputs", async () => {
     const capture = capturingIo();
     const runner = baseRunner();
@@ -277,6 +313,88 @@ describe("plan-first AWS deployment CLI", () => {
     });
   });
 
+  it("enables alarm-driven traffic shifting only after live aliases exist", async () => {
+    const capture = capturingIo();
+    let renderedTemplate = "";
+    const aliasIds = [
+      "ApiFunctionAliaslive",
+      "WorkerFunctionAliaslive",
+      "DispatcherFunctionAliaslive",
+      "SesEventsFunctionAliaslive",
+    ];
+    const runner = baseRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        return json({
+          Stacks: [
+            {
+              StackStatus: "UPDATE_COMPLETE",
+              Parameters: [
+                {
+                  ParameterKey: "EnableGradualDeployments",
+                  ParameterValue: "false",
+                },
+              ],
+              Outputs: [],
+            },
+          ],
+        });
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "list-stack-resources"
+      ) {
+        return json({
+          StackResourceSummaries: aliasIds.map((LogicalResourceId) => ({
+            LogicalResourceId,
+            ResourceType: "AWS::Lambda::Alias",
+            ResourceStatus: "UPDATE_COMPLETE",
+          })),
+        });
+      }
+      if (command === "sam" && args[0] === "validate") {
+        const templatePath =
+          args.at(args.indexOf("--template-file") + 1) ?? "";
+        renderedTemplate = readFileSync(templatePath, "utf8");
+        return result("ok");
+      }
+      return undefined;
+    });
+
+    await runCli(
+      [
+        "upgrade",
+        "aws",
+        "--account",
+        "123456789012",
+        "--region",
+        "ap-northeast-1",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: runner,
+      },
+    );
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    expect(plan.parameters.EnableGradualDeployments).toBe("true");
+    expect(plan.deployments).toMatchObject({
+      enabled: true,
+      aliases_ready: true,
+      mode: "alarm_rollback",
+    });
+    expect(renderedTemplate.match(/DeploymentPreference:/g)).toHaveLength(4);
+    expect(renderedTemplate).not.toContain(
+      "!Ref InboundFunctionAliasErrorAlarm\n        PassthroughCondition",
+    );
+  });
+
   it("builds only the packaged application outside a source checkout", async () => {
     const unrelatedWorkingDirectory = join(
       tmpdir(),
@@ -309,7 +427,10 @@ describe("plan-first AWS deployment CLI", () => {
     );
     expect(buildCall).toBeDefined();
     const buildArgs = buildCall?.[1] ?? [];
-    expect(buildArgs).toContain(packagedTemplate);
+    const derivedTemplate =
+      buildArgs.at(buildArgs.indexOf("--template-file") + 1) ?? "";
+    expect(derivedTemplate).toContain("hayasend-deploy-");
+    expect(derivedTemplate).not.toBe(packagedTemplate);
     expect(buildArgs).not.toContain(
       join(unrelatedWorkingDirectory, "template.yaml"),
     );

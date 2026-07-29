@@ -48,7 +48,24 @@ policy that denies replacement or deletion of retained data resources and
 enables CloudFormation termination protection. Apply fails loudly if either
 protection cannot be verified.
 
-## 3. Check whether it is ready
+## 3. Enable safe updates
+
+AWS needs an earlier Lambda version before CodeDeploy can shift traffic.
+The first apply therefore creates the `live` aliases only. Review and apply
+the exact next command returned by that deployment:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+```
+
+That second update adds CodeDeploy deployment groups. Subsequent Lambda
+updates shift 10% of traffic for five minutes by default and automatically
+roll back when the alias-specific error alarm fires or CodeDeploy reports a
+failure. Set `--deployment-preference-type` on a reviewed plan to choose one
+of the documented AWS SAM canary or linear strategies.
+
+## 4. Check whether it is ready
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
@@ -64,8 +81,9 @@ The result keeps two decisions separate:
 
 - `operational` requires a stable stack, verified termination protection, the
   HayaSend retained-resource stack policy, an `IN_SYNC` drift result, no
-  problematic stack resources, all discovered HayaSend alarms in `OK`, and a
-  successful public `/healthz` request;
+  problematic stack resources, all required Lambda aliases and CodeDeploy
+  deployment groups, all discovered HayaSend alarms in `OK`, and a successful
+  public `/healthz` request;
 - `send_ready` additionally requires SES production access and account
   sending to be enabled.
 
@@ -85,7 +103,7 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 Keep the key in an approved secret manager and out of command arguments,
 transcripts, and issue reports.
 
-## 4. Update safely
+## 5. Update safely
 
 Plan an update to the existing stack:
 
@@ -107,7 +125,7 @@ printed destructive action.
 
 Run `status aws` again after every update.
 
-## 5. Remove the running stack
+## 6. Remove the running stack
 
 First print the deletion plan:
 

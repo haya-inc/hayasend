@@ -35,7 +35,17 @@ function existingStack(overrides: Record<string, unknown> = {}) {
           StackDriftStatus: "IN_SYNC",
           LastCheckTimestamp: "2026-07-29T00:01:00.000Z",
         },
-        Parameters: [],
+        Parameters: [
+          {
+            ParameterKey: "EnableGradualDeployments",
+            ParameterValue: "true",
+          },
+          {
+            ParameterKey: "DeploymentPreferenceType",
+            ParameterValue: "Canary10Percent5Minutes",
+          },
+          { ParameterKey: "EnableInbound", ParameterValue: "false" },
+        ],
         Outputs: [
           {
             OutputKey: "ApiBaseUrl",
@@ -119,6 +129,25 @@ function stackResources() {
         ResourceType: "AWS::S3::Bucket",
         ResourceStatus: "CREATE_COMPLETE",
       },
+      ...[
+        "ApiFunction",
+        "WorkerFunction",
+        "DispatcherFunction",
+        "SesEventsFunction",
+      ].flatMap((name) => [
+        {
+          LogicalResourceId: `${name}Aliaslive`,
+          PhysicalResourceId: "live",
+          ResourceType: "AWS::Lambda::Alias",
+          ResourceStatus: "UPDATE_COMPLETE",
+        },
+        {
+          LogicalResourceId: `${name}DeploymentGroup`,
+          PhysicalResourceId: `hayasend-${name}`,
+          ResourceType: "AWS::CodeDeploy::DeploymentGroup",
+          ResourceStatus: "UPDATE_COMPLETE",
+        },
+      ]),
     ],
   });
 }
@@ -256,7 +285,13 @@ describe("AWS lifecycle operations", () => {
           retained_resources_protected: true,
         },
         drift: { status: "IN_SYNC" },
-        resources: { total: 4, problems: [] },
+        resources: { total: 12, problems: [] },
+        deployments: {
+          enabled: true,
+          aliases_ready: true,
+          deployment_groups_ready: true,
+          strategy: "Canary10Percent5Minutes",
+        },
       },
       alarms: {
         total: 1,
@@ -587,7 +622,7 @@ describe("AWS lifecycle operations", () => {
     expect(plan).toMatchObject({
       object: "aws_cleanup_plan",
       mutating: false,
-      stack: { resource_count: 4 },
+      stack: { resource_count: 12 },
       deletion: {
         retained_resources: [
           {
