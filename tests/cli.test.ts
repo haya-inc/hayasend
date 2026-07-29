@@ -13,6 +13,9 @@ import { join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isMainModule, normalizeEndpoint, runCli } from "../src/cli.js";
+import {
+  providerCapabilityDocumentDigest,
+} from "../src/provider-capability-registry.js";
 import { HAYASEND_VERSION } from "../src/version.js";
 
 const temporaryDirectories: string[] = [];
@@ -720,6 +723,87 @@ describe("HayaSend CLI", () => {
     });
     expect(output).not.toContain("re_private_test_key");
     expect(output).not.toContain("recipient@example.net");
+  });
+
+  it.each([
+    "azure-communication-services",
+    "cloudflare-email",
+    "sendgrid",
+  ])("verifies the bundled %s capability digest", async (provider) => {
+    const capture = capturingIo();
+    const digest = providerCapabilityDocumentDigest(provider);
+    expect(digest).toMatch(/^[a-f0-9]{64}$/);
+
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/healthz")) {
+        return jsonResponse({
+          ok: true,
+          service: "hayasend",
+          version: HAYASEND_VERSION,
+        });
+      }
+      if (url.includes("/emails?limit=1")) {
+        return jsonResponse({ object: "list", data: [] });
+      }
+      if (url.endsWith("/diagnostics/recovery")) {
+        return jsonResponse({
+          object: "recovery_diagnostics",
+          generated_at: "2026-07-29T00:00:00.000Z",
+          outbox: {
+            due: 0,
+            leased: 0,
+            stuck_leases: 0,
+            undispatched: 0,
+            oldest_due_age_seconds: 0,
+            publish_failures_total: 0,
+            truncated: false,
+          },
+          queues: {
+            provider: "postgresql",
+            primary: {
+              visible: 0,
+              in_flight: 0,
+              delayed: 0,
+              total: 0,
+            },
+            dead_letters: {
+              delivery: null,
+              scheduler: null,
+              inbound: null,
+            },
+          },
+          provider_events: {
+            latest_received_at: null,
+            lag_seconds: null,
+          },
+          capability: {
+            provider,
+            adapter_version: HAYASEND_VERSION,
+            capability_version: "1.0.0",
+            checked_at: "2026-07-29",
+            document_sha256: digest,
+          },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    await runCli(["doctor"], {
+      fetch: fetchMock,
+      io: capture.io,
+    });
+
+    expect(JSON.parse(capture.logs[0] ?? "")).toMatchObject({
+      ok: true,
+      checks: { recovery: "pass" },
+      recovery: {
+        capability: {
+          provider,
+          drift: false,
+        },
+      },
+    });
   });
 
   it("keeps existing doctor checks useful without diagnostics scope", async () => {

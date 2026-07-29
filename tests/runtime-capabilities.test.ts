@@ -12,6 +12,9 @@ import {
   validateDeploymentCapabilityDocument,
 } from "../src/core/runtime-capabilities.js";
 import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
+import {
+  AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES,
+} from "../src/deployments/azure-container-apps-acs-capabilities.js";
 import { CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES } from "../src/deployments/cloudflare-email-capabilities.js";
 import {
   CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES,
@@ -125,6 +128,29 @@ describe("runtime and deployment capability contracts", () => {
         conformance: { status: "pending" },
         terminal_delivery: { status: "pending" },
         controlled_receipt: { status: "pending" },
+      },
+    });
+    expect(AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES).toMatchObject({
+      deployment: "azure-container-apps-acs",
+      runtime: { profile: "portable-postgres" },
+      transport: { provider: "azure-communication-services" },
+      maturity: {
+        runtime: "experimental",
+        transport: "experimental",
+        combination: "experimental",
+      },
+      production_ready: false,
+      effective_limits: {
+        max_serialized_request_bytes: 10_000_000,
+        max_combined_recipients: 50,
+        max_decoded_attachment_bytes: 7_500_000,
+      },
+      evidence: {
+        conformance: { status: "pending" },
+        lifecycle: { status: "pending" },
+        terminal_delivery: { status: "pending" },
+        controlled_receipt: { status: "pending" },
+        cleanup: { status: "pending" },
       },
     });
     expect(CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES).toMatchObject({
@@ -283,6 +309,7 @@ describe("runtime and deployment capability contracts", () => {
       PORTABLE_RUNTIME_CAPABILITIES,
       VERCEL_RUNTIME_CAPABILITIES,
       AWS_SES_DEPLOYMENT_CAPABILITIES,
+      AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES,
       CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
     ]);
     expect(serialized).not.toMatch(

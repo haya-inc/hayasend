@@ -22,6 +22,28 @@
       ]
     },
     {
+      "deployment": "azure-container-apps-acs",
+      "checked_at": "2026-07-29",
+      "runtime": "portable-postgres",
+      "transport": "azure-communication-services",
+      "maturity": "experimental",
+      "production_ready": false,
+      "evidence": {
+        "conformance": "pending",
+        "lifecycle": "pending",
+        "terminal_delivery": "pending",
+        "controlled_receipt": "pending",
+        "cleanup": "pending"
+      },
+      "blockers": [
+        "conformance",
+        "lifecycle",
+        "terminal_delivery",
+        "controlled_receipt",
+        "cleanup"
+      ]
+    },
+    {
       "deployment": "cloud-run-sendgrid",
       "checked_at": "2026-07-29",
       "runtime": "portable-postgres",

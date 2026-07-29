@@ -21,7 +21,8 @@ The generated artifacts are:
   — experimental ACS Email transport and Event Grid capabilities;
 - [`conformance/providers/sendgrid.v1.json`](../conformance/providers/sendgrid.v1.json)
   — experimental shared SendGrid Mail Send and Signed Event Webhook capabilities;
-- [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
+- [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json),
+  [`conformance/deployments/azure-container-apps-acs.v1.json`](../conformance/deployments/azure-container-apps-acs.v1.json),
   and
   [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
   — exact runtime+transport maturity, effective limits, and evidence gates;

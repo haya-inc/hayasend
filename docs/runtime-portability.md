@@ -245,6 +245,7 @@ Provider documents:
 Combined deployment documents:
 
 - [`conformance/deployments/aws-ses.v1.json`](../conformance/deployments/aws-ses.v1.json)
+- [`conformance/deployments/azure-container-apps-acs.v1.json`](../conformance/deployments/azure-container-apps-acs.v1.json)
 - [`conformance/deployments/cloudflare-email.v1.json`](../conformance/deployments/cloudflare-email.v1.json)
 - [`conformance/deployments/cloud-run-sendgrid.v1.json`](../conformance/deployments/cloud-run-sendgrid.v1.json)
 - [`conformance/deployments/render-sendgrid.v1.json`](../conformance/deployments/render-sendgrid.v1.json)
