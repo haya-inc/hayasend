@@ -133,6 +133,27 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     );
     expect(serviceRoleSection).toContain("s3:GetBucketCORS");
     expect(serviceRoleSection).toContain("s3:PutBucketCORS");
+    expect(serviceRoleSection).toContain(
+      "Sid: TagOnlyManagedApiGatewayResources",
+    );
+    expect(serviceRoleSection).toContain(
+      "Sid: UseProviderOperationsOnlyOnManagedApiGatewayResources",
+    );
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*"',
+    );
+    expect(serviceRoleSection).toContain(
+      "aws:RequestTag/Project: HayaSend",
+    );
+    expect(serviceRoleSection).toContain(
+      "aws:RequestTag/ManagedBy: HayaSendCLI",
+    );
+    expect(serviceRoleSection).toContain(
+      "aws:ResourceTag/Project: HayaSend",
+    );
+    expect(serviceRoleSection).toContain(
+      "aws:ResourceTag/ManagedBy: HayaSendCLI",
+    );
     expect(serviceRoleSection).not.toContain(
       'Resource: !Sub "arn:${AWS::Partition}:s3:::*/*"',
     );

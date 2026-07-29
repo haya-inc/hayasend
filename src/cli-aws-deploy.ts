@@ -143,6 +143,15 @@ const STABLE_STACK_STATUSES = new Set([
   "IMPORT_COMPLETE",
 ]);
 
+const CLEANUP_SAFE_STACK_STATUSES = new Set([
+  ...STABLE_STACK_STATUSES,
+  // CloudFormation documents ROLLBACK_COMPLETE as the terminal state after a
+  // failed initial creation and says that deletion is the only valid next
+  // operation. Keeping it cleanup-safe lets the CLI recover its own failed
+  // first deployments without asking the operator to bypass the CLI.
+  "ROLLBACK_COMPLETE",
+]);
+
 export interface CommandResult {
   exitCode: number;
   stdout: string;
@@ -2306,7 +2315,7 @@ export async function cleanupAws(
     );
     return;
   }
-  if (!stack.status || !STABLE_STACK_STATUSES.has(stack.status)) {
+  if (!stack.status || !CLEANUP_SAFE_STACK_STATUSES.has(stack.status)) {
     throw new Error(
       `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before cleanup.`,
     );
