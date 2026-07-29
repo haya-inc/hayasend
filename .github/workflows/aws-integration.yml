@@ -98,11 +98,13 @@ jobs:
             --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
+            --disable-backups \
+            --disable-restore-testing \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/hayasend-deploy-plan.json"
           node -e \
-            'const plan = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); if (plan.parameters.ApiThrottlingRateLimit !== "7.5" || plan.parameters.ApiThrottlingBurstLimit !== "11" || plan.parameters.EnableGradualDeployments !== "false" || plan.deployments.mode !== "alias_bootstrap") process.exit(1)' \
+            'const plan = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); if (plan.parameters.ApiThrottlingRateLimit !== "7.5" || plan.parameters.ApiThrottlingBurstLimit !== "11" || plan.parameters.EnableGradualDeployments !== "false" || plan.parameters.EnableBackups !== "false" || plan.parameters.EnableRestoreTesting !== "false" || plan.backups.enabled !== false || plan.deployments.mode !== "alias_bootstrap") process.exit(1)' \
             "$RUNNER_TEMP/hayasend-deploy-plan.json"
 
       - name: Deploy reviewed ephemeral stack
@@ -117,6 +119,8 @@ jobs:
             --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
+            --disable-backups \
+            --disable-restore-testing \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             --apply \
@@ -219,6 +223,8 @@ jobs:
             --region "$AWS_REGION" \
             --worker-reserved-concurrency 0 \
             --log-retention-days 14 \
+            --disable-backups \
+            --disable-restore-testing \
             --allow-destructive-changes \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
@@ -235,7 +241,7 @@ jobs:
             --detect-drift \
             > "$RUNNER_TEMP/hayasend-status.json"
           node -e \
-            'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if (value.stack.termination_protection !== true || value.stack.stack_policy.retained_resources_protected !== true || value.stack.drift.status !== "IN_SYNC" || value.stack.drift.detected_now !== true || value.stack.deployments.enabled !== true || value.stack.deployments.aliases_ready !== true || value.stack.deployments.deployment_groups_ready !== true) process.exit(1)' \
+            'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if (value.stack.termination_protection !== true || value.stack.stack_policy.retained_resources_protected !== true || value.stack.drift.status !== "IN_SYNC" || value.stack.drift.detected_now !== true || value.stack.deployments.enabled !== true || value.stack.deployments.aliases_ready !== true || value.stack.deployments.deployment_groups_ready !== true || value.stack.backups.enabled !== false || value.stack.backups.resources_ready !== true || value.stack.backups.restore_testing.enabled !== false) process.exit(1)' \
             "$RUNNER_TEMP/hayasend-status.json"
 
           updated_retention_resource="$(

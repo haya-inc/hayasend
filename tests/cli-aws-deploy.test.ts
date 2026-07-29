@@ -42,6 +42,7 @@ function stackPolicy() {
           Action: ["Update:Replace", "Update:Delete"],
           Principal: "*",
           Resource: [
+            "LogicalResourceId/BackupVault",
             "LogicalResourceId/DataTable",
             "LogicalResourceId/InboundBucket",
             "LogicalResourceId/InboundKey",
@@ -152,6 +153,8 @@ describe("plan-first AWS deployment CLI", () => {
     expect(bootstrap).not.toContain("DeploymentPreference:");
     expect(bootstrap).not.toContain("HAYASEND_GRADUAL_DEPLOYMENT");
     expect(bootstrap.match(/AutoPublishAlias: live/g)).toHaveLength(5);
+    expect(bootstrap).toContain("AWSBackupServiceRolePolicyForS3Backup");
+    expect(bootstrap).toContain("AWSBackupServiceRolePolicyForS3Restore");
 
     const gradual = renderAwsTemplate(
       source,
@@ -233,6 +236,10 @@ describe("plan-first AWS deployment CLI", () => {
         TemplateHistoryRetentionDays: "90",
         TemplateHistoryLimit: "50",
         WorkerReservedConcurrency: "10",
+        EnableBackups: "true",
+        BackupRetentionDays: "35",
+        PayloadNoncurrentVersionRetentionDays: "7",
+        EnableRestoreTesting: "false",
       },
       tags: {
         Project: "HayaSend",
@@ -247,6 +254,18 @@ describe("plan-first AWS deployment CLI", () => {
       build: "pass",
     });
     expect(plan.template.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(plan.parameters.RestoreTestingPlanName).toMatch(
+      /^HayaSend_hayasend_beta_[a-f0-9]{10}$/,
+    );
+    expect(plan.parameters.BackupVaultName).toBe(
+      plan.parameters.RestoreTestingPlanName,
+    );
+    expect(plan.backups).toMatchObject({
+      enabled: true,
+      retention_days: 35,
+      resources_ready: false,
+      restore_testing: { enabled: false, resources_ready: true },
+    });
     expect(plan.apply_command).toContain("--apply");
     expect(plan.apply_command.slice(0, 2)).toEqual(["npx", "--yes"]);
     expect(plan.apply_command[2]).toMatch(/^@haya-inc\/hayasend@\d+\.\d+\.\d+/);
@@ -357,8 +376,7 @@ describe("plan-first AWS deployment CLI", () => {
         });
       }
       if (command === "sam" && args[0] === "validate") {
-        const templatePath =
-          args.at(args.indexOf("--template-file") + 1) ?? "";
+        const templatePath = args.at(args.indexOf("--template-file") + 1) ?? "";
         renderedTemplate = readFileSync(templatePath, "utf8");
         return result("ok");
       }
@@ -729,6 +747,7 @@ describe("plan-first AWS deployment CLI", () => {
       ];
     expect(policyBody).toContain("LogicalResourceId/DataTable");
     expect(policyBody).toContain("LogicalResourceId/PayloadBucket");
+    expect(policyBody).toContain("LogicalResourceId/BackupVault");
     expect(
       runner.mock.calls.some(
         ([command, args]) =>
@@ -1331,6 +1350,57 @@ describe("plan-first AWS deployment CLI", () => {
         dependencies,
       ),
     ).rejects.toThrow("non-.invalid recipient suffixes");
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--enable-backups",
+          "--disable-backups",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--enable-backups and --disable-backups cannot be combined",
+    );
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--enable-restore-testing",
+          "--disable-restore-testing",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--enable-restore-testing and --disable-restore-testing cannot be combined",
+    );
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--enable-restore-testing",
+          "--disable-backups",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--enable-restore-testing cannot be combined with --disable-backups",
+    );
     const callsBeforeTemplateHistoryValidation = runner.mock.calls.length;
     await expect(
       runCli(
@@ -1442,6 +1512,38 @@ describe("plan-first AWS deployment CLI", () => {
       ),
     ).rejects.toThrow(
       "--log-retention-days must be a supported CloudWatch Logs retention value",
+    );
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--backup-retention-days",
+          "366",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow("--backup-retention-days must be between 1 and 365");
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--payload-noncurrent-version-retention-days",
+          "31",
+        ],
+        dependencies,
+      ),
+    ).rejects.toThrow(
+      "--payload-noncurrent-version-retention-days must be between 1 and 30",
     );
     expect(runner.mock.calls).toHaveLength(
       callsBeforeTemplateHistoryValidation,

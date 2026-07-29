@@ -1437,12 +1437,18 @@ async function deployCommand(
       "template-history-limit",
       "worker-reserved-concurrency",
       "deployment-preference-type",
+      "backup-retention-days",
+      "payload-noncurrent-version-retention-days",
     ],
     booleans: [
       "apply",
       "allow-destructive-changes",
       "enable-inbound",
       "disable-inbound",
+      "enable-backups",
+      "disable-backups",
+      "enable-restore-testing",
+      "disable-restore-testing",
     ],
     repeatable: ["tag"],
   });
@@ -1452,6 +1458,25 @@ async function deployCommand(
   if (enableInbound && disableInbound) {
     throw new Error(
       "--enable-inbound and --disable-inbound cannot be combined.",
+    );
+  }
+  const enableBackups = hasFlag(args, "enable-backups");
+  const disableBackups = hasFlag(args, "disable-backups");
+  if (enableBackups && disableBackups) {
+    throw new Error(
+      "--enable-backups and --disable-backups cannot be combined.",
+    );
+  }
+  const enableRestoreTesting = hasFlag(args, "enable-restore-testing");
+  const disableRestoreTesting = hasFlag(args, "disable-restore-testing");
+  if (enableRestoreTesting && disableRestoreTesting) {
+    throw new Error(
+      "--enable-restore-testing and --disable-restore-testing cannot be combined.",
+    );
+  }
+  if (enableRestoreTesting && disableBackups) {
+    throw new Error(
+      "--enable-restore-testing cannot be combined with --disable-backups.",
     );
   }
   const region = flag(args, "region");
@@ -1472,9 +1497,11 @@ async function deployCommand(
   );
   const templateHistoryLimit = flag(args, "template-history-limit");
   const workerReservedConcurrency = flag(args, "worker-reserved-concurrency");
-  const deploymentPreferenceType = flag(
+  const deploymentPreferenceType = flag(args, "deployment-preference-type");
+  const backupRetentionDays = flag(args, "backup-retention-days");
+  const payloadNoncurrentVersionRetentionDays = flag(
     args,
-    "deployment-preference-type",
+    "payload-noncurrent-version-retention-days",
   );
   await deployAws(
     {
@@ -1505,6 +1532,20 @@ async function deployCommand(
         ? { workerReservedConcurrency }
         : {}),
       ...(deploymentPreferenceType ? { deploymentPreferenceType } : {}),
+      ...(enableBackups
+        ? { enableBackups: true }
+        : disableBackups
+          ? { enableBackups: false }
+          : {}),
+      ...(backupRetentionDays ? { backupRetentionDays } : {}),
+      ...(payloadNoncurrentVersionRetentionDays
+        ? { payloadNoncurrentVersionRetentionDays }
+        : {}),
+      ...(enableRestoreTesting
+        ? { enableRestoreTesting: true }
+        : disableRestoreTesting
+          ? { enableRestoreTesting: false }
+          : {}),
       tags: flags(args, "tag"),
     },
     {
