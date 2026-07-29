@@ -571,20 +571,21 @@ are in [Cloudflare cost evidence](cloudflare-costs.md).
 
 ## Plan and deploy to AWS
 
-Run the exact released CLI version from any working directory. The first
-invocation is a non-mutating plan:
+The copy-paste path is in the [AWS quickstart](aws-quickstart.md). Set the
+expected account and Region once:
 
 ```bash
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
-  --account 123456789012 \
-  --region ap-northeast-1 \
-  --stack hayasend
+export HAYASEND_AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=ap-northeast-1
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws
 ```
 
-`--account` is required even when the AWS CLI already has credentials. The CLI
-calls STS and stops before reading SES or CloudFormation if the authenticated
-account differs. `--region` can instead come from `AWS_REGION` or
-`AWS_DEFAULT_REGION`; `--profile` selects a named AWS profile.
+`--account` overrides `HAYASEND_AWS_ACCOUNT_ID`. One of them is always
+required even when the AWS CLI already has credentials. The CLI calls STS and
+stops before reading SES or CloudFormation if the authenticated account
+differs. `--region` can instead come from `AWS_REGION` or
+`AWS_DEFAULT_REGION`; `--profile` selects a named AWS profile, while
+`AWS_PROFILE` continues to work through the AWS CLI.
 
 The plan:
 
@@ -610,9 +611,6 @@ Apply only after reviewing the plan:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
-  --account 123456789012 \
-  --region ap-northeast-1 \
-  --stack hayasend \
   --tag Environment=production \
   --apply
 ```
@@ -679,6 +677,64 @@ the next `hayasend doctor` step. It does not retrieve or print the bootstrap
 secret and never creates DNS records. If CloudFormation fails, the error
 includes redacted recent stack events for recovery. Follow the
 [operations runbook](operations.md) before retrying.
+
+## Inspect AWS status
+
+Use the same expected-account gate for an infrastructure and sending-readiness
+snapshot:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+```
+
+This is read-only and does not require SAM or build the application. It checks
+the AWS CLI and caller identity, SES production/sending state and quota,
+CloudFormation stack state and last reported drift, individual stack
+resources, stack-owned CloudWatch alarms, and the public `/healthz` endpoint.
+Only problematic resources and alarms are expanded in the result. The output
+also links the generated dashboard and prints exact `upgrade aws`, `cleanup
+aws`, and authenticated `doctor` next steps.
+
+`operational` covers infrastructure, alarms, and public health. `send_ready`
+also requires SES production access and sending to be enabled. A missing stack
+is a successful read-only inspection with both values false and an exact
+`deploy aws` plan command.
+
+## Upgrade AWS
+
+`upgrade aws` accepts the same parameters and tags as `deploy aws`, but it
+requires an existing stable stack:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+```
+
+Plan mode validates and builds the exact packaged version without changing
+AWS. Apply uses the same isolated SAM build, exact new change-set selection,
+resource-action output, and destructive-change refusal as deployment. Run
+`status aws` after CloudFormation reaches its terminal state.
+
+## Clean up AWS
+
+Cleanup is also plan-first:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --apply --confirm-stack hayasend
+```
+
+The CLI refuses stacks without both `Project=HayaSend` and
+`ManagedBy=HayaSendCLI`, non-terminal stacks, and stacks with termination
+protection enabled. Apply requires the exact stack name, starts ordinary
+CloudFormation deletion, waits for `stack-delete-complete`, and verifies that
+the stack is absent.
+
+Cleanup never purges resources protected by `DeletionPolicy: Retain`. Its
+plan and result identify the retained DynamoDB table, payload bucket, and any
+enabled inbound bucket and KMS key. Export, retain, or destroy those resources
+through a separate reviewed data-lifecycle procedure.
 
 ## Send a hosted template
 
