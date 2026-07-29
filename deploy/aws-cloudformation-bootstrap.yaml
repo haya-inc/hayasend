@@ -210,6 +210,17 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - Sid: GenerateOnlyTheBootstrapSecretValue
+                Effect: Allow
+                Action: secretsmanager:GetRandomPassword
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+              - Sid: DeleteSchedulesOnlyFromManagedGroups
+                Effect: Allow
+                Action: scheduler:DeleteSchedule
+                Resource: !Sub "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${ApplicationStackNamePrefix}*/*"
               - Effect: Allow
                 Action:
                   - dynamodb:CreateBackup

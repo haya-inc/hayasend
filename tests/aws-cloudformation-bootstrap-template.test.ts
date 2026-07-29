@@ -112,6 +112,19 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/*",
     );
     expect(serviceRoleSection).toContain(
+      "Sid: GenerateOnlyTheBootstrapSecretValue",
+    );
+    expect(serviceRoleSection).toContain(
+      "Action: secretsmanager:GetRandomPassword",
+    );
+    expect(serviceRoleSection).toContain(
+      "Sid: DeleteSchedulesOnlyFromManagedGroups",
+    );
+    expect(serviceRoleSection).toContain("Action: scheduler:DeleteSchedule");
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${ApplicationStackNamePrefix}*/*"',
+    );
+    expect(serviceRoleSection).toContain(
       'Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"',
     );
     expect(serviceRoleSection).toContain("iam:PassedToService");

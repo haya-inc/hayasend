@@ -65,12 +65,15 @@ passing are restricted to the application stack prefix and approved AWS
 services. The service role may call `cloudformation:CreateChangeSet` only on
 the regional AWS-owned `Serverless-2016-10-31` transform required to expand
 the SAM template; it cannot create arbitrary CloudFormation stacks or change
-sets. Some other CloudFormation service actions still require `Resource: "*"`,
-especially create-time Lambda, API Gateway, backup, KMS, and SES operations
-whose final ARN does not yet exist. Treat the optional organizational
-permissions boundary and SCPs as the outer guardrail. CI rejects a newly
-introduced application resource type until its required service prefix is
-reviewed in the bootstrap-policy conformance test.
+sets. The role can generate a random value for the CloudFormation-managed
+bootstrap secret without reading any secret, and failed-stack cleanup can
+delete schedules only from schedule groups whose names begin with the selected
+application stack prefix. Some other CloudFormation service actions still
+require `Resource: "*"`, especially create-time Lambda, API Gateway, backup,
+KMS, and SES operations whose final ARN does not yet exist. Treat the optional
+organizational permissions boundary and SCPs as the outer guardrail. CI
+rejects a newly introduced application resource type until its required
+service prefix is reviewed in the bootstrap-policy conformance test.
 
 `cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
 protected stack, `cloudformation:UpdateTerminationProtection` in addition to
