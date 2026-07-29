@@ -1,5 +1,8 @@
 # Portable hosted semantic proof
 
+Database and private-object restoration use the separate
+[portable backup and restore proof](portable-backup-restore-proof.md).
+
 HayaSend includes one provider-neutral proof for the `portable-postgres`
 runtime. It exercises a deployed API, its exact isolated PostgreSQL database,
 and the already-running worker or reconciliation trigger without submitting

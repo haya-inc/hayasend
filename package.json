@@ -76,6 +76,8 @@
     "lint:openapi": "redocly lint openapi.yaml",
     "prepack": "npm run clean && npm run build",
     "proof:portable-hosted": "node dist/portable/hosted-proof.js",
+    "proof:portable-backup-seed": "node dist/portable/backup-restore-seed.js",
+    "proof:portable-backup-restore": "node dist/portable/backup-restore-verify.js",
     "site:build": "node scripts/build-site.mjs",
     "site:verify": "node scripts/verify-site.mjs",
     "start": "node dist/server.js",

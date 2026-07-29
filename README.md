@@ -82,7 +82,9 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   (experimental Cloud Run, Render, Railway, Fly.io, Azure Container Apps, and
   Vercel packs are published; guarded hosted workflows and the shared
   non-sending
-  [hosted semantic proof](docs/portable-hosted-proof.md) are executable, while
+  [hosted semantic proof](docs/portable-hosted-proof.md) and
+  [backup/restore proof](docs/portable-backup-restore-proof.md) are executable,
+  while
   billable hosted lifecycle execution is still pending)
 - an executable experimental Vercel serverless profile using Hono Functions,
   content-free Queue wakeups, authenticated Cron reconciliation, private Blob
