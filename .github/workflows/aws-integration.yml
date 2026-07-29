@@ -1002,6 +1002,24 @@ jobs:
             fi
           fi
 
+          artifact_bucket="$(
+            aws cloudformation describe-stacks \
+              --stack-name aws-sam-cli-managed-default \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].Outputs[?OutputKey=='SourceBucket'].OutputValue | [0]" \
+              --output text 2>/dev/null || true
+          )"
+          artifact_prefix="hayasend/$STACK_NAME/"
+          if [[ -n "$artifact_bucket" && "$artifact_bucket" != "None" ]]; then
+            node scripts/aws-versioned-bucket.mjs purge \
+              --account "$AWS_TEST_ACCOUNT_ID" \
+              --region "$AWS_REGION" \
+              --bucket "$artifact_bucket" \
+              --confirm-bucket "$artifact_bucket" \
+              --prefix "$artifact_prefix" \
+              --confirm-prefix "$artifact_prefix"
+          fi
+
           log_group_prefix="/aws/lambda/${STACK_NAME}-"
           legacy_log_groups="$(
             aws logs describe-log-groups \
