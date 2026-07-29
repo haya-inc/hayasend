@@ -19,6 +19,188 @@ const email = new Resend(process.env.HAYASEND_API_KEY, {
 Do not switch production traffic until suppression lists, AWS SES production
 access, alarms, dead-letter queue handling, and rollback have been verified.
 
+## Inventory the real workload
+
+Create a versioned inventory before changing application traffic. Do not infer
+compatibility from a single successful send. Record every SDK, send field,
+template, webhook, suppression, schedule, inbound path, marketing API, and
+independently routable stream:
+
+```json
+{
+  "schema_version": 1,
+  "workload": {
+    "name": "account notifications",
+    "environment": "production",
+    "estimated_daily_volume": 1000
+  },
+  "sdks": [
+    {
+      "language": "TypeScript",
+      "package": "resend",
+      "version": "6.18.1"
+    }
+  ],
+  "features": {
+    "send_fields": [
+      "from",
+      "to",
+      "subject",
+      "html",
+      "text",
+      "headers",
+      "tags",
+      "idempotency_key"
+    ],
+    "templates": { "used": true, "count": 4 },
+    "webhooks": {
+      "events": [
+        "email.sent",
+        "email.delivered",
+        "email.bounced",
+        "email.complained"
+      ],
+      "verifies_signatures": true
+    },
+    "suppressions": { "used": true, "estimated_count": 25 },
+    "schedules": { "used": false, "maximum_horizon_days": 0 },
+    "inbound": { "used": false },
+    "marketing": { "used": false, "apis": [] }
+  },
+  "streams": [
+    {
+      "name": "password-reset",
+      "criticality": "critical",
+      "daily_volume": 100,
+      "required_canary_messages": 25,
+      "features": [
+        "from",
+        "to",
+        "subject",
+        "html",
+        "text",
+        "headers",
+        "tags",
+        "idempotency_key",
+        "templates",
+        "webhooks",
+        "suppressions"
+      ]
+    }
+  ]
+}
+```
+
+Validate the file without contacting either provider:
+
+```bash
+hayasend migration resend inventory \
+  --file ./hayasend.resend-inventory.json
+```
+
+The result is `BLOCKED` for unknown send fields or webhook events, schedules
+beyond 30 days, missing raw-body webhook signature verification, or any Resend
+marketing/contact/audience/broadcast API. A supported inventory is only
+`CANARY_ELIGIBLE`; it is not a production-readiness claim.
+
+## Run a controlled dual-provider canary
+
+Use one synthetic message and a mailbox controlled by the migration operator.
+The plan sends nothing and prints the SHA-256 confirmation required for apply:
+
+```bash
+hayasend migration resend canary \
+  --comparison-id password-reset-001 \
+  --from 'Canary <canary@verified.example.com>' \
+  --to-file /secure/path/controlled-recipient.txt \
+  --hayasend-endpoint https://api.hayasend.example.com
+```
+
+Set `HAYASEND_API_KEY` and `RESEND_API_KEY` in the environment, then repeat the
+exact command with `--apply` and the printed
+`--confirm-hayasend-origin ORIGIN` and `--confirm-recipient-sha256 VALUE`
+values. The HayaSend key needs `emails:send` and `emails:read`. The command
+submits the same synthetic payload once to each provider, with
+provider-specific idempotency keys, and polls `GET /emails/:id` for terminal
+lifecycle events. The Resend credential is sent only to the fixed official
+`https://api.resend.com` origin. Resend documents a 24-hour idempotency window,
+so keep the comparison ID unique and preserve the result.
+
+Only email IDs, terminal states, and the recipient hash are printed. The
+address, message body, and API keys are not logged. The command deliberately
+leaves `mailbox_receipt_verified: false`: a human or independently trusted
+mailbox automation must confirm both rendered messages and record latency.
+Keep application routing on Resend, rehearse restoring 100% Resend routing,
+and only then count `rollback_rehearsed`.
+
+## Produce the fail-closed go/no-go report
+
+Record evidence separately from the inventory:
+
+```json
+{
+  "schema_version": 1,
+  "observed_at": "2026-07-29T00:00:00.000Z",
+  "ses": {
+    "production_access": false,
+    "sending_enabled": true
+  },
+  "dogfood": {
+    "calendar_days": 0,
+    "controlled_notifications": 0
+  },
+  "references": {
+    "ses": "https://github.com/haya-inc/hayasend/issues/126",
+    "dogfood": "https://github.com/haya-inc/hayasend/issues/105",
+    "reconciliation": "https://github.com/haya-inc/hayasend/issues/174"
+  },
+  "reconciliation": {
+    "sdk_contract_verified": false,
+    "source_templates": 4,
+    "target_templates": 4,
+    "source_suppressions": 25,
+    "target_suppressions": 25,
+    "webhooks_verified": true,
+    "inbound_verified": false
+  },
+  "streams": [
+    {
+      "name": "password-reset",
+      "comparison_messages": 0,
+      "terminal_event_matches": 0,
+      "mailbox_receipts": 0,
+      "rollback_rehearsed": false,
+      "verified_features": [],
+      "evidence_url": "https://github.com/haya-inc/hayasend/issues/174"
+    }
+  ]
+}
+```
+
+```bash
+hayasend migration resend report \
+  --inventory ./hayasend.resend-inventory.json \
+  --evidence ./hayasend.resend-evidence.json
+```
+
+The result remains `NO_GO` unless:
+
+- the inventory has no compatibility blocker;
+- the operational snapshot is no more than 24 hours old and every claim links
+  to its reviewable evidence;
+- the exact inventoried SDK versions and every declared stream feature pass
+  their contract and controlled-canary checks;
+- SES production access and sending are enabled;
+- at least 1,000 controlled notifications have run over at least 14 calendar
+  days;
+- template and suppression counts reconcile exactly;
+- webhook and any inbound paths are verified;
+- every stream meets its declared comparison count with matching terminal
+  events, at least one mailbox receipt, and a rehearsed Resend rollback.
+
+Until all gates pass, critical authentication, billing, and account-recovery
+mail stays on Resend.
+
 Register each webhook with the CLI so its one-time signing secret is written to
 a new permission-`0600` file instead of terminal output:
 

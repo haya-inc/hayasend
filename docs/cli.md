@@ -845,6 +845,39 @@ retention policy before a separate reviewed vault-deletion procedure. Export,
 retain, or destroy the other resources through the same reviewed data
 lifecycle.
 
+## Assess a Resend migration
+
+The migration commands are metadata-first and fail closed:
+
+```bash
+hayasend migration resend inventory --file ./hayasend.resend-inventory.json
+hayasend migration resend canary \
+  --comparison-id transactional-001 \
+  --from 'Canary <canary@verified.example.com>' \
+  --to-file /secure/path/controlled-recipient.txt \
+  --hayasend-endpoint https://api.hayasend.example.com
+hayasend migration resend report \
+  --inventory ./hayasend.resend-inventory.json \
+  --evidence ./hayasend.resend-evidence.json
+```
+
+`inventory` performs no network request. `canary` is also plan-only unless
+`--apply`, its exact printed `--confirm-hayasend-origin`, and its exact printed
+`--confirm-recipient-sha256` value are provided. Apply reads
+`HAYASEND_API_KEY` and `RESEND_API_KEY` only from the environment, sends the
+same synthetic payload once through each provider with separate idempotency
+keys, and compares terminal `last_event` values. The Resend key is sent only
+to the fixed official `https://api.resend.com` origin. The command never
+claims mailbox receipt automatically.
+
+`report` returns `GO` only when the declared workload has no compatibility
+blocker and the supplied evidence proves state reconciliation, every
+stream-specific canary threshold, mailbox receipt, rollback to Resend, SES
+production access, and at least 1,000 controlled notifications over at least
+14 days. Until then it returns `NO_GO` and keeps critical mail on Resend. The
+versioned file shapes and operating procedure are in
+[Migrating from Resend](migration-from-resend.md).
+
 ## Send a hosted template
 
 The CLI supports the same `--template` and repeatable `--var KEY=VALUE` shape
