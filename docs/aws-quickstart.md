@@ -43,19 +43,29 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws --apply
 Apply builds the packaged SAM application, creates an unexecuted
 CloudFormation change set, prints every resource action, and executes it only
 when no unacknowledged removal or possible replacement exists. HayaSend never
-changes DNS.
+changes DNS. After a successful create or update, the CLI enforces a stack
+policy that denies replacement or deletion of retained data resources and
+enables CloudFormation termination protection. Apply fails loudly if either
+protection cannot be verified.
 
 ## 3. Check whether it is ready
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 ```
+
+The first command is a read-only snapshot of the last reported drift state.
+The second explicitly starts a new CloudFormation drift check and waits up to
+10 minutes for it to finish. Fresh drift output contains logical IDs, resource
+types, and statuses only; it does not print property values.
 
 The result keeps two decisions separate:
 
-- `operational` requires a stable stack, no drift reported, no problematic
-  stack resources, all discovered HayaSend alarms in `OK`, and a successful
-  public `/healthz` request;
+- `operational` requires a stable stack, verified termination protection, the
+  HayaSend retained-resource stack policy, an `IN_SYNC` drift result, no
+  problematic stack resources, all discovered HayaSend alarms in `OK`, and a
+  successful public `/healthz` request;
 - `send_ready` additionally requires SES production access and account
   sending to be enabled.
 
@@ -105,16 +115,20 @@ First print the deletion plan:
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
 ```
 
-Cleanup refuses an unmanaged stack, a non-terminal stack, or a stack with
-termination protection enabled. To delete the stack, repeat the exact name:
+Cleanup refuses an unmanaged or non-terminal stack. A protected stack remains
+plan-able, but deletion requires both its exact name and a separate
+acknowledgement that termination protection will be disabled:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
   --apply \
-  --confirm-stack hayasend
+  --confirm-stack hayasend \
+  --disable-termination-protection
 ```
 
-The CLI waits for `stack-delete-complete` and verifies that the stack no longer
+The CLI verifies the protection change before submitting deletion. If the
+delete request itself fails, it attempts to re-enable termination protection.
+It then waits for `stack-delete-complete` and verifies that the stack no longer
 exists. It does not purge retained customer data. The DynamoDB table, payload
 bucket, and enabled inbound bucket and KMS key have `DeletionPolicy: Retain`;
 their physical IDs are printed before and after deletion. Decide their
@@ -123,8 +137,9 @@ backup, audit, and privacy policy.
 
 ## Routine operating loop
 
-Run `status aws` after deployment, after updates, after AWS incidents, and
-before production canaries. Subscribe a real on-call destination to the
-`AlarmTopicArn`, confirm that subscription, configure an AWS Budget, and use
-the generated dashboard as the first operational view. The complete response
-procedures are in the [operations runbook](operations.md).
+Run `status aws --detect-drift` after deployment, after updates, after AWS
+incidents, and before production canaries. Subscribe a real on-call
+destination to the `AlarmTopicArn`, confirm that subscription, configure an
+AWS Budget, and use the generated dashboard as the first operational view.
+The complete response procedures are in the
+[operations runbook](operations.md).

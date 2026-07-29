@@ -10,7 +10,9 @@ non-mutating plan mode. It then repeats the exact account, Region, stack, log
 retention, and tags with explicit `--apply`. This proves account pinning, SES
 and stack preflight, clean SAM validation/build, creation of an unexecuted
 change set, change-set inspection, and execution by the retrieved change-set
-ARN.
+ARN. It also verifies that the CLI enabled termination protection, installed
+the retained-resource stack policy, and completed a fresh `IN_SYNC` drift
+check.
 
 After the clean install, the workflow creates empty groups at the four legacy
 Lambda-generated names with no retention policy, changes `LogRetentionDays`
@@ -39,8 +41,9 @@ AWS Budget and root-account alerts before the first run. The workflow:
 - sends no email to SES;
 - cancels every test schedule and deletes its temporary SES identity;
 - deletes the synthetic legacy and stack-owned CloudWatch log groups;
-- deletes the stack, then explicitly deletes the S3 bucket and DynamoDB table
-  retained by HayaSend's production-safe deletion policies.
+- explicitly acknowledges termination-protection disable, deletes the stack
+  through `cleanup aws`, then deletes the S3 bucket and DynamoDB table retained
+  by HayaSend's production-safe deletion policies.
 
 Cleanup allows up to 60 seconds for CloudWatch's post-stack deletion view to
 converge. A stack-owned group still visible after that bound is reported,
@@ -54,11 +57,11 @@ debugging, and delete the retained resources immediately afterward.
 Create an environment named `aws-integration`. Restrict deployments to the
 default branch and add a required reviewer. Set these environment variables:
 
-| Variable | Example | Purpose |
-|---|---|---|
-| `AWS_TEST_ACCOUNT_ID` | `123456789012` | hard account allowlist |
-| `AWS_TEST_ROLE_ARN` | `arn:aws:iam::123456789012:role/HayaSendGitHubIntegration` | OIDC role |
-| `AWS_TEST_REGION` | `ap-northeast-1` | isolated test Region |
+| Variable              | Example                                                    | Purpose                |
+| --------------------- | ---------------------------------------------------------- | ---------------------- |
+| `AWS_TEST_ACCOUNT_ID` | `123456789012`                                             | hard account allowlist |
+| `AWS_TEST_ROLE_ARN`   | `arn:aws:iam::123456789012:role/HayaSendGitHubIntegration` | OIDC role              |
+| `AWS_TEST_REGION`     | `ap-northeast-1`                                           | isolated test Region   |
 
 No AWS access-key secret is required.
 

@@ -228,6 +228,16 @@ jobs:
             'require("node:fs").readFileSync(process.argv[1], "utf8").trim().split("\n").forEach(JSON.parse)' \
             "$RUNNER_TEMP/hayasend-retention-update.jsonl"
 
+          npm run --silent cli -- status aws \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --stack "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --detect-drift \
+            > "$RUNNER_TEMP/hayasend-status.json"
+          node -e \
+            'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if (value.stack.termination_protection !== true || value.stack.stack_policy.retained_resources_protected !== true || value.stack.drift.status !== "IN_SYNC" || value.stack.drift.detected_now !== true) process.exit(1)' \
+            "$RUNNER_TEMP/hayasend-status.json"
+
           updated_retention_resource="$(
             aws cloudformation list-stack-resources \
               --stack-name "$STACK_NAME" \
@@ -462,10 +472,17 @@ jobs:
           fi
 
           if [[ "$stack_exists" = true ]]; then
-            sam delete \
-              --stack-name "$STACK_NAME" \
+            npm run --silent cli -- cleanup aws \
+              --account "$AWS_TEST_ACCOUNT_ID" \
+              --stack "$STACK_NAME" \
               --region "$AWS_REGION" \
-              --no-prompts || {
+              --apply \
+              --confirm-stack "$STACK_NAME" \
+              --disable-termination-protection || {
+                aws cloudformation update-termination-protection \
+                  --disable-termination-protection \
+                  --stack-name "$STACK_NAME" \
+                  --region "$AWS_REGION" >/dev/null 2>&1 || true
                 aws cloudformation delete-stack \
                   --stack-name "$STACK_NAME" \
                   --region "$AWS_REGION"

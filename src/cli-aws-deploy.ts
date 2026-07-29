@@ -20,6 +20,8 @@ const BUILD_TIMEOUT_MS = 5 * 60_000;
 const DEPLOY_TIMEOUT_MS = 15 * 60_000;
 const STACK_TIMEOUT_MS = 35 * 60_000;
 const HEALTH_TIMEOUT_MS = 5_000;
+const DRIFT_POLL_INTERVAL_MS = 5_000;
+const DRIFT_MAX_ATTEMPTS = 120;
 const LOG_RETENTION_DAYS = new Set([
   1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827,
   2192, 2557, 2922, 3288, 3653,
@@ -75,6 +77,25 @@ const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
   "InboundKey",
   "InboundBucket",
 ]);
+
+const STACK_POLICY = {
+  Statement: [
+    {
+      Effect: "Allow",
+      Action: "Update:*",
+      Principal: "*",
+      Resource: "*",
+    },
+    {
+      Effect: "Deny",
+      Action: ["Update:Replace", "Update:Delete"],
+      Principal: "*",
+      Resource: [...RETAINED_RESOURCE_LOGICAL_IDS]
+        .sort()
+        .map((logicalId) => `LogicalResourceId/${logicalId}`),
+    },
+  ],
+};
 
 const STABLE_STACK_STATUSES = new Set([
   "CREATE_COMPLETE",
@@ -134,6 +155,7 @@ export interface AwsDeployDependencies {
 
 export interface AwsStatusDependencies extends AwsDeployDependencies {
   fetch: typeof fetch;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 export interface AwsTargetOptions {
@@ -143,9 +165,14 @@ export interface AwsTargetOptions {
   profile?: string;
 }
 
+export interface AwsStatusOptions extends AwsTargetOptions {
+  detectDrift: boolean;
+}
+
 export interface AwsCleanupOptions extends AwsTargetOptions {
   apply: boolean;
   confirmStack?: string;
+  disableTerminationProtection: boolean;
 }
 
 interface NormalizedTarget {
@@ -182,6 +209,28 @@ interface StackResource {
   type: string;
   status: string;
   statusReason?: string;
+}
+
+interface DriftedResource {
+  logicalId: string;
+  type: string;
+  status: string;
+}
+
+interface DriftDetection {
+  status: string;
+  checkedAt: string | null;
+  driftedResourceCount: number | null;
+  resources: DriftedResource[];
+}
+
+interface DriftDetectionStatus {
+  StackDriftDetectionId?: unknown;
+  StackDriftStatus?: unknown;
+  DetectionStatus?: unknown;
+  DetectionStatusReason?: unknown;
+  DriftedStackResourceCount?: unknown;
+  Timestamp?: unknown;
 }
 
 interface AwsIdentity {
@@ -342,9 +391,8 @@ function validRecipientDomain(domain: string) {
   const labels = domain.split(".");
   return (
     labels.length >= 2 &&
-    labels.every(
-      (label) =>
-        /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label),
+    labels.every((label) =>
+      /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label),
     ) &&
     /^[A-Za-z]{2,63}$/.test(labels.at(-1) ?? "")
   );
@@ -388,10 +436,7 @@ function normalizeTargetOptions(
       "--stack must be a valid CloudFormation stack name of at most 128 characters.",
     );
   }
-  if (
-    options.profile &&
-    !/^[A-Za-z0-9_+=,.@-]{1,128}$/.test(options.profile)
-  ) {
+  if (options.profile && !/^[A-Za-z0-9_+=,.@-]{1,128}$/.test(options.profile)) {
     throw new Error("--profile contains unsupported characters.");
   }
   return {
@@ -500,8 +545,7 @@ function normalizeOptions(
     365,
   );
   if (templateHistoryRetention) {
-    explicitParameters.TemplateHistoryRetentionDays =
-      templateHistoryRetention;
+    explicitParameters.TemplateHistoryRetentionDays = templateHistoryRetention;
   }
   const templateHistoryLimit = requireInteger(
     options.templateHistoryLimit,
@@ -519,8 +563,7 @@ function normalizeOptions(
     1000,
   );
   if (workerReservedConcurrency !== undefined) {
-    explicitParameters.WorkerReservedConcurrency =
-      workerReservedConcurrency;
+    explicitParameters.WorkerReservedConcurrency = workerReservedConcurrency;
   }
 
   return {
@@ -726,8 +769,7 @@ async function describeStack(
       : {}),
     ...(typeof stack.EnableTerminationProtection === "boolean"
       ? {
-          terminationProtectionEnabled:
-            stack.EnableTerminationProtection,
+          terminationProtectionEnabled: stack.EnableTerminationProtection,
         }
       : {}),
     ...(typeof stack.DriftInformation?.StackDriftStatus === "string"
@@ -735,13 +777,268 @@ async function describeStack(
       : {}),
     ...(typeof stack.DriftInformation?.LastCheckTimestamp === "string"
       ? {
-          driftLastCheckedAt:
-            stack.DriftInformation.LastCheckTimestamp,
+          driftLastCheckedAt: stack.DriftInformation.LastCheckTimestamp,
         }
       : {}),
     parameters: readParameters(stack.Parameters),
     outputs: readOutputs(stack.Outputs),
     tags: readTags(stack.Tags),
+  };
+}
+
+function expectedStackPolicy(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const statements = (value as { Statement?: unknown }).Statement;
+  if (!Array.isArray(statements)) {
+    return false;
+  }
+  const allow = statements.some((statement) => {
+    if (!statement || typeof statement !== "object") {
+      return false;
+    }
+    const candidate = statement as Record<string, unknown>;
+    return (
+      candidate.Effect === "Allow" &&
+      candidate.Action === "Update:*" &&
+      candidate.Principal === "*" &&
+      candidate.Resource === "*"
+    );
+  });
+  const expectedResources = [...RETAINED_RESOURCE_LOGICAL_IDS]
+    .sort()
+    .map((logicalId) => `LogicalResourceId/${logicalId}`);
+  const deny = statements.some((statement) => {
+    if (!statement || typeof statement !== "object") {
+      return false;
+    }
+    const candidate = statement as Record<string, unknown>;
+    const actions = Array.isArray(candidate.Action)
+      ? candidate.Action.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [];
+    const resources = Array.isArray(candidate.Resource)
+      ? candidate.Resource.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [];
+    return (
+      candidate.Effect === "Deny" &&
+      candidate.Principal === "*" &&
+      ["Update:Delete", "Update:Replace"].every((action) =>
+        actions.includes(action),
+      ) &&
+      expectedResources.every((resource) => resources.includes(resource))
+    );
+  });
+  return allow && deny;
+}
+
+async function inspectStackPolicy(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+) {
+  const value = await requireJson<{ StackPolicyBody?: unknown }>(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "get-stack-policy",
+      "--stack-name",
+      options.stack,
+    ]),
+    "CloudFormation stack-policy inspection",
+  );
+  if (value.StackPolicyBody === undefined) {
+    return { present: false, protectedRetainedResources: false };
+  }
+  if (typeof value.StackPolicyBody !== "string") {
+    throw new Error("CloudFormation returned an invalid stack policy.");
+  }
+  let policy: unknown;
+  try {
+    policy = JSON.parse(value.StackPolicyBody);
+  } catch {
+    throw new Error("CloudFormation returned invalid stack-policy JSON.");
+  }
+  return {
+    present: true,
+    protectedRetainedResources: expectedStackPolicy(policy),
+  };
+}
+
+async function enforceStackProtections(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+) {
+  await requireCommand(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "set-stack-policy",
+      "--stack-name",
+      options.stack,
+      "--stack-policy-body",
+      JSON.stringify(STACK_POLICY),
+    ]),
+    "CloudFormation stack-policy enforcement",
+  );
+  await requireCommand(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "update-termination-protection",
+      "--enable-termination-protection",
+      "--stack-name",
+      options.stack,
+    ]),
+    "CloudFormation termination-protection enforcement",
+  );
+  const [policy, protectedStack] = await Promise.all([
+    inspectStackPolicy(dependencies, options),
+    describeStack(dependencies, options),
+  ]);
+  if (
+    !policy.protectedRetainedResources ||
+    protectedStack.terminationProtectionEnabled !== true
+  ) {
+    throw new Error(
+      "Deployment completed, but CloudFormation did not verify the required stack policy and termination protection.",
+    );
+  }
+  return protectedStack;
+}
+
+async function detectStackDrift(
+  dependencies: AwsStatusDependencies,
+  options: NormalizedTarget,
+): Promise<DriftDetection> {
+  const started = await requireJson<{ StackDriftDetectionId?: unknown }>(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "detect-stack-drift",
+      "--stack-name",
+      options.stack,
+    ]),
+    "CloudFormation drift detection",
+  );
+  const detectionId = started.StackDriftDetectionId;
+  if (
+    typeof detectionId !== "string" ||
+    !/^[A-Za-z0-9-]{1,128}$/.test(detectionId)
+  ) {
+    throw new Error(
+      "CloudFormation returned an invalid stack drift detection ID.",
+    );
+  }
+
+  let completed: DriftDetectionStatus | undefined;
+  for (let attempt = 0; attempt < DRIFT_MAX_ATTEMPTS; attempt += 1) {
+    const driftStatusResponse: DriftDetectionStatus =
+      await requireJson<DriftDetectionStatus>(
+        dependencies,
+        "aws",
+        awsArgs(options, [
+          "cloudformation",
+          "describe-stack-drift-detection-status",
+          "--stack-drift-detection-id",
+          detectionId,
+        ]),
+        "CloudFormation drift detection status",
+      );
+    if (driftStatusResponse.StackDriftDetectionId !== detectionId) {
+      throw new Error(
+        "CloudFormation returned a different stack drift detection ID.",
+      );
+    }
+    if (driftStatusResponse.DetectionStatus === "DETECTION_COMPLETE") {
+      completed = driftStatusResponse;
+      break;
+    }
+    if (driftStatusResponse.DetectionStatus === "DETECTION_FAILED") {
+      const reason =
+        typeof driftStatusResponse.DetectionStatusReason === "string"
+          ? `: ${redactAwsDiagnostics(
+              driftStatusResponse.DetectionStatusReason,
+            )}`
+          : "";
+      throw new Error(`CloudFormation drift detection failed${reason}`);
+    }
+    if (driftStatusResponse.DetectionStatus !== "DETECTION_IN_PROGRESS") {
+      throw new Error(
+        `CloudFormation returned an unknown drift detection status: ${String(
+          driftStatusResponse.DetectionStatus ?? "missing",
+        )}.`,
+      );
+    }
+    if (attempt + 1 < DRIFT_MAX_ATTEMPTS) {
+      await dependencies.sleep(DRIFT_POLL_INTERVAL_MS);
+    }
+  }
+  if (!completed) {
+    throw new Error(
+      "CloudFormation drift detection did not complete within 10 minutes.",
+    );
+  }
+  if (
+    typeof completed.StackDriftStatus !== "string" ||
+    !["DRIFTED", "IN_SYNC", "NOT_CHECKED", "UNKNOWN"].includes(
+      completed.StackDriftStatus,
+    )
+  ) {
+    throw new Error("CloudFormation returned an invalid stack drift status.");
+  }
+
+  const value = await requireJson<{
+    StackResourceDrifts?: Array<{
+      LogicalResourceId?: unknown;
+      ResourceType?: unknown;
+      StackResourceDriftStatus?: unknown;
+    }>;
+  }>(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "describe-stack-resource-drifts",
+      "--stack-name",
+      options.stack,
+      "--stack-resource-drift-status-filters",
+      "MODIFIED",
+      "DELETED",
+    ]),
+    "CloudFormation drifted-resource inspection",
+  );
+  const resources: DriftedResource[] = [];
+  for (const resource of value.StackResourceDrifts ?? []) {
+    if (
+      typeof resource.LogicalResourceId !== "string" ||
+      typeof resource.ResourceType !== "string" ||
+      typeof resource.StackResourceDriftStatus !== "string"
+    ) {
+      throw new Error("CloudFormation returned invalid drifted-resource JSON.");
+    }
+    resources.push({
+      logicalId: resource.LogicalResourceId,
+      type: resource.ResourceType,
+      status: resource.StackResourceDriftStatus,
+    });
+  }
+  return {
+    status: completed.StackDriftStatus,
+    checkedAt:
+      typeof completed.Timestamp === "string" ? completed.Timestamp : null,
+    driftedResourceCount:
+      typeof completed.DriftedStackResourceCount === "number"
+        ? completed.DriftedStackResourceCount
+        : null,
+    resources,
   };
 }
 
@@ -794,9 +1091,7 @@ async function requireSesAccount(
     productionAccess: ses.ProductionAccessEnabled === true,
     sendingEnabled: ses.SendingEnabled === true,
     enforcementStatus:
-      typeof ses.EnforcementStatus === "string"
-        ? ses.EnforcementStatus
-        : null,
+      typeof ses.EnforcementStatus === "string" ? ses.EnforcementStatus : null,
     max24HourSend: ses.SendQuota?.Max24HourSend ?? null,
     maxSendRate: ses.SendQuota?.MaxSendRate ?? null,
     sentLast24Hours: ses.SendQuota?.SentLast24Hours ?? null,
@@ -856,11 +1151,9 @@ function problematicResources(resources: StackResource[]) {
   return resources
     .filter(
       (resource) =>
-        ![
-          "CREATE_COMPLETE",
-          "UPDATE_COMPLETE",
-          "IMPORT_COMPLETE",
-        ].includes(resource.status),
+        !["CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"].includes(
+          resource.status,
+        ),
     )
     .map((resource) => ({
       logical_id: resource.logicalId,
@@ -929,13 +1222,11 @@ async function alarmSummary(
     ...(value.MetricAlarms ?? []),
     ...(value.CompositeAlarms ?? []),
   ].flatMap((alarm) =>
-    typeof alarm.AlarmName === "string" &&
-    typeof alarm.StateValue === "string"
+    typeof alarm.AlarmName === "string" && typeof alarm.StateValue === "string"
       ? [
           {
             name: alarm.AlarmName,
-            logicalId:
-              logicalByName.get(alarm.AlarmName) ?? "UnknownAlarm",
+            logicalId: logicalByName.get(alarm.AlarmName) ?? "UnknownAlarm",
             state: alarm.StateValue,
             reason:
               typeof alarm.StateReason === "string"
@@ -1042,10 +1333,7 @@ function targetCommand(
   ];
 }
 
-function validateBootstrapSecret(
-  value: string,
-  options: NormalizedOptions,
-) {
+function validateBootstrapSecret(value: string, options: NormalizedOptions) {
   if (value === "") {
     return;
   }
@@ -1101,10 +1389,7 @@ function effectiveParameters(
   return parameters;
 }
 
-function effectiveTags(
-  options: NormalizedOptions,
-  stack: StackDescription,
-) {
+function effectiveTags(options: NormalizedOptions, stack: StackDescription) {
   const tags = new Map(Object.entries(stack.tags));
   for (const tag of options.tags) {
     tags.set(tag.key, tag.value);
@@ -1278,9 +1563,9 @@ async function listChangeSets(
     );
   }
   try {
-    return changeSetIds(JSON.parse(result.stdout) as Parameters<
-      typeof changeSetIds
-    >[0]);
+    return changeSetIds(
+      JSON.parse(result.stdout) as Parameters<typeof changeSetIds>[0],
+    );
   } catch {
     throw new Error("CloudFormation returned invalid change-set list JSON.");
   }
@@ -1348,7 +1633,9 @@ function summarizeChanges(value: ChangeSetDescription) {
             ? "Unknown"
             : "False",
       scope: Array.isArray(change.Scope)
-        ? change.Scope.filter((scope): scope is string => typeof scope === "string")
+        ? change.Scope.filter(
+            (scope): scope is string => typeof scope === "string",
+          )
         : [],
       policy_action:
         typeof change.PolicyAction === "string" ? change.PolicyAction : null,
@@ -1393,7 +1680,7 @@ async function recentFailureEvents(
 }
 
 export async function statusAws(
-  rawOptions: AwsTargetOptions,
+  rawOptions: AwsStatusOptions,
   dependencies: AwsStatusDependencies,
 ) {
   const options = normalizeTargetOptions(rawOptions, dependencies.env);
@@ -1405,7 +1692,7 @@ export async function statusAws(
   );
   const identity = await requireAwsIdentity(dependencies, options);
   const ses = await requireSesAccount(dependencies, options);
-  const stack = await describeStack(dependencies, options);
+  let stack = await describeStack(dependencies, options);
   if (!stack.exists) {
     dependencies.log(
       JSON.stringify({
@@ -1445,6 +1732,27 @@ export async function statusAws(
     return;
   }
 
+  if (
+    rawOptions.detectDrift &&
+    (!stack.status || !STABLE_STACK_STATUSES.has(stack.status))
+  ) {
+    throw new Error(
+      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; wait for a stable state before detecting drift.`,
+    );
+  }
+  const detectedDrift = rawOptions.detectDrift
+    ? await detectStackDrift(dependencies, options)
+    : undefined;
+  if (detectedDrift) {
+    stack = {
+      ...stack,
+      driftStatus: detectedDrift.status,
+      ...(detectedDrift.checkedAt
+        ? { driftLastCheckedAt: detectedDrift.checkedAt }
+        : {}),
+    };
+  }
+  const stackPolicy = await inspectStackPolicy(dependencies, options);
   const resources = await listStackResources(dependencies, options);
   const problems = problematicResources(resources);
   const alarms = await alarmSummary(dependencies, options, resources);
@@ -1458,16 +1766,19 @@ export async function statusAws(
       };
   const stackStable =
     stack.status !== undefined && STABLE_STACK_STATUSES.has(stack.status);
-  const driftHealthy = stack.driftStatus !== "DRIFTED";
+  const driftHealthy = stack.driftStatus === "IN_SYNC";
+  const protectionsHealthy =
+    stack.terminationProtectionEnabled === true &&
+    stackPolicy.protectedRetainedResources;
   const operational =
     stackStable &&
     driftHealthy &&
+    protectionsHealthy &&
     problems.length === 0 &&
     alarms.total > 0 &&
     alarms.problems.length === 0 &&
     health.ok;
-  const sendReady =
-    operational && ses.productionAccess && ses.sendingEnabled;
+  const sendReady = operational && ses.productionAccess && ses.sendingEnabled;
   const dashboardName = stack.outputs.OperationsDashboardName;
 
   dependencies.log(
@@ -1491,11 +1802,22 @@ export async function statusAws(
         status: stack.status ?? null,
         created_at: stack.creationTime ?? null,
         updated_at: stack.lastUpdatedTime ?? null,
-        termination_protection:
-          stack.terminationProtectionEnabled ?? false,
+        termination_protection: stack.terminationProtectionEnabled ?? false,
+        stack_policy: {
+          present: stackPolicy.present,
+          retained_resources_protected: stackPolicy.protectedRetainedResources,
+        },
         drift: {
           status: stack.driftStatus ?? "NOT_CHECKED",
           checked_at: stack.driftLastCheckedAt ?? null,
+          detected_now: rawOptions.detectDrift,
+          drifted_resource_count: detectedDrift?.driftedResourceCount ?? null,
+          resources:
+            detectedDrift?.resources.map((resource) => ({
+              logical_id: resource.logicalId,
+              resource_type: resource.type,
+              status: resource.status,
+            })) ?? [],
         },
         resources: {
           total: resources.length,
@@ -1535,6 +1857,10 @@ export async function statusAws(
             "doctor",
           ],
         },
+        detect_drift_command: [
+          ...targetCommand("status", options),
+          "--detect-drift",
+        ],
         upgrade_plan_command: targetCommand("upgrade", options),
         cleanup_plan_command: targetCommand("cleanup", options),
       },
@@ -1546,6 +1872,9 @@ export async function cleanupAws(
   rawOptions: AwsCleanupOptions,
   dependencies: AwsDeployDependencies,
 ) {
+  if (rawOptions.disableTerminationProtection && !rawOptions.apply) {
+    throw new Error("--disable-termination-protection requires --apply.");
+  }
   const options = normalizeTargetOptions(rawOptions, dependencies.env);
   const awsVersionResult = await requireCommand(
     dependencies,
@@ -1593,16 +1922,9 @@ export async function cleanupAws(
       `Refusing to delete stack ${options.stack}: it is not tagged Project=HayaSend and ManagedBy=HayaSendCLI.`,
     );
   }
-  if (stack.terminationProtectionEnabled === true) {
-    throw new Error(
-      `Refusing to delete stack ${options.stack}: CloudFormation termination protection is enabled.`,
-    );
-  }
   const resources = await listStackResources(dependencies, options);
   const retained = resources
-    .filter((resource) =>
-      RETAINED_RESOURCE_LOGICAL_IDS.has(resource.logicalId),
-    )
+    .filter((resource) => RETAINED_RESOURCE_LOGICAL_IDS.has(resource.logicalId))
     .map((resource) => ({
       logical_id: resource.logicalId,
       resource_type: resource.type,
@@ -1613,6 +1935,9 @@ export async function cleanupAws(
     "--apply",
     "--confirm-stack",
     options.stack,
+    ...(stack.terminationProtectionEnabled === true
+      ? ["--disable-termination-protection"]
+      : []),
   ];
   dependencies.log(
     JSON.stringify({
@@ -1633,6 +1958,7 @@ export async function cleanupAws(
         name: options.stack,
         exists: true,
         status: stack.status,
+        termination_protection: stack.terminationProtectionEnabled ?? false,
         resource_count: resources.length,
       },
       deletion: {
@@ -1652,18 +1978,80 @@ export async function cleanupAws(
       `cleanup aws --apply requires --confirm-stack ${options.stack}.`,
     );
   }
+  if (
+    stack.terminationProtectionEnabled === true &&
+    !rawOptions.disableTerminationProtection
+  ) {
+    throw new Error(
+      `cleanup aws --apply requires --disable-termination-protection for protected stack ${options.stack}.`,
+    );
+  }
 
-  await requireCommand(
-    dependencies,
-    "aws",
-    awsArgs(options, [
-      "cloudformation",
-      "delete-stack",
-      "--stack-name",
-      options.stack,
-    ]),
-    "CloudFormation stack deletion",
-  );
+  let protectionDisabled = false;
+  if (stack.terminationProtectionEnabled === true) {
+    await requireCommand(
+      dependencies,
+      "aws",
+      awsArgs(options, [
+        "cloudformation",
+        "update-termination-protection",
+        "--disable-termination-protection",
+        "--stack-name",
+        options.stack,
+      ]),
+      "CloudFormation termination-protection disable",
+    );
+    const unprotected = await describeStack(dependencies, options);
+    if (unprotected.terminationProtectionEnabled !== false) {
+      throw new Error(
+        "CloudFormation did not verify that termination protection was disabled; the stack was not deleted.",
+      );
+    }
+    protectionDisabled = true;
+  }
+
+  try {
+    await requireCommand(
+      dependencies,
+      "aws",
+      awsArgs(options, [
+        "cloudformation",
+        "delete-stack",
+        "--stack-name",
+        options.stack,
+      ]),
+      "CloudFormation stack deletion",
+    );
+  } catch (error) {
+    if (!protectionDisabled) {
+      throw error;
+    }
+    try {
+      await requireCommand(
+        dependencies,
+        "aws",
+        awsArgs(options, [
+          "cloudformation",
+          "update-termination-protection",
+          "--enable-termination-protection",
+          "--stack-name",
+          options.stack,
+        ]),
+        "CloudFormation termination-protection recovery",
+      );
+    } catch (recoveryError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : "CloudFormation stack deletion failed."} Termination protection could not be re-enabled: ${
+          recoveryError instanceof Error
+            ? recoveryError.message
+            : "unknown recovery failure"
+        }`,
+      );
+    }
+    throw new Error(
+      `${error instanceof Error ? error.message : "CloudFormation stack deletion failed."} Termination protection was re-enabled.`,
+    );
+  }
   const waitResult = await dependencies.runCommand(
     "aws",
     awsArgs(options, [
@@ -1805,64 +2193,63 @@ export async function deployAws(
     );
 
     dependencies.log(
-      JSON.stringify(
-        {
-          schema_version: 1,
-          object: "aws_deployment_plan",
-          operation: options.operation,
-          ok: true,
-          mutating: options.apply,
-          mode: options.apply ? "apply" : "plan",
-          tools: {
-            aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
-            sam_cli: commandVersion(samVersionResult, "AWS SAM CLI"),
-            npm_cli: commandVersion(npmVersionResult, "npm CLI"),
-          },
-          identity: {
-            account: identity.account,
-            principal_arn: identity.principalArn,
-          },
-          region: options.region,
-          stack: {
-            name: options.stack,
-            exists: stack.exists,
-            status: stack.status ?? null,
-          },
-          ses: {
-            production_access: ses.productionAccess,
-            sending_enabled: ses.sendingEnabled,
-            enforcement_status: ses.enforcementStatus,
-            quota: {
-              max_24_hour_send: ses.max24HourSend,
-              max_send_rate: ses.maxSendRate,
-              sent_last_24_hours: ses.sentLast24Hours,
-            },
-          },
-          template: {
-            source: "package:template.yaml",
-            sha256: createHash("sha256").update(template).digest("hex"),
-            validation: "pass",
-            build: "pass",
-          },
-          parameters,
-          tags: Object.fromEntries(tags.map(({ key, value }) => [key, value])),
-          dns_changes: "never",
-          ...(options.apply
-            ? {}
-            : { apply_command: applyCommand(options, parameters, tags) }),
+      JSON.stringify({
+        schema_version: 1,
+        object: "aws_deployment_plan",
+        operation: options.operation,
+        ok: true,
+        mutating: options.apply,
+        mode: options.apply ? "apply" : "plan",
+        tools: {
+          aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
+          sam_cli: commandVersion(samVersionResult, "AWS SAM CLI"),
+          npm_cli: commandVersion(npmVersionResult, "npm CLI"),
         },
-      ),
+        identity: {
+          account: identity.account,
+          principal_arn: identity.principalArn,
+        },
+        region: options.region,
+        stack: {
+          name: options.stack,
+          exists: stack.exists,
+          status: stack.status ?? null,
+        },
+        ses: {
+          production_access: ses.productionAccess,
+          sending_enabled: ses.sendingEnabled,
+          enforcement_status: ses.enforcementStatus,
+          quota: {
+            max_24_hour_send: ses.max24HourSend,
+            max_send_rate: ses.maxSendRate,
+            sent_last_24_hours: ses.sentLast24Hours,
+          },
+        },
+        template: {
+          source: "package:template.yaml",
+          sha256: createHash("sha256").update(template).digest("hex"),
+          validation: "pass",
+          build: "pass",
+        },
+        parameters,
+        tags: Object.fromEntries(tags.map(({ key, value }) => [key, value])),
+        protections: {
+          termination_protection: "enabled_on_apply",
+          retained_resource_stack_policy: "enforced_on_apply",
+          retained_logical_ids: [...RETAINED_RESOURCE_LOGICAL_IDS].sort(),
+        },
+        dns_changes: "never",
+        ...(options.apply
+          ? {}
+          : { apply_command: applyCommand(options, parameters, tags) }),
+      }),
     );
 
     if (!options.apply) {
       return;
     }
 
-    const before = await listChangeSets(
-      dependencies,
-      options,
-      !stack.exists,
-    );
+    const before = await listChangeSets(dependencies, options, !stack.exists);
     const deployArguments = samArgs(options, [
       "deploy",
       "--template-file",
@@ -1896,19 +2283,26 @@ export async function deployAws(
     const after = await listChangeSets(dependencies, options, false);
     const created = [...after].filter((id) => !before.has(id));
     if (created.length === 0) {
+      const protectedStack = stack.exists
+        ? await enforceStackProtections(dependencies, options)
+        : stack;
       dependencies.log(
-        JSON.stringify(
-          {
-            schema_version: 1,
-            object: "aws_deployment_result",
-            operation: options.operation,
-            ok: true,
-            applied: false,
-            no_changes: true,
-            stack: options.stack,
-            outputs: stack.outputs,
+        JSON.stringify({
+          schema_version: 1,
+          object: "aws_deployment_result",
+          operation: options.operation,
+          ok: true,
+          applied: stack.exists,
+          no_changes: true,
+          stack: options.stack,
+          status: protectedStack.status ?? null,
+          protections: {
+            termination_protection:
+              protectedStack.terminationProtectionEnabled === true,
+            retained_resource_stack_policy: stack.exists,
           },
-        ),
+          outputs: protectedStack.outputs,
+        }),
       );
       return;
     }
@@ -1933,18 +2327,16 @@ export async function deployAws(
     const changes = summarizeChanges(described);
     const destructive = destructiveChanges(changes);
     dependencies.log(
-      JSON.stringify(
-        {
-          schema_version: 1,
-          object: "aws_change_set_plan",
-          ok: destructive.length === 0 || options.allowDestructiveChanges,
-          stack: options.stack,
-          change_set_id: changeSetId,
-          changes,
-          destructive_changes: destructive,
-          requires_destructive_acknowledgement: destructive.length > 0,
-        },
-      ),
+      JSON.stringify({
+        schema_version: 1,
+        object: "aws_change_set_plan",
+        ok: destructive.length === 0 || options.allowDestructiveChanges,
+        stack: options.stack,
+        change_set_id: changeSetId,
+        changes,
+        destructive_changes: destructive,
+        requires_destructive_acknowledgement: destructive.length > 0,
+      }),
     );
     if (destructive.length > 0 && !options.allowDestructiveChanges) {
       throw new Error(
@@ -1962,7 +2354,9 @@ export async function deployAws(
       ]),
       "CloudFormation change-set execution",
     );
-    const waiter = stack.exists ? "stack-update-complete" : "stack-create-complete";
+    const waiter = stack.exists
+      ? "stack-update-complete"
+      : "stack-create-complete";
     const waitResult = await dependencies.runCommand(
       "aws",
       awsArgs(options, [
@@ -1989,7 +2383,7 @@ export async function deployAws(
         }. Recent failure events: ${events}`,
       );
     }
-    const deployed = await describeStack(dependencies, options);
+    const deployed = await enforceStackProtections(dependencies, options);
     const apiBaseUrl = deployed.outputs.ApiBaseUrl;
     const bootstrapSecretArn = deployed.outputs.BootstrapSecretArn;
     const missingOutputs = [
@@ -2007,35 +2401,37 @@ export async function deployAws(
     }
     validateBootstrapSecret(bootstrapSecretArn, options);
     dependencies.log(
-      JSON.stringify(
-        {
-          schema_version: 1,
-          object: "aws_deployment_result",
-          operation: options.operation,
-          ok: true,
-          applied: true,
-          no_changes: false,
-          stack: options.stack,
-          status: deployed.status,
-          outputs: deployed.outputs,
-          next: {
-            environment: {
-              HAYASEND_BASE_URL: apiBaseUrl,
-              HAYASEND_BOOTSTRAP_SECRET_ARN: bootstrapSecretArn,
-            },
-            retrieve_bootstrap_key: {
-              command: bootstrapKeyCommand(options, bootstrapSecretArn),
-              assign_stdout_to: "HAYASEND_API_KEY",
-              handling:
-                "Keep the bootstrap key out of logs and unset it after issuing scoped application keys.",
-            },
-            doctor_command: ["npm", "run", "cli", "--", "doctor"],
-            dns: deployed.outputs.InboundMxRecord
-              ? "Review receiving webhooks, then create the documented MX record manually."
-              : "No DNS change is required by this deployment.",
-          },
+      JSON.stringify({
+        schema_version: 1,
+        object: "aws_deployment_result",
+        operation: options.operation,
+        ok: true,
+        applied: true,
+        no_changes: false,
+        stack: options.stack,
+        status: deployed.status,
+        protections: {
+          termination_protection: true,
+          retained_resource_stack_policy: true,
         },
-      ),
+        outputs: deployed.outputs,
+        next: {
+          environment: {
+            HAYASEND_BASE_URL: apiBaseUrl,
+            HAYASEND_BOOTSTRAP_SECRET_ARN: bootstrapSecretArn,
+          },
+          retrieve_bootstrap_key: {
+            command: bootstrapKeyCommand(options, bootstrapSecretArn),
+            assign_stdout_to: "HAYASEND_API_KEY",
+            handling:
+              "Keep the bootstrap key out of logs and unset it after issuing scoped application keys.",
+          },
+          doctor_command: ["npm", "run", "cli", "--", "doctor"],
+          dns: deployed.outputs.InboundMxRecord
+            ? "Review receiving webhooks, then create the documented MX record manually."
+            : "No DNS change is required by this deployment.",
+        },
+      }),
     );
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

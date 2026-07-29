@@ -7,11 +7,7 @@ import {
 } from "../src/cli-aws-deploy.js";
 import { runCli } from "../src/cli.js";
 
-function result(
-  stdout = "",
-  exitCode = 0,
-  stderr = "",
-): CommandResult {
+function result(stdout = "", exitCode = 0, stderr = ""): CommandResult {
   return { exitCode, stdout, stderr };
 }
 
@@ -34,7 +30,7 @@ function existingStack(overrides: Record<string, unknown> = {}) {
         StackStatus: "UPDATE_COMPLETE",
         CreationTime: "2026-07-28T00:00:00.000Z",
         LastUpdatedTime: "2026-07-29T00:00:00.000Z",
-        EnableTerminationProtection: false,
+        EnableTerminationProtection: true,
         DriftInformation: {
           StackDriftStatus: "IN_SYNC",
           LastCheckTimestamp: "2026-07-29T00:01:00.000Z",
@@ -67,6 +63,32 @@ function existingStack(overrides: Record<string, unknown> = {}) {
         ...overrides,
       },
     ],
+  });
+}
+
+function stackPolicy() {
+  return json({
+    StackPolicyBody: JSON.stringify({
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: "Update:*",
+          Principal: "*",
+          Resource: "*",
+        },
+        {
+          Effect: "Deny",
+          Action: ["Update:Replace", "Update:Delete"],
+          Principal: "*",
+          Resource: [
+            "LogicalResourceId/DataTable",
+            "LogicalResourceId/InboundBucket",
+            "LogicalResourceId/InboundKey",
+            "LogicalResourceId/PayloadBucket",
+          ],
+        },
+      ],
+    }),
   });
 }
 
@@ -132,11 +154,7 @@ function awsRunner(
     if (command === "npm" && args[0] === "--version") {
       return result("12.0.1");
     }
-    if (
-      command === "npm" &&
-      args[0] === "root" &&
-      args[1] === "--global"
-    ) {
+    if (command === "npm" && args[0] === "root" && args[1] === "--global") {
       return result(join(tmpdir(), "hayasend-test-npm-root"));
     }
     if (command === "aws" && args[0] === "sts") {
@@ -170,6 +188,13 @@ function awsRunner(
       args[1] === "list-stack-resources"
     ) {
       return stackResources();
+    }
+    if (
+      command === "aws" &&
+      args[0] === "cloudformation" &&
+      args[1] === "get-stack-policy"
+    ) {
+      return stackPolicy();
     }
     if (
       command === "aws" &&
@@ -226,6 +251,10 @@ describe("AWS lifecycle operations", () => {
         name: "hayasend",
         exists: true,
         status: "UPDATE_COMPLETE",
+        termination_protection: true,
+        stack_policy: {
+          retained_resources_protected: true,
+        },
         drift: { status: "IN_SYNC" },
         resources: { total: 4, problems: [] },
       },
@@ -247,9 +276,128 @@ describe("AWS lifecycle operations", () => {
         headers: { accept: "application/json" },
       }),
     );
-    expect(
-      runner.mock.calls.some(([command]) => command === "sam"),
-    ).toBe(false);
+    expect(runner.mock.calls.some(([command]) => command === "sam")).toBe(
+      false,
+    );
+  });
+
+  it("runs fresh drift detection and exposes metadata without property values", async () => {
+    const capture = capturingIo();
+    const detectionId = "8c3087d0-c67f-4a74-8383-e71e96b64b09";
+    const runner = awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "detect-stack-drift"
+      ) {
+        return json({ StackDriftDetectionId: detectionId });
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stack-drift-detection-status"
+      ) {
+        return json({
+          StackDriftDetectionId: detectionId,
+          StackDriftStatus: "DRIFTED",
+          DetectionStatus: "DETECTION_COMPLETE",
+          DriftedStackResourceCount: 1,
+          Timestamp: "2026-07-29T02:00:00.000Z",
+        });
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stack-resource-drifts"
+      ) {
+        return json({
+          StackResourceDrifts: [
+            {
+              LogicalResourceId: "DataTable",
+              ResourceType: "AWS::DynamoDB::Table",
+              StackResourceDriftStatus: "MODIFIED",
+              PropertyDifferences: [
+                {
+                  PropertyPath: "/Sensitive",
+                  ActualValue: "must-not-be-logged",
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    await runCli(["status", "aws", "--detect-drift"], {
+      env: awsEnvironment,
+      io: capture.io,
+      runCommand: runner,
+      fetch: vi.fn<typeof fetch>(async () =>
+        Response.json({
+          ok: true,
+          service: "hayasend",
+          version: "0.3.1",
+        }),
+      ),
+    });
+
+    const rawStatus = capture.logs[0] ?? "{}";
+    expect(rawStatus).not.toContain("must-not-be-logged");
+    expect(JSON.parse(rawStatus)).toMatchObject({
+      operational: false,
+      send_ready: false,
+      stack: {
+        drift: {
+          status: "DRIFTED",
+          checked_at: "2026-07-29T02:00:00.000Z",
+          detected_now: true,
+          drifted_resource_count: 1,
+          resources: [
+            {
+              logical_id: "DataTable",
+              resource_type: "AWS::DynamoDB::Table",
+              status: "MODIFIED",
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("bounds drift detection polling", async () => {
+    const detectionId = "8c3087d0-c67f-4a74-8383-e71e96b64b09";
+    const sleep = vi.fn(async () => undefined);
+    const runner = awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "detect-stack-drift"
+      ) {
+        return json({ StackDriftDetectionId: detectionId });
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stack-drift-detection-status"
+      ) {
+        return json({
+          StackDriftDetectionId: detectionId,
+          DetectionStatus: "DETECTION_IN_PROGRESS",
+        });
+      }
+      return undefined;
+    });
+
+    await expect(
+      runCli(["status", "aws", "--detect-drift"], {
+        env: awsEnvironment,
+        runCommand: runner,
+        sleep,
+      }),
+    ).rejects.toThrow("did not complete within 10 minutes");
+    expect(sleep).toHaveBeenCalledTimes(119);
+    expect(sleep).toHaveBeenCalledWith(5_000);
   });
 
   it("shows the exact deploy command when the stack does not exist", async () => {
@@ -349,6 +497,52 @@ describe("AWS lifecycle operations", () => {
     });
   });
 
+  it("does not report an unprotected stack as operational", async () => {
+    const capture = capturingIo();
+    const runner = awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "get-stack-policy"
+      ) {
+        return json({});
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        return existingStack({ EnableTerminationProtection: false });
+      }
+      return undefined;
+    });
+
+    await runCli(["status", "aws"], {
+      env: awsEnvironment,
+      io: capture.io,
+      runCommand: runner,
+      fetch: vi.fn<typeof fetch>(async () =>
+        Response.json({
+          ok: true,
+          service: "hayasend",
+          version: "0.3.1",
+        }),
+      ),
+    });
+
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toMatchObject({
+      operational: false,
+      send_ready: false,
+      stack: {
+        termination_protection: false,
+        stack_policy: {
+          present: false,
+          retained_resources_protected: false,
+        },
+      },
+    });
+  });
+
   it("requires an existing stack for upgrade and uses an upgrade apply command", async () => {
     const missingRunner = awsRunner((command, args) =>
       command === "aws" &&
@@ -408,11 +602,7 @@ describe("AWS lifecycle operations", () => {
       },
     });
     expect(plan.apply_command).toEqual(
-      expect.arrayContaining([
-        "--apply",
-        "--confirm-stack",
-        "hayasend",
-      ]),
+      expect.arrayContaining(["--apply", "--confirm-stack", "hayasend"]),
     );
     expect(
       runner.mock.calls.some(
@@ -447,7 +637,8 @@ describe("AWS lifecycle operations", () => {
     ).rejects.toThrow("not tagged Project=HayaSend");
   });
 
-  it("refuses termination protection and verifies applied deletion", async () => {
+  it("requires explicit termination-protection disable and verifies applied deletion", async () => {
+    const protectedPlan = capturingIo();
     const protectedRunner = awsRunner((command, args) =>
       command === "aws" &&
       args[0] === "cloudformation" &&
@@ -455,16 +646,39 @@ describe("AWS lifecycle operations", () => {
         ? existingStack({ EnableTerminationProtection: true })
         : undefined,
     );
+    await runCli(["cleanup", "aws"], {
+      env: awsEnvironment,
+      io: protectedPlan.io,
+      runCommand: protectedRunner,
+    });
+    expect(JSON.parse(protectedPlan.logs[0] ?? "{}")).toMatchObject({
+      stack: { termination_protection: true },
+      apply_command: expect.arrayContaining([
+        "--disable-termination-protection",
+      ]),
+    });
     await expect(
-      runCli(["cleanup", "aws"], {
+      runCli(["cleanup", "aws", "--apply", "--confirm-stack", "hayasend"], {
         env: awsEnvironment,
         runCommand: protectedRunner,
       }),
-    ).rejects.toThrow("termination protection is enabled");
+    ).rejects.toThrow("--disable-termination-protection");
 
+    let protectionEnabled = true;
     let deleting = false;
     const capture = capturingIo();
     const runner = awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "update-termination-protection"
+      ) {
+        protectionEnabled = args.includes("--enable-termination-protection");
+        return json({
+          StackId:
+            "arn:aws:cloudformation:ap-northeast-1:123456789012:stack/hayasend/id",
+        });
+      }
       if (
         command === "aws" &&
         args[0] === "cloudformation" &&
@@ -481,12 +695,15 @@ describe("AWS lifecycle operations", () => {
         return result();
       }
       if (
-        deleting &&
         command === "aws" &&
         args[0] === "cloudformation" &&
         args[1] === "describe-stacks"
       ) {
-        return missingStack();
+        return deleting
+          ? missingStack()
+          : existingStack({
+              EnableTerminationProtection: protectionEnabled,
+            });
       }
       return undefined;
     });
@@ -497,6 +714,7 @@ describe("AWS lifecycle operations", () => {
         "--apply",
         "--confirm-stack",
         "hayasend",
+        "--disable-termination-protection",
       ],
       {
         env: awsEnvironment,
@@ -511,5 +729,57 @@ describe("AWS lifecycle operations", () => {
       deleted: true,
       stack: "hayasend",
     });
+  });
+
+  it("re-enables termination protection when delete submission fails", async () => {
+    let protectionEnabled = true;
+    const protectionCalls: string[] = [];
+    const runner = awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "update-termination-protection"
+      ) {
+        protectionEnabled = args.includes("--enable-termination-protection");
+        protectionCalls.push(protectionEnabled ? "enable" : "disable");
+        return result();
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        return existingStack({
+          EnableTerminationProtection: protectionEnabled,
+        });
+      }
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "delete-stack"
+      ) {
+        return result("", 254, "delete rejected");
+      }
+      return undefined;
+    });
+
+    await expect(
+      runCli(
+        [
+          "cleanup",
+          "aws",
+          "--apply",
+          "--confirm-stack",
+          "hayasend",
+          "--disable-termination-protection",
+        ],
+        {
+          env: awsEnvironment,
+          runCommand: runner,
+        },
+      ),
+    ).rejects.toThrow("Termination protection was re-enabled");
+    expect(protectionCalls).toEqual(["disable", "enable"]);
+    expect(protectionEnabled).toBe(true);
   });
 });

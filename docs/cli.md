@@ -678,6 +678,12 @@ secret and never creates DNS records. If CloudFormation fails, the error
 includes redacted recent stack events for recovery. Follow the
 [operations runbook](operations.md) before retrying.
 
+A successful apply also installs a CloudFormation stack policy that rejects
+replacement or deletion of the retained DynamoDB, S3, and inbound KMS
+resources and enables termination protection. The result is not successful
+unless both controls are read back and verified. This protection is also
+reconciled when an apply has no template changes.
+
 ## Inspect AWS status
 
 Use the same expected-account gate for an infrastructure and sending-readiness
@@ -685,14 +691,19 @@ snapshot:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 ```
 
-This is read-only and does not require SAM or build the application. It checks
-the AWS CLI and caller identity, SES production/sending state and quota,
-CloudFormation stack state and last reported drift, individual stack
-resources, stack-owned CloudWatch alarms, and the public `/healthz` endpoint.
-Only problematic resources and alarms are expanded in the result. The output
-also links the generated dashboard and prints exact `upgrade aws`, `cleanup
+Without `--detect-drift`, this is read-only and does not require SAM or build
+the application. It checks the AWS CLI and caller identity, SES
+production/sending state and quota, CloudFormation stack state, termination
+protection, the retained-resource stack policy, last reported drift,
+individual stack resources, stack-owned CloudWatch alarms, and the public
+`/healthz` endpoint. `--detect-drift` explicitly starts and awaits a fresh
+CloudFormation drift check. It reports only drifted logical IDs, resource
+types, and statuses, never property differences or property values. Only
+problematic resources and alarms are expanded in the result. The output also
+links the generated dashboard and prints exact drift, `upgrade aws`, `cleanup
 aws`, and authenticated `doctor` next steps.
 
 `operational` covers infrastructure, alarms, and public health. `send_ready`
@@ -722,14 +733,16 @@ Cleanup is also plan-first:
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
-  --apply --confirm-stack hayasend
+  --apply --confirm-stack hayasend --disable-termination-protection
 ```
 
 The CLI refuses stacks without both `Project=HayaSend` and
-`ManagedBy=HayaSendCLI`, non-terminal stacks, and stacks with termination
-protection enabled. Apply requires the exact stack name, starts ordinary
-CloudFormation deletion, waits for `stack-delete-complete`, and verifies that
-the stack is absent.
+`ManagedBy=HayaSendCLI` and non-terminal stacks. Apply requires the exact
+stack name. A protected stack additionally requires
+`--disable-termination-protection`; the CLI disables and verifies that control
+immediately before ordinary CloudFormation deletion. If submission of the
+delete request fails, it attempts to restore the protection. It waits for
+`stack-delete-complete` and verifies that the stack is absent.
 
 Cleanup never purges resources protected by `DeletionPolicy: Retain`. Its
 plan and result identify the retained DynamoDB table, payload bucket, and any
