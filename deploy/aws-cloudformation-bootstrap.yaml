@@ -144,6 +144,10 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"
+              - Sid: InspectOnlyManagedLambdaConcurrency
+                Effect: Allow
+                Action: lambda:GetProvisionedConcurrencyConfig
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"
               - Effect: Allow
                 Action:
                   - lambda:AddPermission
@@ -174,6 +178,14 @@ Resources:
                   - lambda:UpdateFunctionCode
                   - lambda:UpdateFunctionConfiguration
                 Resource: "*"
+              - Sid: InspectOnlyManagedCodeDeployResources
+                Effect: Allow
+                Action:
+                  - codedeploy:ListDeployments
+                  - codedeploy:ListTagsForResource
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${ApplicationStackNamePrefix}*"
+                  - !Sub "arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${ApplicationStackNamePrefix}*/${ApplicationStackNamePrefix}*"
               # API Gateway V2 resource providers can authorize tagging with
               # the operation name (TagResource/UntagResource), while the IAM
               # service authorization catalog exposes only the HTTP verbs.
@@ -235,6 +247,13 @@ Resources:
                   - logs:TagResource
                   - logs:UntagResource
                 Resource: "*"
+              - Sid: InspectRegionalLogIndexPoliciesForDrift
+                Effect: Allow
+                Action: logs:DescribeIndexPolicies
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
         - PolicyName: HayaSendDataAndMessaging
           PolicyDocument:
             Version: "2012-10-17"
