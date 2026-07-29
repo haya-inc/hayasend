@@ -140,6 +140,10 @@ Resources:
                 Condition:
                   StringEquals:
                     iam:AWSServiceName: ops.apigateway.amazonaws.com
+              - Sid: InvokeOnlyManagedCustomResourceFunctions
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"
               - Effect: Allow
                 Action:
                   - lambda:AddPermission
