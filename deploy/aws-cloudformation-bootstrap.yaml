@@ -170,6 +170,27 @@ Resources:
                   - lambda:UpdateFunctionCode
                   - lambda:UpdateFunctionConfiguration
                 Resource: "*"
+              # API Gateway V2 resource providers can authorize tagging with
+              # the operation name (TagResource/UntagResource), while the IAM
+              # service authorization catalog exposes only the HTTP verbs.
+              # The service wildcard bridges that provider/catalog gap only
+              # for HayaSend-tagged HTTP API resources.
+              - Sid: TagOnlyManagedApiGatewayResources
+                Effect: Allow
+                Action: apigateway:*
+                Resource: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/Project: HayaSend
+                    aws:RequestTag/ManagedBy: HayaSendCLI
+              - Sid: UseProviderOperationsOnlyOnManagedApiGatewayResources
+                Effect: Allow
+                Action: apigateway:*
+                Resource: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*"
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/Project: HayaSend
+                    aws:ResourceTag/ManagedBy: HayaSendCLI
               - Effect: Allow
                 Action:
                   - apigateway:DELETE

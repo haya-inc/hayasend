@@ -704,6 +704,39 @@ describe("AWS lifecycle operations", () => {
     ).toBe(false);
   });
 
+  it("allows cleanup after a failed initial deployment rolled back", async () => {
+    const capture = capturingIo();
+    const runner = awsRunner((command, args) =>
+      command === "aws" &&
+      args[0] === "cloudformation" &&
+      args[1] === "describe-stacks"
+        ? existingStack({ StackStatus: "ROLLBACK_COMPLETE" })
+        : undefined,
+    );
+
+    await runCli(["cleanup", "aws"], {
+      env: awsEnvironment,
+      io: capture.io,
+      runCommand: runner,
+    });
+
+    expect(JSON.parse(capture.logs[0] ?? "{}")).toMatchObject({
+      object: "aws_cleanup_plan",
+      mutating: false,
+      stack: {
+        status: "ROLLBACK_COMPLETE",
+      },
+    });
+    expect(
+      runner.mock.calls.some(
+        ([command, args]) =>
+          command === "aws" &&
+          args[0] === "cloudformation" &&
+          args[1] === "delete-stack",
+      ),
+    ).toBe(false);
+  });
+
   it("requires exact cleanup confirmation and refuses unmanaged stacks", async () => {
     await expect(
       runCli(["cleanup", "aws", "--apply"], {
