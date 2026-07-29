@@ -717,10 +717,14 @@ jobs:
           jq '{entryCount, size, unpackedSize, filename}' \
             "$RUNNER_TEMP/npm-pack-metadata.json"
           jq --exit-status '
-            .entryCount <= 615 and
-            .size < 780000 and
-            .unpackedSize < 4100000 and
+            .entryCount <= 620 and
+            .size < 800000 and
+            .unpackedSize < 4150000 and
             ([.files[].path] | index("dist/cli.js") != null) and
+            ([.files[].path] |
+              index("dist/cli-aws-bootstrap.js") != null) and
+            ([.files[].path] |
+              index("deploy/aws-cloudformation-bootstrap.yaml") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
               index("migrations/0003_cloudflare_suppressions.sql") != null) and

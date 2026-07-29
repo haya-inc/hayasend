@@ -60,9 +60,13 @@ describe("npm CLI distribution", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(workflow).toContain(".entryCount <= 615");
-    expect(workflow).toContain(".size < 780000");
-    expect(workflow).toContain(".unpackedSize < 4100000");
+    expect(workflow).toContain(".entryCount <= 620");
+    expect(workflow).toContain(".size < 800000");
+    expect(workflow).toContain(".unpackedSize < 4150000");
+    expect(workflow).toContain('index("dist/cli-aws-bootstrap.js") != null');
+    expect(workflow).toContain(
+      'index("deploy/aws-cloudformation-bootstrap.yaml") != null',
+    );
     expect(workflow).toContain(
       'index("dist/portable/backup-restore-proof.js") != null',
     );
@@ -99,16 +103,16 @@ describe("npm CLI distribution", () => {
 
     expect(workflow).toContain("environment: npm");
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain(
-      "ref: ${{ inputs.release_tag || github.ref }}",
-    );
+    expect(workflow).toContain("ref: ${{ inputs.release_tag || github.ref }}");
     expect(workflow).toContain("if: github.event_name == 'push'");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("package-manager-cache: false");
     expect(workflow).toContain(
       "npm install --global --ignore-scripts npm@12.0.1",
     );
-    expect(workflow).toContain('npm_archive="haya-inc-hayasend-${VERSION}.tgz"');
+    expect(workflow).toContain(
+      'npm_archive="haya-inc-hayasend-${VERSION}.tgz"',
+    );
     expect(workflow).toContain(
       'node scripts/npm-package-integrity.mjs < "$archive"',
     );
@@ -122,7 +126,9 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain(
       'map(select(type == "string")) | first // empty',
     );
-    expect(workflow).toContain('if [ "$published_integrity" != "$local_integrity" ]');
+    expect(workflow).toContain(
+      'if [ "$published_integrity" != "$local_integrity" ]',
+    );
     expect(workflow).toContain(
       'archive="./release/haya-inc-hayasend-${VERSION}.tgz"',
     );
