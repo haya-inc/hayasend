@@ -389,16 +389,21 @@ Requirements:
 - an SES-enabled AWS Region
 - SES production access before sending to unverified recipients
 
-Start with the non-mutating deployment plan. The explicit account ID prevents
-an authenticated shell from silently targeting the wrong account:
+Authenticate once, then keep the expected account and Region as non-secret
+shell configuration. The CLI checks the live STS identity on every lifecycle
+command, so a stale or wrong SSO session cannot silently target another
+account:
 
 ```bash
-aws_account_id="$(aws sts get-caller-identity --query Account --output text)"
 HAYASEND_VERSION=X.Y.Z
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
-  --account "$aws_account_id" \
-  --region ap-northeast-1 \
-  --stack hayasend
+export AWS_PROFILE=your-sso-profile
+export AWS_REGION=ap-northeast-1
+aws sso login --profile "$AWS_PROFILE"
+export HAYASEND_AWS_ACCOUNT_ID="$(
+  aws sts get-caller-identity --query Account --output text
+)"
+
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws
 ```
 
 The plan validates the tools and template, performs a clean temporary SAM
@@ -408,9 +413,6 @@ AWS. After reviewing it, repeat the command with `--apply`:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
-  --account "$aws_account_id" \
-  --region ap-northeast-1 \
-  --stack hayasend \
   --log-retention-days 30 \
   --apply
 ```
@@ -422,6 +424,25 @@ and refuses removals, indeterminate actions, or possible replacements unless
 [CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
 preservation, finite Lambda log retention, failure recovery, and output
 privacy.
+
+The same CLI covers the complete stack lifecycle:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --apply --confirm-stack hayasend
+```
+
+`status aws` combines CloudFormation state and drift, SES sending readiness,
+stack-resource failures, CloudWatch alarms, public API health, and the
+dashboard link. `cleanup aws` is plan-first and deliberately retains the
+DynamoDB table, payload bucket, and enabled inbound data resources; it prints
+their physical IDs for a separate retention or destruction decision. See the
+copy-paste [AWS quickstart](docs/aws-quickstart.md) and the
+[operations runbook](docs/operations.md).
 
 Before choosing a Region or comparing hosted alternatives, review the
 [reproducible AWS cost model](docs/aws-costs.md). It separates SES charges

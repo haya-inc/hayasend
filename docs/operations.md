@@ -1,6 +1,8 @@
 # Operations runbook
 
 This runbook is the minimum operating procedure for an AWS deployment.
+Use the [AWS quickstart](aws-quickstart.md) for the shortest create, status,
+update, and removal path.
 For disposable end-to-end validation, use the
 [dedicated-account integration workflow](aws-integration-testing.md).
 Budget the selected Region and retention policy with the
@@ -15,6 +17,10 @@ The plan-first CLI needs read access for:
 - `ses:GetAccount`;
 - `cloudformation:DescribeStacks`.
 
+`status aws` additionally uses `cloudformation:ListStackResources` and
+`cloudwatch:DescribeAlarms`, then calls the public HayaSend `/healthz`
+endpoint. It does not read log events, message data, or secret values.
+
 `--apply` additionally reads CloudFormation change sets and failure events
 through `cloudformation:ListChangeSets`,
 `cloudformation:DescribeChangeSet`, and
@@ -28,10 +34,52 @@ template, organizational permission boundaries, Region, and enabled inbound
 features, then review it through the same infrastructure process as other
 production roles.
 
+`cleanup aws --apply` needs `cloudformation:DeleteStack` in addition to the
+read operations. CloudFormation still needs its normal service-role or caller
+permissions to delete stack-owned resources. Cleanup never empties or deletes
+resources protected by `DeletionPolicy: Retain`.
+
 The CLI never reads the bootstrap secret value, edits DNS, or passes
 credentials as command-line arguments. Its JSON output contains account IDs,
 principal and resource ARNs, domain suffixes, and stack outputs, so retain it
 as operational metadata rather than posting it publicly.
+
+## Routine lifecycle
+
+Keep the expected account and Region in non-secret environment variables so
+every operation stays short while retaining the live STS safety gate:
+
+```bash
+export HAYASEND_AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=ap-northeast-1
+
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+```
+
+Run `status aws` after every deploy or upgrade, at the start of an incident,
+and before a production canary. Do not treat `operational: true` as proof of
+mail delivery: require `send_ready: true`, then complete a controlled send and
+confirm the terminal recipient event and mailbox receipt.
+
+For an update, review the plan before apply:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+```
+
+For decommissioning, first record a disposition for retained customer data:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --apply --confirm-stack hayasend
+```
+
+The cleanup result repeats retained resource physical IDs after verified stack
+deletion. Do not improvise a bulk purge; handle those resources under the
+applicable recovery, compliance, and privacy policy.
 
 ## After deployment
 

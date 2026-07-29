@@ -14,8 +14,10 @@ import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
+  cleanupAws,
   defaultCommandRunner,
   deployAws,
+  statusAws,
   type CommandRunner,
 } from "./cli-aws-deploy.js";
 import {
@@ -1360,9 +1362,13 @@ async function testSend(args: string[], dependencies: CliDependencies) {
   );
 }
 
-async function deployCommand(args: string[], dependencies: CliDependencies) {
+async function deployCommand(
+  args: string[],
+  dependencies: CliDependencies,
+  operation: "deploy" | "upgrade" = "deploy",
+) {
   const target = args[0] ?? "";
-  if (target === "cloudflare") {
+  if (target === "cloudflare" && operation === "deploy") {
     validateOptions(args, {
       values: [
         "account",
@@ -1416,7 +1422,9 @@ async function deployCommand(args: string[], dependencies: CliDependencies) {
   }
   if (target !== "aws") {
     throw new Error(
-      `Unknown deploy target: ${target || "(missing)"}. Run hayasend help.`,
+      `Unknown ${operation} target: ${
+        target || "(missing)"
+      }. Run hayasend help.`,
     );
   }
   validateOptions(args, {
@@ -1447,9 +1455,6 @@ async function deployCommand(args: string[], dependencies: CliDependencies) {
     repeatable: ["tag"],
   });
   const account = flag(args, "account");
-  if (!account) {
-    throw new Error("deploy aws requires --account.");
-  }
   const enableInbound = hasFlag(args, "enable-inbound");
   const disableInbound = hasFlag(args, "disable-inbound");
   if (enableInbound && disableInbound) {
@@ -1477,10 +1482,11 @@ async function deployCommand(args: string[], dependencies: CliDependencies) {
   const workerReservedConcurrency = flag(args, "worker-reserved-concurrency");
   await deployAws(
     {
-      account,
+      ...(account ? { account } : {}),
       ...(region ? { region } : {}),
       ...(stack ? { stack } : {}),
       ...(profile ? { profile } : {}),
+      operation,
       apply: hasFlag(args, "apply"),
       allowDestructiveChanges: hasFlag(args, "allow-destructive-changes"),
       ...(enableInbound
@@ -1503,6 +1509,85 @@ async function deployCommand(args: string[], dependencies: CliDependencies) {
         ? { workerReservedConcurrency }
         : {}),
       tags: flags(args, "tag"),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function statusAwsCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] !== "aws") {
+    throw new Error(
+      `Unknown status target: ${args[0] || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: ["account", "region", "stack", "profile"],
+  });
+  const account = flag(args, "account");
+  const region = flag(args, "region");
+  const stack = flag(args, "stack");
+  const profile = flag(args, "profile");
+  await statusAws(
+    {
+      ...(account ? { account } : {}),
+      ...(region ? { region } : {}),
+      ...(stack ? { stack } : {}),
+      ...(profile ? { profile } : {}),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      fetch: dependencies.fetch,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function upgradeCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] === "aws") {
+    await deployCommand(args, dependencies, "upgrade");
+    return;
+  }
+  await upgradeCloudflareCommand(args, dependencies);
+}
+
+async function cleanupCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  if (args[0] !== "aws") {
+    await cleanupCloudflareCommand(args, dependencies);
+    return;
+  }
+  validateOptions(args, {
+    values: ["account", "region", "stack", "profile", "confirm-stack"],
+    booleans: ["apply"],
+  });
+  const account = flag(args, "account");
+  const region = flag(args, "region");
+  const stack = flag(args, "stack");
+  const profile = flag(args, "profile");
+  const confirmStack = flag(args, "confirm-stack");
+  await cleanupAws(
+    {
+      ...(account ? { account } : {}),
+      ...(region ? { region } : {}),
+      ...(stack ? { stack } : {}),
+      ...(profile ? { profile } : {}),
+      apply: hasFlag(args, "apply"),
+      ...(confirmStack ? { confirmStack } : {}),
     },
     {
       cwd: dependencies.cwd,
@@ -1719,11 +1804,23 @@ Commands:
   dev
       Start HayaSend in local mode.
 
-  deploy aws --account ACCOUNT_ID [--region REGION] [--stack NAME]
+  deploy aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Validate tools, identity, SES readiness, the SAM template, and a local
       build without changing AWS. Add --apply to create, inspect, and execute
       an exact CloudFormation change set. Destructive changes require the
       additional --allow-destructive-changes acknowledgement.
+
+  status aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
+      Show the stack, SES readiness, CloudFormation resources, CloudWatch
+      alarms, public health, dashboard link, and exact next commands.
+
+  upgrade aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
+      Plan or safely apply an update to an existing HayaSend stack. The same
+      inspected change-set and destructive-change protections as deploy apply.
+
+  cleanup aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
+      Plan deletion and list data resources retained by CloudFormation.
+      Applying requires --apply and the exact --confirm-stack value.
 
   deploy cloudflare --account ACCOUNT_ID --name NAME --email-domain DOMAIN
       Print a pinned, plan-first disposable Cloudflare deployment. Add --apply
@@ -1851,7 +1948,9 @@ Environment:
   HAYASEND_ATTACHMENT_UPLOAD_ORIGINS
                        Comma-separated HTTPS origins for custom S3-compatible
                        direct attachment uploads
-  AWS_REGION            Default Region for deploy aws
+  HAYASEND_AWS_ACCOUNT_ID
+                       Expected 12-digit AWS account for AWS lifecycle commands
+  AWS_REGION            Default Region for AWS lifecycle commands
 `);
 }
 
@@ -1887,14 +1986,17 @@ export async function runCli(
     case "deploy":
       await deployCommand(args.slice(1), dependencies);
       break;
+    case "status":
+      await statusAwsCommand(args.slice(1), dependencies);
+      break;
     case "upgrade":
-      await upgradeCloudflareCommand(args.slice(1), dependencies);
+      await upgradeCommand(args.slice(1), dependencies);
       break;
     case "rollback":
       await rollbackCloudflareCommand(args.slice(1), dependencies);
       break;
     case "cleanup":
-      await cleanupCloudflareCommand(args.slice(1), dependencies);
+      await cleanupCommand(args.slice(1), dependencies);
       break;
     case "doctor":
       if (args[1] === "cloudflare") {

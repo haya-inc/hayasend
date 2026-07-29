@@ -1,0 +1,130 @@
+# AWS quickstart
+
+This is the shortest supported path for creating, checking, updating, and
+removing a HayaSend AWS deployment. Use an exact released HayaSend version in
+every infrastructure command.
+
+## 1. Sign in and set the target once
+
+Install Node.js 24 or newer, npm 12 or newer, the current AWS CLI v2, and the
+current AWS SAM CLI. Sign in with your normal AWS SSO profile:
+
+```bash
+export AWS_PROFILE=your-sso-profile
+export AWS_REGION=ap-northeast-1
+aws sso login --profile "$AWS_PROFILE"
+
+export HAYASEND_AWS_ACCOUNT_ID="$(
+  aws sts get-caller-identity --query Account --output text
+)"
+export HAYASEND_VERSION=X.Y.Z
+```
+
+`HAYASEND_AWS_ACCOUNT_ID` and `AWS_REGION` are non-secret configuration. Every
+HayaSend AWS command calls STS and refuses to continue when the authenticated
+account differs. Pass `--account`, `--region`, `--stack`, or `--profile` only
+when overriding these defaults. The default stack name is `hayasend`.
+
+## 2. Create the stack
+
+Generate a read-only plan:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws
+```
+
+Review the account, Region, SES state, parameters, tags, and exact apply
+command in the JSON result. Then apply:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws --apply
+```
+
+Apply builds the packaged SAM application, creates an unexecuted
+CloudFormation change set, prints every resource action, and executes it only
+when no unacknowledged removal or possible replacement exists. HayaSend never
+changes DNS.
+
+## 3. Check whether it is ready
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+```
+
+The result keeps two decisions separate:
+
+- `operational` requires a stable stack, no drift reported, no problematic
+  stack resources, all discovered HayaSend alarms in `OK`, and a successful
+  public `/healthz` request;
+- `send_ready` additionally requires SES production access and account
+  sending to be enabled.
+
+The result includes SES quota, only problematic resource and alarm details,
+the CloudWatch dashboard URL, and exact update, cleanup, and deep-diagnostics
+commands. It does not read the bootstrap secret or API keys.
+
+For authenticated application and queue diagnostics, set a scoped key locally
+and run:
+
+```bash
+export HAYASEND_BASE_URL=https://your-api.example
+export HAYASEND_API_KEY=your-scoped-diagnostics-key
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
+```
+
+Keep the key in an approved secret manager and out of command arguments,
+transcripts, and issue reports.
+
+## 4. Update safely
+
+Plan an update to the existing stack:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
+```
+
+After reviewing the plan:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+```
+
+`upgrade aws` refuses a missing or non-terminal stack and uses the same exact
+change-set inspection as initial deployment. If CloudFormation proposes any
+removal, indeterminate action, or possible replacement, it stops before
+execution. Use `--allow-destructive-changes` only after reviewing every
+printed destructive action.
+
+Run `status aws` again after every update.
+
+## 5. Remove the running stack
+
+First print the deletion plan:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
+```
+
+Cleanup refuses an unmanaged stack, a non-terminal stack, or a stack with
+termination protection enabled. To delete the stack, repeat the exact name:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --apply \
+  --confirm-stack hayasend
+```
+
+The CLI waits for `stack-delete-complete` and verifies that the stack no longer
+exists. It does not purge retained customer data. The DynamoDB table, payload
+bucket, and enabled inbound bucket and KMS key have `DeletionPolicy: Retain`;
+their physical IDs are printed before and after deletion. Decide their
+retention, export, and eventual destruction separately under the applicable
+backup, audit, and privacy policy.
+
+## Routine operating loop
+
+Run `status aws` after deployment, after updates, after AWS incidents, and
+before production canaries. Subscribe a real on-call destination to the
+`AlarmTopicArn`, confirm that subscription, configure an AWS Budget, and use
+the generated dashboard as the first operational view. The complete response
+procedures are in the [operations runbook](operations.md).

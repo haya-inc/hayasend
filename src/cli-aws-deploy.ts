@@ -19,6 +19,7 @@ const SHORT_COMMAND_TIMEOUT_MS = 30_000;
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 const DEPLOY_TIMEOUT_MS = 15 * 60_000;
 const STACK_TIMEOUT_MS = 35 * 60_000;
+const HEALTH_TIMEOUT_MS = 5_000;
 const LOG_RETENTION_DAYS = new Set([
   1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827,
   2192, 2557, 2922, 3288, 3653,
@@ -68,6 +69,13 @@ const OUTPUT_KEYS = [
   "InboundMxRecord",
 ] as const;
 
+const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
+  "DataTable",
+  "PayloadBucket",
+  "InboundKey",
+  "InboundBucket",
+]);
+
 const STABLE_STACK_STATUSES = new Set([
   "CREATE_COMPLETE",
   "UPDATE_COMPLETE",
@@ -94,10 +102,11 @@ export type CommandRunner = (
 ) => Promise<CommandResult>;
 
 export interface AwsDeployOptions {
-  account: string;
+  account?: string;
   region?: string;
   stack?: string;
   profile?: string;
+  operation?: "deploy" | "upgrade";
   apply: boolean;
   allowDestructiveChanges: boolean;
   enableInbound?: boolean;
@@ -123,11 +132,31 @@ export interface AwsDeployDependencies {
   runCommand: CommandRunner;
 }
 
-interface NormalizedOptions {
+export interface AwsStatusDependencies extends AwsDeployDependencies {
+  fetch: typeof fetch;
+}
+
+export interface AwsTargetOptions {
+  account?: string;
+  region?: string;
+  stack?: string;
+  profile?: string;
+}
+
+export interface AwsCleanupOptions extends AwsTargetOptions {
+  apply: boolean;
+  confirmStack?: string;
+}
+
+interface NormalizedTarget {
   account: string;
   region: string;
   stack: string;
   profile?: string;
+}
+
+interface NormalizedOptions extends NormalizedTarget {
+  operation: "deploy" | "upgrade";
   apply: boolean;
   allowDestructiveChanges: boolean;
   explicitParameters: Record<string, string>;
@@ -137,9 +166,36 @@ interface NormalizedOptions {
 interface StackDescription {
   exists: boolean;
   status?: string;
+  creationTime?: string;
+  lastUpdatedTime?: string;
+  terminationProtectionEnabled?: boolean;
+  driftStatus?: string;
+  driftLastCheckedAt?: string;
   parameters: Record<string, string>;
   outputs: Record<string, string>;
   tags: Record<string, string>;
+}
+
+interface StackResource {
+  logicalId: string;
+  physicalId?: string;
+  type: string;
+  status: string;
+  statusReason?: string;
+}
+
+interface AwsIdentity {
+  account: string;
+  principalArn: string;
+}
+
+interface SesAccount {
+  productionAccess: boolean;
+  sendingEnabled: boolean;
+  enforcementStatus: string | null;
+  max24HourSend: unknown;
+  maxSendRate: unknown;
+  sentLast24Hours: unknown;
 }
 
 interface ResourceChange {
@@ -310,12 +366,15 @@ function validateRecipientSuffixes(value: string) {
   }
 }
 
-function normalizeOptions(
-  options: AwsDeployOptions,
+function normalizeTargetOptions(
+  options: AwsTargetOptions,
   env: NodeJS.ProcessEnv,
-): NormalizedOptions {
-  if (!/^\d{12}$/.test(options.account)) {
-    throw new Error("--account must be the expected 12-digit AWS account ID.");
+): Pick<NormalizedOptions, "account" | "region" | "stack" | "profile"> {
+  const account = options.account ?? env.HAYASEND_AWS_ACCOUNT_ID;
+  if (!account || !/^\d{12}$/.test(account)) {
+    throw new Error(
+      "--account or HAYASEND_AWS_ACCOUNT_ID must be the expected 12-digit AWS account ID.",
+    );
   }
   const region = options.region ?? env.AWS_REGION ?? env.AWS_DEFAULT_REGION;
   if (!region || !/^[a-z]{2}(?:-[a-z0-9]+)+-\d$/.test(region)) {
@@ -335,6 +394,19 @@ function normalizeOptions(
   ) {
     throw new Error("--profile contains unsupported characters.");
   }
+  return {
+    account,
+    region,
+    stack,
+    ...(options.profile ? { profile: options.profile } : {}),
+  };
+}
+
+function normalizeOptions(
+  options: AwsDeployOptions,
+  env: NodeJS.ProcessEnv,
+): NormalizedOptions {
+  const target = normalizeTargetOptions(options, env);
   if (options.allowDestructiveChanges && !options.apply) {
     throw new Error("--allow-destructive-changes requires --apply.");
   }
@@ -452,10 +524,8 @@ function normalizeOptions(
   }
 
   return {
-    account: options.account,
-    region,
-    stack,
-    ...(options.profile ? { profile: options.profile } : {}),
+    ...target,
+    operation: options.operation ?? "deploy",
     apply: options.apply,
     allowDestructiveChanges: options.allowDestructiveChanges,
     explicitParameters,
@@ -464,7 +534,7 @@ function normalizeOptions(
 }
 
 function awsArgs(
-  options: NormalizedOptions,
+  options: NormalizedTarget,
   serviceArgs: string[],
   includeRegion = true,
 ) {
@@ -478,7 +548,7 @@ function awsArgs(
   ];
 }
 
-function samArgs(options: NormalizedOptions, commandArgs: string[]) {
+function samArgs(options: NormalizedTarget, commandArgs: string[]) {
   return [
     ...commandArgs,
     ...(options.profile ? ["--profile", options.profile] : []),
@@ -595,7 +665,7 @@ function readTags(tags: Array<{ Key?: unknown; Value?: unknown }> = []) {
 
 async function describeStack(
   dependencies: AwsDeployDependencies,
-  options: NormalizedOptions,
+  options: NormalizedTarget,
 ): Promise<StackDescription> {
   const result = await dependencies.runCommand(
     "aws",
@@ -621,6 +691,13 @@ async function describeStack(
   let value: {
     Stacks?: Array<{
       StackStatus?: unknown;
+      CreationTime?: unknown;
+      LastUpdatedTime?: unknown;
+      EnableTerminationProtection?: unknown;
+      DriftInformation?: {
+        StackDriftStatus?: unknown;
+        LastCheckTimestamp?: unknown;
+      };
       Parameters?: Array<{
         ParameterKey?: unknown;
         ParameterValue?: unknown;
@@ -641,10 +718,328 @@ async function describeStack(
   return {
     exists: true,
     status: stack.StackStatus,
+    ...(typeof stack.CreationTime === "string"
+      ? { creationTime: stack.CreationTime }
+      : {}),
+    ...(typeof stack.LastUpdatedTime === "string"
+      ? { lastUpdatedTime: stack.LastUpdatedTime }
+      : {}),
+    ...(typeof stack.EnableTerminationProtection === "boolean"
+      ? {
+          terminationProtectionEnabled:
+            stack.EnableTerminationProtection,
+        }
+      : {}),
+    ...(typeof stack.DriftInformation?.StackDriftStatus === "string"
+      ? { driftStatus: stack.DriftInformation.StackDriftStatus }
+      : {}),
+    ...(typeof stack.DriftInformation?.LastCheckTimestamp === "string"
+      ? {
+          driftLastCheckedAt:
+            stack.DriftInformation.LastCheckTimestamp,
+        }
+      : {}),
     parameters: readParameters(stack.Parameters),
     outputs: readOutputs(stack.Outputs),
     tags: readTags(stack.Tags),
   };
+}
+
+async function requireAwsIdentity(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+): Promise<AwsIdentity> {
+  const identity = await requireJson<{ Account?: unknown; Arn?: unknown }>(
+    dependencies,
+    "aws",
+    awsArgs(options, ["sts", "get-caller-identity"], false),
+    "AWS caller identity",
+  );
+  if (
+    identity.Account !== options.account ||
+    typeof identity.Arn !== "string"
+  ) {
+    throw new Error(
+      `AWS caller account ${String(
+        identity.Account ?? "unknown",
+      )} does not match --account or HAYASEND_AWS_ACCOUNT_ID.`,
+    );
+  }
+  return {
+    account: identity.Account,
+    principalArn: identity.Arn,
+  };
+}
+
+async function requireSesAccount(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+): Promise<SesAccount> {
+  const ses = await requireJson<{
+    ProductionAccessEnabled?: unknown;
+    SendingEnabled?: unknown;
+    EnforcementStatus?: unknown;
+    SendQuota?: {
+      Max24HourSend?: unknown;
+      MaxSendRate?: unknown;
+      SentLast24Hours?: unknown;
+    };
+  }>(
+    dependencies,
+    "aws",
+    awsArgs(options, ["sesv2", "get-account"]),
+    "SES account preflight",
+  );
+  return {
+    productionAccess: ses.ProductionAccessEnabled === true,
+    sendingEnabled: ses.SendingEnabled === true,
+    enforcementStatus:
+      typeof ses.EnforcementStatus === "string"
+        ? ses.EnforcementStatus
+        : null,
+    max24HourSend: ses.SendQuota?.Max24HourSend ?? null,
+    maxSendRate: ses.SendQuota?.MaxSendRate ?? null,
+    sentLast24Hours: ses.SendQuota?.SentLast24Hours ?? null,
+  };
+}
+
+async function listStackResources(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+): Promise<StackResource[]> {
+  const value = await requireJson<{
+    StackResourceSummaries?: Array<{
+      LogicalResourceId?: unknown;
+      PhysicalResourceId?: unknown;
+      ResourceType?: unknown;
+      ResourceStatus?: unknown;
+      ResourceStatusReason?: unknown;
+    }>;
+  }>(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "list-stack-resources",
+      "--stack-name",
+      options.stack,
+    ]),
+    "CloudFormation resource inspection",
+  );
+  const resources: StackResource[] = [];
+  for (const item of value.StackResourceSummaries ?? []) {
+    if (
+      typeof item.LogicalResourceId !== "string" ||
+      typeof item.ResourceType !== "string" ||
+      typeof item.ResourceStatus !== "string"
+    ) {
+      throw new Error("CloudFormation returned invalid stack resource JSON.");
+    }
+    resources.push({
+      logicalId: item.LogicalResourceId,
+      ...(typeof item.PhysicalResourceId === "string"
+        ? { physicalId: item.PhysicalResourceId }
+        : {}),
+      type: item.ResourceType,
+      status: item.ResourceStatus,
+      ...(typeof item.ResourceStatusReason === "string"
+        ? {
+            statusReason: redactAwsDiagnostics(item.ResourceStatusReason),
+          }
+        : {}),
+    });
+  }
+  return resources;
+}
+
+function problematicResources(resources: StackResource[]) {
+  return resources
+    .filter(
+      (resource) =>
+        ![
+          "CREATE_COMPLETE",
+          "UPDATE_COMPLETE",
+          "IMPORT_COMPLETE",
+        ].includes(resource.status),
+    )
+    .map((resource) => ({
+      logical_id: resource.logicalId,
+      resource_type: resource.type,
+      status: resource.status,
+      ...(resource.statusReason
+        ? { status_reason: resource.statusReason }
+        : {}),
+    }));
+}
+
+function dashboardUrl(region: string, dashboardName: string) {
+  return `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${encodeURIComponent(
+    region,
+  )}#dashboards/dashboard/${encodeURIComponent(dashboardName)}`;
+}
+
+async function alarmSummary(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+  resources: StackResource[],
+) {
+  const alarms = resources.filter(
+    (resource) =>
+      resource.type === "AWS::CloudWatch::Alarm" && resource.physicalId,
+  );
+  if (alarms.length === 0) {
+    return {
+      total: 0,
+      ok: 0,
+      alarm: 0,
+      insufficient_data: 0,
+      problems: [] as Array<{
+        logical_id: string;
+        state: string;
+        reason: string | null;
+      }>,
+    };
+  }
+  const value = await requireJson<{
+    MetricAlarms?: Array<{
+      AlarmName?: unknown;
+      StateValue?: unknown;
+      StateReason?: unknown;
+    }>;
+    CompositeAlarms?: Array<{
+      AlarmName?: unknown;
+      StateValue?: unknown;
+      StateReason?: unknown;
+    }>;
+  }>(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudwatch",
+      "describe-alarms",
+      "--alarm-names",
+      ...alarms.map((alarm) => alarm.physicalId as string),
+    ]),
+    "CloudWatch alarm inspection",
+  );
+  const logicalByName = new Map(
+    alarms.map((alarm) => [alarm.physicalId as string, alarm.logicalId]),
+  );
+  const states = [
+    ...(value.MetricAlarms ?? []),
+    ...(value.CompositeAlarms ?? []),
+  ].flatMap((alarm) =>
+    typeof alarm.AlarmName === "string" &&
+    typeof alarm.StateValue === "string"
+      ? [
+          {
+            name: alarm.AlarmName,
+            logicalId:
+              logicalByName.get(alarm.AlarmName) ?? "UnknownAlarm",
+            state: alarm.StateValue,
+            reason:
+              typeof alarm.StateReason === "string"
+                ? redactAwsDiagnostics(alarm.StateReason)
+                : null,
+          },
+        ]
+      : [],
+  );
+  const missing = alarms.filter(
+    (alarm) =>
+      !states.some((state) => state.name === (alarm.physicalId as string)),
+  );
+  return {
+    total: alarms.length,
+    ok: states.filter((state) => state.state === "OK").length,
+    alarm: states.filter((state) => state.state === "ALARM").length,
+    insufficient_data:
+      states.filter((state) => state.state === "INSUFFICIENT_DATA").length +
+      missing.length,
+    problems: [
+      ...states
+        .filter((state) => state.state !== "OK")
+        .map((state) => ({
+          logical_id: state.logicalId,
+          state: state.state,
+          reason: state.reason,
+        })),
+      ...missing.map((alarm) => ({
+        logical_id: alarm.logicalId,
+        state: "NOT_RETURNED",
+        reason: null,
+      })),
+    ],
+  };
+}
+
+async function publicHealth(
+  endpoint: string,
+  dependencies: AwsStatusDependencies,
+) {
+  const startedAt = Date.now();
+  try {
+    const response = await dependencies.fetch(
+      `${endpoint.replace(/\/+$/, "")}/healthz`,
+      {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      },
+    );
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = contentType.includes("application/json")
+      ? ((await response.json()) as {
+          ok?: unknown;
+          service?: unknown;
+          version?: unknown;
+        })
+      : {};
+    const identified =
+      response.ok && body.ok === true && body.service === "hayasend";
+    return {
+      ok: identified,
+      http_status: response.status,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+      service: body.service === "hayasend" ? body.service : null,
+      version: typeof body.version === "string" ? body.version : null,
+      ...(!identified
+        ? {
+            error:
+              "The health endpoint did not identify a healthy HayaSend service.",
+          }
+        : {}),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      http_status: null,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+      error:
+        error instanceof Error
+          ? redactAwsDiagnostics(error.message)
+          : "Health request failed.",
+    };
+  }
+}
+
+function targetCommand(
+  operation: "deploy" | "status" | "upgrade" | "cleanup",
+  options: NormalizedTarget,
+) {
+  return [
+    "npx",
+    "--yes",
+    `@haya-inc/hayasend@${PACKAGED_VERSION}`,
+    operation,
+    "aws",
+    "--account",
+    options.account,
+    "--region",
+    options.region,
+    "--stack",
+    options.stack,
+    ...(options.profile ? ["--profile", options.profile] : []),
+  ];
 }
 
 function validateBootstrapSecret(
@@ -731,7 +1126,7 @@ function applyCommand(
     "npx",
     "--yes",
     `@haya-inc/hayasend@${PACKAGED_VERSION}`,
-    "deploy",
+    options.operation,
     "aws",
     "--account",
     options.account,
@@ -974,7 +1369,7 @@ function destructiveChanges(changes: ResourceChange[]) {
 
 async function recentFailureEvents(
   dependencies: AwsDeployDependencies,
-  options: NormalizedOptions,
+  options: NormalizedTarget,
 ) {
   const result = await dependencies.runCommand(
     "aws",
@@ -997,6 +1392,322 @@ async function recentFailureEvents(
     : "CloudFormation events were unavailable.";
 }
 
+export async function statusAws(
+  rawOptions: AwsTargetOptions,
+  dependencies: AwsStatusDependencies,
+) {
+  const options = normalizeTargetOptions(rawOptions, dependencies.env);
+  const awsVersionResult = await requireCommand(
+    dependencies,
+    "aws",
+    ["--version"],
+    "AWS CLI",
+  );
+  const identity = await requireAwsIdentity(dependencies, options);
+  const ses = await requireSesAccount(dependencies, options);
+  const stack = await describeStack(dependencies, options);
+  if (!stack.exists) {
+    dependencies.log(
+      JSON.stringify({
+        schema_version: 1,
+        object: "aws_status",
+        ok: false,
+        operational: false,
+        send_ready: false,
+        tools: {
+          aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
+        },
+        identity: {
+          account: identity.account,
+          principal_arn: identity.principalArn,
+        },
+        region: options.region,
+        stack: {
+          name: options.stack,
+          exists: false,
+          status: null,
+        },
+        ses: {
+          production_access: ses.productionAccess,
+          sending_enabled: ses.sendingEnabled,
+          enforcement_status: ses.enforcementStatus,
+          quota: {
+            max_24_hour_send: ses.max24HourSend,
+            max_send_rate: ses.maxSendRate,
+            sent_last_24_hours: ses.sentLast24Hours,
+          },
+        },
+        next: {
+          deploy_plan_command: targetCommand("deploy", options),
+        },
+      }),
+    );
+    return;
+  }
+
+  const resources = await listStackResources(dependencies, options);
+  const problems = problematicResources(resources);
+  const alarms = await alarmSummary(dependencies, options, resources);
+  const health = stack.outputs.ApiBaseUrl
+    ? await publicHealth(stack.outputs.ApiBaseUrl, dependencies)
+    : {
+        ok: false,
+        http_status: null,
+        latency_ms: 0,
+        error: "ApiBaseUrl is missing from the stack outputs.",
+      };
+  const stackStable =
+    stack.status !== undefined && STABLE_STACK_STATUSES.has(stack.status);
+  const driftHealthy = stack.driftStatus !== "DRIFTED";
+  const operational =
+    stackStable &&
+    driftHealthy &&
+    problems.length === 0 &&
+    alarms.total > 0 &&
+    alarms.problems.length === 0 &&
+    health.ok;
+  const sendReady =
+    operational && ses.productionAccess && ses.sendingEnabled;
+  const dashboardName = stack.outputs.OperationsDashboardName;
+
+  dependencies.log(
+    JSON.stringify({
+      schema_version: 1,
+      object: "aws_status",
+      ok: sendReady,
+      operational,
+      send_ready: sendReady,
+      tools: {
+        aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
+      },
+      identity: {
+        account: identity.account,
+        principal_arn: identity.principalArn,
+      },
+      region: options.region,
+      stack: {
+        name: options.stack,
+        exists: true,
+        status: stack.status ?? null,
+        created_at: stack.creationTime ?? null,
+        updated_at: stack.lastUpdatedTime ?? null,
+        termination_protection:
+          stack.terminationProtectionEnabled ?? false,
+        drift: {
+          status: stack.driftStatus ?? "NOT_CHECKED",
+          checked_at: stack.driftLastCheckedAt ?? null,
+        },
+        resources: {
+          total: resources.length,
+          problems,
+        },
+      },
+      ses: {
+        production_access: ses.productionAccess,
+        sending_enabled: ses.sendingEnabled,
+        enforcement_status: ses.enforcementStatus,
+        quota: {
+          max_24_hour_send: ses.max24HourSend,
+          max_send_rate: ses.maxSendRate,
+          sent_last_24_hours: ses.sentLast24Hours,
+        },
+      },
+      alarms,
+      public_health: health,
+      outputs: stack.outputs,
+      next: {
+        dashboard: dashboardName
+          ? {
+              name: dashboardName,
+              url: dashboardUrl(options.region, dashboardName),
+            }
+          : null,
+        deep_doctor: {
+          environment: {
+            HAYASEND_BASE_URL: stack.outputs.ApiBaseUrl ?? null,
+            HAYASEND_API_KEY:
+              "Set a scoped key locally; never pass it as a command argument.",
+          },
+          command: [
+            "npx",
+            "--yes",
+            `@haya-inc/hayasend@${PACKAGED_VERSION}`,
+            "doctor",
+          ],
+        },
+        upgrade_plan_command: targetCommand("upgrade", options),
+        cleanup_plan_command: targetCommand("cleanup", options),
+      },
+    }),
+  );
+}
+
+export async function cleanupAws(
+  rawOptions: AwsCleanupOptions,
+  dependencies: AwsDeployDependencies,
+) {
+  const options = normalizeTargetOptions(rawOptions, dependencies.env);
+  const awsVersionResult = await requireCommand(
+    dependencies,
+    "aws",
+    ["--version"],
+    "AWS CLI",
+  );
+  const identity = await requireAwsIdentity(dependencies, options);
+  const stack = await describeStack(dependencies, options);
+  if (!stack.exists) {
+    dependencies.log(
+      JSON.stringify({
+        schema_version: 1,
+        object: "aws_cleanup_plan",
+        ok: true,
+        mutating: false,
+        no_changes: true,
+        tools: {
+          aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
+        },
+        identity: {
+          account: identity.account,
+          principal_arn: identity.principalArn,
+        },
+        region: options.region,
+        stack: {
+          name: options.stack,
+          exists: false,
+          status: null,
+        },
+      }),
+    );
+    return;
+  }
+  if (!stack.status || !STABLE_STACK_STATUSES.has(stack.status)) {
+    throw new Error(
+      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before cleanup.`,
+    );
+  }
+  if (
+    stack.tags.Project !== "HayaSend" ||
+    stack.tags.ManagedBy !== "HayaSendCLI"
+  ) {
+    throw new Error(
+      `Refusing to delete stack ${options.stack}: it is not tagged Project=HayaSend and ManagedBy=HayaSendCLI.`,
+    );
+  }
+  if (stack.terminationProtectionEnabled === true) {
+    throw new Error(
+      `Refusing to delete stack ${options.stack}: CloudFormation termination protection is enabled.`,
+    );
+  }
+  const resources = await listStackResources(dependencies, options);
+  const retained = resources
+    .filter((resource) =>
+      RETAINED_RESOURCE_LOGICAL_IDS.has(resource.logicalId),
+    )
+    .map((resource) => ({
+      logical_id: resource.logicalId,
+      resource_type: resource.type,
+      physical_id: resource.physicalId ?? null,
+    }));
+  const applyCommand = [
+    ...targetCommand("cleanup", options),
+    "--apply",
+    "--confirm-stack",
+    options.stack,
+  ];
+  dependencies.log(
+    JSON.stringify({
+      schema_version: 1,
+      object: "aws_cleanup_plan",
+      ok: true,
+      mutating: rawOptions.apply,
+      mode: rawOptions.apply ? "apply" : "plan",
+      tools: {
+        aws_cli: commandVersion(awsVersionResult, "AWS CLI"),
+      },
+      identity: {
+        account: identity.account,
+        principal_arn: identity.principalArn,
+      },
+      region: options.region,
+      stack: {
+        name: options.stack,
+        exists: true,
+        status: stack.status,
+        resource_count: resources.length,
+      },
+      deletion: {
+        cloudformation_stack: options.stack,
+        retained_resources: retained,
+        retained_resource_handling:
+          "Retained DynamoDB, S3, and inbound KMS resources are not purged. Inspect and remove them separately only when their data is no longer required.",
+      },
+      ...(rawOptions.apply ? {} : { apply_command: applyCommand }),
+    }),
+  );
+  if (!rawOptions.apply) {
+    return;
+  }
+  if (rawOptions.confirmStack !== options.stack) {
+    throw new Error(
+      `cleanup aws --apply requires --confirm-stack ${options.stack}.`,
+    );
+  }
+
+  await requireCommand(
+    dependencies,
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "delete-stack",
+      "--stack-name",
+      options.stack,
+    ]),
+    "CloudFormation stack deletion",
+  );
+  const waitResult = await dependencies.runCommand(
+    "aws",
+    awsArgs(options, [
+      "cloudformation",
+      "wait",
+      "stack-delete-complete",
+      "--stack-name",
+      options.stack,
+    ]),
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      timeoutMs: STACK_TIMEOUT_MS,
+    },
+  );
+  const remaining = await describeStack(dependencies, options);
+  if (remaining.exists) {
+    const events = await recentFailureEvents(dependencies, options);
+    throw new Error(
+      `CloudFormation did not verify stack deletion${
+        waitResult.exitCode === 0
+          ? ""
+          : ` (waiter exit code ${waitResult.exitCode})`
+      }. Current stack status: ${
+        remaining.status ?? "not present"
+      }. Recent failure events: ${events}`,
+    );
+  }
+  dependencies.log(
+    JSON.stringify({
+      schema_version: 1,
+      object: "aws_cleanup_result",
+      ok: true,
+      deleted: true,
+      stack: options.stack,
+      retained_resources: retained,
+      next:
+        retained.length > 0
+          ? "Review retained resources and their retention/compliance requirements before any separate purge."
+          : "No retained HayaSend data resources were found.",
+    }),
+  );
+}
+
 export async function deployAws(
   rawOptions: AwsDeployOptions,
   dependencies: AwsDeployDependencies,
@@ -1016,6 +1727,22 @@ export async function deployAws(
     ["--version"],
     "AWS CLI",
   );
+  const identity = await requireAwsIdentity(dependencies, options);
+  const ses = await requireSesAccount(dependencies, options);
+  const stack = await describeStack(dependencies, options);
+  if (options.operation === "upgrade" && !stack.exists) {
+    throw new Error(
+      `Stack ${options.stack} does not exist; run deploy aws first.`,
+    );
+  }
+  if (
+    stack.exists &&
+    (!stack.status || !STABLE_STACK_STATUSES.has(stack.status))
+  ) {
+    throw new Error(
+      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before deploying.`,
+    );
+  }
   const samVersionResult = await requireCommand(
     dependencies,
     "sam",
@@ -1028,48 +1755,6 @@ export async function deployAws(
     ["--version"],
     "npm CLI",
   );
-  const identity = await requireJson<{ Account?: unknown; Arn?: unknown }>(
-    dependencies,
-    "aws",
-    awsArgs(
-      options,
-      ["sts", "get-caller-identity"],
-      false,
-    ),
-    "AWS caller identity",
-  );
-  if (
-    identity.Account !== options.account ||
-    typeof identity.Arn !== "string"
-  ) {
-    throw new Error(
-      `AWS caller account ${String(identity.Account ?? "unknown")} does not match --account.`,
-    );
-  }
-  const ses = await requireJson<{
-    ProductionAccessEnabled?: unknown;
-    SendingEnabled?: unknown;
-    EnforcementStatus?: unknown;
-    SendQuota?: {
-      Max24HourSend?: unknown;
-      MaxSendRate?: unknown;
-      SentLast24Hours?: unknown;
-    };
-  }>(
-    dependencies,
-    "aws",
-    awsArgs(options, ["sesv2", "get-account"]),
-    "SES account preflight",
-  );
-  const stack = await describeStack(dependencies, options);
-  if (
-    stack.exists &&
-    (!stack.status || !STABLE_STACK_STATUSES.has(stack.status))
-  ) {
-    throw new Error(
-      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before deploying.`,
-    );
-  }
   const parameters = effectiveParameters(options, stack);
   const tags = effectiveTags(options, stack);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "hayasend-deploy-"));
@@ -1124,6 +1809,7 @@ export async function deployAws(
         {
           schema_version: 1,
           object: "aws_deployment_plan",
+          operation: options.operation,
           ok: true,
           mutating: options.apply,
           mode: options.apply ? "apply" : "plan",
@@ -1133,8 +1819,8 @@ export async function deployAws(
             npm_cli: commandVersion(npmVersionResult, "npm CLI"),
           },
           identity: {
-            account: identity.Account,
-            principal_arn: identity.Arn,
+            account: identity.account,
+            principal_arn: identity.principalArn,
           },
           region: options.region,
           stack: {
@@ -1143,16 +1829,13 @@ export async function deployAws(
             status: stack.status ?? null,
           },
           ses: {
-            production_access: ses.ProductionAccessEnabled === true,
-            sending_enabled: ses.SendingEnabled === true,
-            enforcement_status:
-              typeof ses.EnforcementStatus === "string"
-                ? ses.EnforcementStatus
-                : null,
+            production_access: ses.productionAccess,
+            sending_enabled: ses.sendingEnabled,
+            enforcement_status: ses.enforcementStatus,
             quota: {
-              max_24_hour_send: ses.SendQuota?.Max24HourSend ?? null,
-              max_send_rate: ses.SendQuota?.MaxSendRate ?? null,
-              sent_last_24_hours: ses.SendQuota?.SentLast24Hours ?? null,
+              max_24_hour_send: ses.max24HourSend,
+              max_send_rate: ses.maxSendRate,
+              sent_last_24_hours: ses.sentLast24Hours,
             },
           },
           template: {
@@ -1218,6 +1901,7 @@ export async function deployAws(
           {
             schema_version: 1,
             object: "aws_deployment_result",
+            operation: options.operation,
             ok: true,
             applied: false,
             no_changes: true,
@@ -1327,6 +2011,7 @@ export async function deployAws(
         {
           schema_version: 1,
           object: "aws_deployment_result",
+          operation: options.operation,
           ok: true,
           applied: true,
           no_changes: false,

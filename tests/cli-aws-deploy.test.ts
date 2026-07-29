@@ -1047,7 +1047,7 @@ describe("plan-first AWS deployment CLI", () => {
 
     await expect(
       runCli(["deploy", "aws", "--region", "ap-northeast-1"], dependencies),
-    ).rejects.toThrow("requires --account");
+    ).rejects.toThrow("--account or HAYASEND_AWS_ACCOUNT_ID");
     await expect(
       runCli(
         [
