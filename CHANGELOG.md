@@ -6,6 +6,21 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.2 - 2026-07-29
+
+- Add a plan-first AWS lifecycle with a reusable least-privilege deployment
+  bootstrap, termination protection, retained-resource stack policy, drift
+  inspection, canary rollback, backup/restore proof, and verified zero-residue
+  deletion for the dedicated test account.
+- Add fail-closed Resend migration inventory, controlled canary, and readiness
+  report commands that require reconciliation, mailbox evidence, rollback,
+  SES production access, and sustained dogfood evidence before declaring GO.
+- Keep idempotent relative schedules stable across retries by hashing the
+  caller's original schedule while storing and executing one resolved instant.
+- Confine CLI-selected files to the current working tree with lexical and
+  canonical boundary checks, symlink-escape refusal, race-safe descriptors,
+  regular-file checks, and bounded reads.
+
 ## 0.3.1 - 2026-07-29
 
 - Add a provider-neutral, console-only hosted semantic proof for portable

@@ -295,7 +295,7 @@ describe("AWS lifecycle operations", () => {
       Response.json({
         ok: true,
         service: "hayasend",
-        version: "0.3.1",
+        version: "0.3.2",
       }),
     );
 
@@ -417,7 +417,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.1",
+          version: "0.3.2",
         }),
       ),
     });
@@ -556,7 +556,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.1",
+          version: "0.3.2",
         }),
       ),
     });
@@ -605,7 +605,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.1",
+          version: "0.3.2",
         }),
       ),
     });
