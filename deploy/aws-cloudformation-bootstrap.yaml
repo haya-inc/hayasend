@@ -1,0 +1,455 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HayaSend deployment bootstrap: a dedicated artifact bucket, a
+  CloudFormation service role, and a least-privilege operator policy.
+
+Parameters:
+  ApplicationStackNamePrefix:
+    Type: String
+    Default: hayasend
+    AllowedPattern: "^[A-Za-z][-A-Za-z0-9]{0,63}$"
+    Description: CloudFormation stack-name prefix the operator may manage.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:(aws|aws-us-gov|aws-cn):iam::(aws|[0-9]{12}):policy/[A-Za-z0-9_+=,.@/-]{1,128}$"
+    Description: Optional managed-policy ARN applied to the service role.
+  ArtifactRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 30
+    MaxValue: 3650
+
+Conditions:
+  HasPermissionsBoundary: !Not
+    - !Equals
+      - !Ref PermissionsBoundaryArn
+      - ""
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            ExpirationInDays: !Ref ArtifactRetentionDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: HayaSend
+        - Key: ManagedBy
+          Value: HayaSendBootstrap
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ArtifactBucket.Arn
+              - !Sub "${ArtifactBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  CloudFormationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: HayaSend stack execution role assumed only by CloudFormation.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      PermissionsBoundary: !If
+        - HasPermissionsBoundary
+        - !Ref PermissionsBoundaryArn
+        - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: HayaSendComputeAndIdentity
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService:
+                      - backup.amazonaws.com
+                      - codedeploy.amazonaws.com
+                      - lambda.amazonaws.com
+                      - scheduler.amazonaws.com
+                      - ses.amazonaws.com
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: ops.apigateway.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:GetAlias
+                  - lambda:GetEventSourceMapping
+                  - lambda:GetFunction
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetPolicy
+                  - lambda:ListAliases
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListTags
+                  - lambda:ListVersionsByFunction
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - codedeploy:CreateApplication
+                  - codedeploy:CreateDeployment
+                  - codedeploy:CreateDeploymentConfig
+                  - codedeploy:CreateDeploymentGroup
+                  - codedeploy:DeleteApplication
+                  - codedeploy:DeleteDeploymentConfig
+                  - codedeploy:DeleteDeploymentGroup
+                  - codedeploy:GetApplication
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:ListDeploymentConfigs
+                  - codedeploy:RegisterApplicationRevision
+                  - codedeploy:TagResource
+                  - codedeploy:UntagResource
+                  - codedeploy:UpdateDeploymentGroup
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:ListTagsForResource
+                  - events:ListTargetsByRule
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:TagResource
+                  - events:UntagResource
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                Resource: "*"
+        - PolicyName: HayaSendDataAndMessaging
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:CreateBackup
+                  - dynamodb:CreateTable
+                  - dynamodb:DeleteTable
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:TagResource
+                  - dynamodb:UntagResource
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:UpdateTable
+                  - dynamodb:UpdateTimeToLive
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetBucketLocation
+                  - s3:GetBucketNotification
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:PutBucketNotification
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - sqs:CreateQueue
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ListQueueTags
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - scheduler:CreateScheduleGroup
+                  - scheduler:DeleteScheduleGroup
+                  - scheduler:GetScheduleGroup
+                  - scheduler:ListTagsForResource
+                  - scheduler:TagResource
+                  - scheduler:UntagResource
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DeleteResourcePolicy
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetResourcePolicy
+                  - secretsmanager:ListSecretVersionIds
+                  - secretsmanager:PutResourcePolicy
+                  - secretsmanager:TagResource
+                  - secretsmanager:UntagResource
+                  - secretsmanager:UpdateSecret
+                  - sns:CreateTopic
+                  - sns:DeleteTopic
+                  - sns:GetSubscriptionAttributes
+                  - sns:GetTopicAttributes
+                  - sns:ListSubscriptionsByTopic
+                  - sns:ListTagsForResource
+                  - sns:SetSubscriptionAttributes
+                  - sns:SetTopicAttributes
+                  - sns:Subscribe
+                  - sns:TagResource
+                  - sns:Unsubscribe
+                  - sns:UntagResource
+                Resource: "*"
+        - PolicyName: HayaSendOperationsAndRecovery
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - backup:CreateBackupPlan
+                  - backup:CreateBackupSelection
+                  - backup:CreateBackupVault
+                  - backup:CreateRestoreTestingPlan
+                  - backup:CreateRestoreTestingSelection
+                  - backup:DeleteBackupPlan
+                  - backup:DeleteBackupSelection
+                  - backup:DeleteBackupVault
+                  - backup:DeleteRestoreTestingPlan
+                  - backup:DeleteRestoreTestingSelection
+                  - backup:DescribeBackupVault
+                  - backup:GetBackupPlan
+                  - backup:GetBackupSelection
+                  - backup:GetRestoreTestingPlan
+                  - backup:GetRestoreTestingSelection
+                  - backup:ListTags
+                  - backup:TagResource
+                  - backup:UntagResource
+                  - backup:UpdateBackupPlan
+                  - backup:UpdateRecoveryPointLifecycle
+                  - backup:UpdateRestoreTestingPlan
+                  - backup:UpdateRestoreTestingSelection
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DeleteDashboards
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetDashboard
+                  - cloudwatch:ListTagsForResource
+                  - cloudwatch:PutDashboard
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:TagResource
+                  - cloudwatch:UntagResource
+                  - kms:CancelKeyDeletion
+                  - kms:CreateKey
+                  - kms:DescribeKey
+                  - kms:DisableKey
+                  - kms:EnableKey
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                  - kms:PutKeyPolicy
+                  - kms:ScheduleKeyDeletion
+                  - kms:TagResource
+                  - kms:UntagResource
+                  - ses:CreateConfigurationSet
+                  - ses:CreateConfigurationSetEventDestination
+                  - ses:CreateIngressPoint
+                  - ses:CreateRuleSet
+                  - ses:CreateTrafficPolicy
+                  - ses:DeleteConfigurationSet
+                  - ses:DeleteConfigurationSetEventDestination
+                  - ses:DeleteIngressPoint
+                  - ses:DeleteRuleSet
+                  - ses:DeleteTrafficPolicy
+                  - ses:GetConfigurationSet
+                  - ses:GetConfigurationSetEventDestinations
+                  - ses:GetIngressPoint
+                  - ses:GetRuleSet
+                  - ses:GetTrafficPolicy
+                  - ses:ListConfigurationSets
+                  - ses:ListTagsForResource
+                  - ses:TagResource
+                  - ses:UntagResource
+                  - ses:UpdateConfigurationSetEventDestination
+                  - ses:UpdateIngressPoint
+                  - ses:UpdateRuleSet
+                  - ses:UpdateTrafficPolicy
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: HayaSend
+        - Key: ManagedBy
+          Value: HayaSendBootstrap
+
+  OperatorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: >-
+        Operator permissions for one HayaSend stack-name prefix, one artifact
+        bucket, and the exact CloudFormation service role.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadAndPlanExactHayaSendStacks
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeChangeSet
+              - cloudformation:DescribeStackDriftDetectionStatus
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResourceDrifts
+              - cloudformation:DescribeStackResources
+              - cloudformation:DescribeStacks
+              - cloudformation:DetectStackDrift
+              - cloudformation:GetStackPolicy
+              - cloudformation:GetTemplate
+              - cloudformation:GetTemplateSummary
+              - cloudformation:ListChangeSets
+              - cloudformation:ListStackResources
+            Resource:
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackNamePrefix}*/*"
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/samcli-deploy*/*"
+          - Sid: MutateExactHayaSendStacksWithExactRole
+            Effect: Allow
+            Action:
+              - cloudformation:CreateChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:DeleteStack
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:SetStackPolicy
+              - cloudformation:TagResource
+              - cloudformation:UntagResource
+              - cloudformation:UpdateTerminationProtection
+            Resource:
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackNamePrefix}*/*"
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:changeSet/samcli-deploy*/*"
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31"
+            Condition:
+              StringEqualsIfExists:
+                cloudformation:RoleArn: !GetAtt CloudFormationServiceRole.Arn
+              StringLikeIfExists:
+                cloudformation:ChangeSetName: samcli-deploy*
+          - Sid: PassOnlyTheHayaSendCloudFormationRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt CloudFormationServiceRole.Arn
+            Condition:
+              StringEquals:
+                iam:PassedToService: cloudformation.amazonaws.com
+          - Sid: InspectTheExactCloudFormationRole
+            Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+            Resource: !GetAtt CloudFormationServiceRole.Arn
+          - Sid: ReadArtifactBucketConfiguration
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+            Resource: !GetAtt ArtifactBucket.Arn
+          - Sid: ManageOnlyHayaSendArtifacts
+            Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:DeleteObject
+              - s3:GetObject
+              - s3:GetObjectAttributes
+              - s3:ListMultipartUploadParts
+              - s3:PutObject
+            Resource: !Sub "${ArtifactBucket.Arn}/hayasend/*"
+
+Outputs:
+  CloudFormationRoleArn:
+    Description: Pass to deploy, upgrade, and cleanup as --cloudformation-role-arn.
+    Value: !GetAtt CloudFormationServiceRole.Arn
+  ArtifactBucketName:
+    Description: Pass to deploy and upgrade as --artifact-bucket.
+    Value: !Ref ArtifactBucket
+  OperatorPolicyArn:
+    Description: Attach to the human or CI operator only after policy review.
+    Value: !Ref OperatorPolicy
+  ApplicationStackNamePrefix:
+    Value: !Ref ApplicationStackNamePrefix
