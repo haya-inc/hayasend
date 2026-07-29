@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 20;
@@ -64,7 +64,20 @@ export async function readBoundedFile(
   configuredPath: string,
   maximumBytes: number,
 ) {
-  const path = await realpath(resolve(cwd, configuredPath));
+  const requestedRoot = resolve(cwd);
+  const requestedRootPrefix = requestedRoot.endsWith(sep)
+    ? requestedRoot
+    : `${requestedRoot}${sep}`;
+  const candidatePath = resolve(requestedRoot, configuredPath);
+  if (!candidatePath.startsWith(requestedRootPrefix)) {
+    throw new Error("File inputs must resolve inside the current directory.");
+  }
+  const root = await realpath(requestedRoot);
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  const path = await realpath(candidatePath);
+  if (!path.startsWith(rootPrefix)) {
+    throw new Error("File inputs must resolve inside the current directory.");
+  }
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const metadata = await file.stat();
