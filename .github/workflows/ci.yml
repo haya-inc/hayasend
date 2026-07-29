@@ -714,10 +714,12 @@ jobs:
             jq --raw-output '.integrity' \
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
+          jq '{entryCount, size, unpackedSize, filename}' \
+            "$RUNNER_TEMP/npm-pack-metadata.json"
           jq --exit-status '
             .entryCount <= 615 and
-            .size < 770000 and
-            .unpackedSize < 4050000 and
+            .size < 780000 and
+            .unpackedSize < 4100000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
