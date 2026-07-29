@@ -112,6 +112,13 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/*",
     );
     expect(serviceRoleSection).toContain(
+      "Sid: ReadOnlyHayaSendDeploymentArtifacts",
+    );
+    expect(serviceRoleSection).toContain("Action: s3:GetObject");
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "${ArtifactBucket.Arn}/hayasend/*"',
+    );
+    expect(serviceRoleSection).toContain(
       "Sid: GenerateOnlyTheBootstrapSecretValue",
     );
     expect(serviceRoleSection).toContain(
@@ -126,6 +133,9 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     );
     expect(serviceRoleSection).toContain("s3:GetBucketCORS");
     expect(serviceRoleSection).toContain("s3:PutBucketCORS");
+    expect(serviceRoleSection).not.toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:s3:::*/*"',
+    );
     expect(serviceRoleSection).toContain(
       'Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"',
     );
