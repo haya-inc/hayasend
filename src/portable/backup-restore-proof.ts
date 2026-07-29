@@ -70,7 +70,10 @@ interface EmailEntity {
   attachments?: unknown;
 }
 
-interface MessageEntity extends EmailEntity {
+interface MessageEntity {
+  id?: unknown;
+  status?: unknown;
+  scheduled_at?: unknown;
   provider?: {
     name?: unknown;
   };
@@ -110,7 +113,6 @@ interface BackupFixtureSnapshot {
     status: "scheduled";
     scheduled_at: string;
     provider: "portable-console";
-    attachment: SanitizedAttachment;
   };
   outbox: {
     id: string;
@@ -425,10 +427,6 @@ async function fixtureSnapshot(
     email.attachments,
     attachmentId,
   );
-  const messageAttachment = attachmentFromEntity(
-    message.attachments,
-    attachmentId,
-  );
   if (
     email.id !== emailId ||
     email.status !== "scheduled" ||
@@ -445,8 +443,10 @@ async function fixtureSnapshot(
       outbox.dispatched_at !== null) ||
     row.recipient_count !== "1" ||
     row.idempotency_count !== "1" ||
-    JSON.stringify(emailAttachment) !== JSON.stringify(messageAttachment) ||
     storedAttachment.id !== attachmentId ||
+    storedAttachment.filename !== emailAttachment.filename ||
+    storedAttachment.content_type !== emailAttachment.content_type ||
+    storedAttachment.size_bytes !== emailAttachment.size_bytes ||
     storedAttachment.checksum_sha256 !== emailAttachment.checksum_sha256 ||
     storedAttachment.object_key !== emailAttachment.object_key
   ) {
@@ -471,7 +471,6 @@ async function fixtureSnapshot(
       status: "scheduled",
       scheduled_at: scheduledAt,
       provider: "portable-console",
-      attachment: messageAttachment,
     },
     outbox: {
       id: outboxId,
