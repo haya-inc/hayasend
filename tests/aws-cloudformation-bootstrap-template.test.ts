@@ -143,6 +143,27 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       'Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"',
     );
     expect(serviceRoleSection).toContain(
+      "Sid: InspectOnlyManagedLambdaConcurrency",
+    );
+    expect(serviceRoleSection).toContain(
+      "Action: lambda:GetProvisionedConcurrencyConfig",
+    );
+    expect(serviceRoleSection).toContain(
+      "Sid: InspectOnlyManagedCodeDeployResources",
+    );
+    expect(serviceRoleSection).toContain("codedeploy:ListDeployments");
+    expect(serviceRoleSection).toContain("codedeploy:ListTagsForResource");
+    expect(serviceRoleSection).toContain(
+      'application:${ApplicationStackNamePrefix}*"',
+    );
+    expect(serviceRoleSection).toContain(
+      'deploymentgroup:${ApplicationStackNamePrefix}*/${ApplicationStackNamePrefix}*"',
+    );
+    expect(serviceRoleSection).toContain(
+      "Sid: InspectRegionalLogIndexPoliciesForDrift",
+    );
+    expect(serviceRoleSection).toContain("Action: logs:DescribeIndexPolicies");
+    expect(serviceRoleSection).toContain(
       "Sid: GenerateOnlyTheBootstrapSecretValue",
     );
     expect(serviceRoleSection).toContain(
