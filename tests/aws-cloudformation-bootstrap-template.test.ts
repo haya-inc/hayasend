@@ -83,6 +83,12 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     expect(operatorSection).toContain("sts:GetCallerIdentity");
     expect(operatorSection).toContain("ses:GetAccount");
     expect(operatorSection).toContain("cloudwatch:DescribeAlarms");
+    expect(operatorSection).toContain(
+      "cloudformation:BatchDescribeTypeConfigurations",
+    );
+    expect(operatorSection).toContain(
+      "cloudformation:DetectStackResourceDrift",
+    );
     expect(operatorSection).toContain("aws:RequestedRegion: !Ref AWS::Region");
     expect(operatorSection).not.toContain("changeSet/*/*");
     expect(operatorSection).not.toMatch(
