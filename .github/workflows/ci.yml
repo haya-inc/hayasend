@@ -715,7 +715,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 580 and
+            .entryCount <= 590 and
             .size < 740000 and
             .unpackedSize < 3800000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -745,11 +745,15 @@ jobs:
             ([.files[].path] |
               index("conformance/deployments/aws-ses.v1.json") != null) and
             ([.files[].path] |
+              index("conformance/deployments/azure-container-apps-acs.v1.json") != null) and
+            ([.files[].path] |
               index("conformance/runtimes/portable-postgres.v1.json") != null) and
             ([.files[].path] |
               index("conformance/providers/azure-communication-services.v1.json") != null) and
             ([.files[].path] |
               index("conformance/providers/sendgrid.v1.json") != null) and
+            ([.files[].path] |
+              index("dist/provider-capability-registry.js") != null) and
             ([.files[].path] |
               index("dist/adapters/portable-attachment-storage.js") != null) and
             ([.files[].path] |
@@ -890,9 +894,13 @@ jobs:
           test -f \
             "$package_root/conformance/deployments/aws-ses.v1.json"
           test -f \
+            "$package_root/conformance/deployments/azure-container-apps-acs.v1.json"
+          test -f \
             "$package_root/conformance/runtimes/portable-postgres.v1.json"
           test -f \
             "$package_root/conformance/providers/azure-communication-services.v1.json"
+          test -f \
+            "$package_root/dist/provider-capability-registry.js"
           test -f \
             "$package_root/dist/adapters/portable-attachment-storage.js"
           test -f \

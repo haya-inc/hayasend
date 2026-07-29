@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "deployment": "azure-container-apps-acs",
+  "adapter_version": "0.3.1",
+  "checked_at": "2026-07-29",
+  "runtime": {
+    "profile": "portable-postgres",
+    "adapter_version": "0.3.1",
+    "capability_document": "conformance/runtimes/portable-postgres.v1.json"
+  },
+  "transport": {
+    "provider": "azure-communication-services",
+    "adapter_version": "0.3.1",
+    "capability_document": "conformance/providers/azure-communication-services.v1.json"
+  },
+  "maturity": {
+    "runtime": "experimental",
+    "transport": "experimental",
+    "combination": "experimental"
+  },
+  "production_ready": false,
+  "effective_limits": {
+    "max_serialized_request_bytes": 10000000,
+    "max_mime_message_bytes": 10000000,
+    "max_combined_recipients": 50,
+    "max_attachments": 20,
+    "max_decoded_attachment_bytes": 7500000,
+    "max_batch_messages": 100,
+    "max_schedule_delay_seconds": 2592000
+  },
+  "evidence": {
+    "conformance": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/152",
+      "notes": "The shared PostgreSQL and ACS adapter contracts pass locally; exact hosted recipient convergence remains pending."
+    },
+    "lifecycle": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/152",
+      "notes": "An isolated Azure deploy, migration, failure drill, upgrade, and rollback has not yet passed."
+    },
+    "terminal_delivery": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/152",
+      "notes": "ACS acceptance and exact-recipient Event Grid terminal delivery have not yet converged on an isolated hosted deployment."
+    },
+    "controlled_receipt": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/152",
+      "notes": "A uniquely identified ACS message has not yet been confirmed in a controlled mailbox for this exact deployment."
+    },
+    "cleanup": {
+      "status": "pending",
+      "url": "https://github.com/haya-inc/hayasend/issues/152",
+      "notes": "The isolated Azure resource graph has not yet passed zero-residue cleanup and billing verification."
+    }
+  },
+  "privacy": {
+    "customer_owned_data_plane": true,
+    "management_plane_content_exported_by_default": false,
+    "addresses_exported_by_default": false,
+    "raw_provider_errors_retained": false
+  },
+  "limitations": [
+    "Production readiness remains false while issue #152 is incomplete.",
+    "A customer-owned custom ACS Email domain, approved quota, and authenticated Event Grid ingress are required.",
+    "Provider acceptance is not terminal delivery, and ACS does not provide provider-enforced send idempotency.",
+    "Multi-recipient engagement events are retained without guessing a recipient because ACS can omit the recipient."
+  ]
+}

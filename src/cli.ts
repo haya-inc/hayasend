@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import {
   access,
@@ -41,8 +41,10 @@ import {
 } from "./cli-templates.js";
 import { suppressionCommand } from "./cli-suppressions.js";
 import { webhookCommand } from "./cli-webhooks.js";
+import {
+  providerCapabilityDocumentDigest,
+} from "./provider-capability-registry.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
-import { AWS_SES_CAPABILITIES } from "./adapters/aws-ses-capabilities.js";
 import { runServerProcess } from "./server.js";
 import { HAYASEND_VERSION } from "./version.js";
 
@@ -915,7 +917,7 @@ const recoveryDiagnosticsSchema = z.object({
     truncated: z.boolean(),
   }),
   queues: z.object({
-    provider: z.enum(["memory", "aws-sqs"]),
+    provider: z.enum(["memory", "aws-sqs", "postgresql"]),
     primary: queueDepthSchema,
     dead_letters: z.object({
       delivery: queueDepthSchema.nullable(),
@@ -990,18 +992,17 @@ async function doctor(args: string[], dependencies: CliDependencies) {
     if (!parsed.success) {
       throw new Error("HayaSend returned invalid recovery diagnostics.");
     }
-    const expectedAwsDigest = createHash("sha256")
-      .update(JSON.stringify(AWS_SES_CAPABILITIES), "utf8")
-      .digest("hex");
+    const expectedDigest = providerCapabilityDocumentDigest(
+      parsed.data.capability.provider,
+    );
     recoveryCheck = "pass";
     recovery = {
       ...parsed.data,
       capability: {
         ...parsed.data.capability,
-        drift:
-          parsed.data.capability.provider === AWS_SES_CAPABILITIES.provider
-            ? parsed.data.capability.document_sha256 !== expectedAwsDigest
-            : null,
+        drift: expectedDigest
+          ? parsed.data.capability.document_sha256 !== expectedDigest
+          : null,
       },
     };
   } else {

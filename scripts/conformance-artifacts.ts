@@ -22,6 +22,9 @@ import {
   runtimeCapabilityDocumentSchema,
 } from "../src/core/runtime-capabilities.js";
 import { AWS_SES_DEPLOYMENT_CAPABILITIES } from "../src/deployments/aws-ses-capabilities.js";
+import {
+  AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES,
+} from "../src/deployments/azure-container-apps-acs-capabilities.js";
 import { CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES } from "../src/deployments/cloudflare-email-capabilities.js";
 import {
   CLOUD_RUN_SENDGRID_DEPLOYMENT_CAPABILITIES,
@@ -48,6 +51,7 @@ function jsonSchema(schema: z.ZodType, id: string) {
 
 const READINESS_MATRIX = buildReadinessMatrix([
   AWS_SES_DEPLOYMENT_CAPABILITIES,
+  AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES,
   CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
   ...SENDGRID_DEPLOYMENT_CAPABILITIES,
 ]);
@@ -73,6 +77,8 @@ export const CONFORMANCE_ARTIFACTS: Readonly<Record<string, unknown>> = {
     VERCEL_RUNTIME_CAPABILITIES,
   "conformance/deployments/aws-ses.v1.json":
     AWS_SES_DEPLOYMENT_CAPABILITIES,
+  "conformance/deployments/azure-container-apps-acs.v1.json":
+    AZURE_CONTAINER_APPS_ACS_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloudflare-email.v1.json":
     CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
   "conformance/deployments/cloud-run-sendgrid.v1.json":

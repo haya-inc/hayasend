@@ -110,8 +110,10 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 1. the health endpoint returns JSON identifying the service as HayaSend;
 2. the key can read the email endpoint;
 3. privacy-safe outbox age, stuck-lease, queue/DLQ, provider-event lag, and
-   capability evidence when the key has `diagnostics:read`;
-4. whether the running AWS capability digest matches this CLI package;
+   capability evidence for the in-memory, AWS SQS, or portable PostgreSQL
+   runtime when the key has `diagnostics:read`;
+4. whether the running AWS SES, Azure ACS Email, Cloudflare Email, or SendGrid
+   capability digest matches this CLI package;
 5. whether the local preview is available.
 
 Without `diagnostics:read`, the recovery check reports `not_authorized`
