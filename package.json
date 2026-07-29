@@ -121,7 +121,7 @@
     "html-to-text": "10.0.0",
     "pg": "8.22.0",
     "postal-mime": "2.7.5",
-    "railway": "3.6.0",
+    "railway": "3.7.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
