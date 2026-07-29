@@ -64,7 +64,10 @@ export async function readBoundedFile(
   configuredPath: string,
   maximumBytes: number,
 ) {
-  const path = await realpath(resolve(cwd, configuredPath));
+  // This is an intentional local-CLI file selector: the operator supplies the
+  // path, and the descriptor is restricted to a resolved, no-follow, regular
+  // file with a caller-defined byte limit.
+  const path = await realpath(resolve(cwd, configuredPath)); // lgtm[js/path-injection]
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const metadata = await file.stat();
