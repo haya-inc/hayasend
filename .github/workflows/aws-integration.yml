@@ -672,7 +672,7 @@ jobs:
             --retry 5 \
             --retry-all-errors \
             --retry-delay 2 \
-            "$API_BASE_URL/health" >/dev/null
+            "$API_BASE_URL/healthz" >/dev/null
 
           jq -n \
             --arg triggering_deployment_id "$triggering_deployment_id" \

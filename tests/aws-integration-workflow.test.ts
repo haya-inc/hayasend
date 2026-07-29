@@ -82,7 +82,8 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain('case "$stack_status" in');
     expect(workflow).toContain("UPDATE_ROLLBACK_COMPLETE)");
     expect(workflow).toContain("*_IN_PROGRESS)");
-    expect(workflow).toContain('"$API_BASE_URL/health" >/dev/null');
+    expect(workflow).toContain('"$API_BASE_URL/healthz" >/dev/null');
+    expect(workflow).not.toContain('"$API_BASE_URL/health" >/dev/null');
   });
 
   it("skips backup-vault cleanup when creation never completed", () => {

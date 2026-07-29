@@ -61,7 +61,8 @@ automatic rollback deployment to succeed, CloudFormation to finish
 version, and the public health endpoint to remain healthy. The workflow then
 waits through CloudFormation's bounded rollback transition, then restores the
 exact reviewed source file and alarm state before any API or
-backup proof continues.
+backup proof continues. The post-rollback check uses the same public
+`/healthz` endpoint as the deployed service and does not send API credentials.
 
 ## Safety boundary
 
