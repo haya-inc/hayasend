@@ -370,6 +370,19 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: IdentifyTheCaller
+            Effect: Allow
+            Action: sts:GetCallerIdentity
+            Resource: "*"
+          - Sid: ReadRegionalPreflightAndHealth
+            Effect: Allow
+            Action:
+              - cloudwatch:DescribeAlarms
+              - ses:GetAccount
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
           - Sid: ReadAndPlanExactHayaSendStacks
             Effect: Allow
             Action:
@@ -449,7 +462,9 @@ Outputs:
     Description: Pass to deploy and upgrade as --artifact-bucket.
     Value: !Ref ArtifactBucket
   OperatorPolicyArn:
-    Description: Attach to the human or CI operator only after policy review.
+    Description: >-
+      Attach to the routine human or CI operator only after policy review.
+      Includes read-only identity, SES readiness, and CloudWatch health checks.
     Value: !Ref OperatorPolicy
   ApplicationStackNamePrefix:
     Value: !Ref ApplicationStackNamePrefix
