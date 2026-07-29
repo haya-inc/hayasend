@@ -49,7 +49,7 @@ function fixture() {
     {
       provider: {
         name: "sendgrid",
-        adapter_version: "0.3.2",
+        adapter_version: "0.3.3",
         capability_version: "1.0.0",
       },
     },

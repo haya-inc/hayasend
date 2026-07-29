@@ -19,7 +19,7 @@ experimental, so this pack is not a Beta or production-readiness claim.
 Validated on 2026-07-29 with:
 
 - Railway CLI `5.30.1`;
-- Railway IaC SDK `railway@3.6.0`;
+- Railway IaC SDK `railway@3.7.0`;
 - HayaSend `0.3.1` OCI index digest
   `sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979`;
 - PostgreSQL `18`;

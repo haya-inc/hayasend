@@ -53,7 +53,7 @@ describe("Vercel hosted lifecycle workflow", () => {
       '.version == "0.3.1"',
     );
     expect(workflow).toContain(
-      '.version == "0.3.2"',
+      '.version == "0.3.3"',
     );
     expect(workflow).toContain(
       "add_plain HAYASEND_RUNTIME_PROFILE vercel-serverless",
