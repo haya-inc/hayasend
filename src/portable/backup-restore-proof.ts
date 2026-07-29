@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { Pool, type QueryResultRow } from "pg";
 import { safeErrorCategory } from "../core/error-telemetry.js";
 import {
@@ -912,7 +911,7 @@ export async function verifyPortableBackupRestoreProof(
   };
 }
 
-function requiredEnvironment(
+export function requiredEnvironment(
   environment: NodeJS.ProcessEnv,
   name: string,
 ): string {
@@ -923,7 +922,7 @@ function requiredEnvironment(
   return value;
 }
 
-function optionalInteger(
+export function optionalInteger(
   environment: NodeJS.ProcessEnv,
   name: string,
 ): number | undefined {
@@ -938,7 +937,7 @@ function optionalInteger(
   return parsed;
 }
 
-function parseSeedEvidence(
+export function parseSeedEvidence(
   value: unknown,
 ): PortableBackupRestoreSeedEvidence {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -949,13 +948,9 @@ function parseSeedEvidence(
   return source;
 }
 
-export async function runPortableBackupRestoreProofProcess(
+export async function runPortableBackupRestoreSeedProcess(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const mode = requiredEnvironment(
-    environment,
-    "HAYASEND_BACKUP_RESTORE_PROOF_MODE",
-  );
   const common = {
     api_url: requiredEnvironment(
       environment,
@@ -972,73 +967,85 @@ export async function runPortableBackupRestoreProofProcess(
     ),
     transport: requiredEnvironment(environment, "HAYASEND_TRANSPORT"),
   };
-  let evidence: PortableBackupRestoreSeedEvidence | PortableBackupRestoreEvidence;
-  if (mode === "seed") {
-    evidence = await seedPortableBackupRestoreProof({
-      ...common,
-      retain_confirmation: requiredEnvironment(
-        environment,
-        "HAYASEND_BACKUP_RESTORE_RETAIN_CONFIRM",
-      ),
-      allowed_upload_origins: parseAttachmentUploadOrigins(
-        environment.HAYASEND_ATTACHMENT_UPLOAD_ORIGINS,
-      ),
-      ...(optionalInteger(
-        environment,
-        "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS",
-      ) !== undefined
-        ? {
-            schedule_days: optionalInteger(
-              environment,
-              "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS",
-            ),
-          }
-        : {}),
-    });
-  } else if (mode === "restore") {
-    const sourceFile = requiredEnvironment(
+  const evidence = await seedPortableBackupRestoreProof({
+    ...common,
+    retain_confirmation: requiredEnvironment(
       environment,
-      "HAYASEND_BACKUP_RESTORE_SOURCE_FILE",
-    );
-    evidence = await verifyPortableBackupRestoreProof({
-      ...common,
-      source: parseSeedEvidence(
-        JSON.parse(await readFile(sourceFile, "utf8")) as unknown,
-      ),
-      ...(optionalInteger(
-        environment,
-        "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS",
-      ) !== undefined
-        ? {
-            timeout_seconds: optionalInteger(
-              environment,
-              "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS",
-            ),
-          }
-        : {}),
-    });
-  } else {
-    throw new Error(
-      "HAYASEND_BACKUP_RESTORE_PROOF_MODE must be seed or restore.",
-    );
-  }
+      "HAYASEND_BACKUP_RESTORE_RETAIN_CONFIRM",
+    ),
+    allowed_upload_origins: parseAttachmentUploadOrigins(
+      environment.HAYASEND_ATTACHMENT_UPLOAD_ORIGINS,
+    ),
+    ...(optionalInteger(
+      environment,
+      "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS",
+    ) !== undefined
+      ? {
+          schedule_days: optionalInteger(
+            environment,
+            "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS",
+          ),
+        }
+      : {}),
+  });
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runPortableBackupRestoreProofProcess().catch((error) => {
-    process.stderr.write(
-      `${JSON.stringify({
-        object: "portable_backup_restore_proof_failure",
-        schema_version: "1.0.0",
-        error_type: safeErrorCategory(error),
-        credentials_included: false,
-        addresses_included: false,
-        content_included: false,
-        upload_url_included: false,
-        raw_error_included: false,
-      })}\n`,
-    );
-    process.exitCode = 1;
+export async function runPortableBackupRestoreVerifyProcess(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const common = {
+    api_url: requiredEnvironment(
+      environment,
+      "HAYASEND_HOSTED_PROOF_API_URL",
+    ),
+    api_key: requiredEnvironment(environment, "HAYASEND_API_KEY"),
+    database_url: requiredEnvironment(
+      environment,
+      "HAYASEND_DATABASE_URL",
+    ),
+    confirmation: requiredEnvironment(
+      environment,
+      "HAYASEND_BACKUP_RESTORE_PROOF_CONFIRM",
+    ),
+    transport: requiredEnvironment(environment, "HAYASEND_TRANSPORT"),
+  };
+  const sourceFile = requiredEnvironment(
+    environment,
+    "HAYASEND_BACKUP_RESTORE_SOURCE_FILE",
+  );
+  const evidence = await verifyPortableBackupRestoreProof({
+    ...common,
+    source: parseSeedEvidence(
+      JSON.parse(await readFile(sourceFile, "utf8")) as unknown,
+    ),
+    ...(optionalInteger(
+      environment,
+      "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS",
+    ) !== undefined
+      ? {
+          timeout_seconds: optionalInteger(
+            environment,
+            "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS",
+          ),
+        }
+      : {}),
   });
+  process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
+}
+
+export function reportPortableBackupRestoreFailure(error: unknown): void {
+  process.stderr.write(
+    `${JSON.stringify({
+      object: "portable_backup_restore_proof_failure",
+      schema_version: "1.0.0",
+      error_type: safeErrorCategory(error),
+      credentials_included: false,
+      addresses_included: false,
+      content_included: false,
+      upload_url_included: false,
+      raw_error_included: false,
+    })}\n`,
+  );
+  process.exitCode = 1;
 }

@@ -60,7 +60,7 @@ describe("npm CLI distribution", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(workflow).toContain(".entryCount <= 610");
+    expect(workflow).toContain(".entryCount <= 615");
     expect(workflow).toContain(".size < 760000");
     expect(workflow).toContain(".unpackedSize < 3900000");
     expect(workflow).toContain(
@@ -69,8 +69,17 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain(
       'test -f \\\n            "$package_root/dist/portable/backup-restore-proof.js"',
     );
+    expect(workflow).toContain(
+      'index("dist/portable/backup-restore-seed.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("dist/portable/backup-restore-verify.js") != null',
+    );
+    expect(packageJson.scripts?.["proof:portable-backup-seed"]).toBe(
+      "node dist/portable/backup-restore-seed.js",
+    );
     expect(packageJson.scripts?.["proof:portable-backup-restore"]).toBe(
-      "node dist/portable/backup-restore-proof.js",
+      "node dist/portable/backup-restore-verify.js",
     );
     for (const provider of ["cloud-run", "render", "railway"]) {
       expect(workflow).toContain(

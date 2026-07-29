@@ -35,7 +35,6 @@ npm run build
 Run the seed inside the source deployment:
 
 ```bash
-export HAYASEND_BACKUP_RESTORE_PROOF_MODE=seed
 export HAYASEND_BACKUP_RESTORE_PROOF_CONFIRM=isolated-backup-restore-proof
 export HAYASEND_BACKUP_RESTORE_RETAIN_CONFIRM=retain-isolated-backup-fixture
 export HAYASEND_HOSTED_PROOF_API_URL=https://api.example.invalid
@@ -43,7 +42,7 @@ export HAYASEND_DATABASE_URL=postgres://...
 export HAYASEND_API_KEY=re_...
 export HAYASEND_TRANSPORT=console
 export HAYASEND_ATTACHMENT_UPLOAD_ORIGINS=https://objects.example.invalid
-npm run proof:portable-backup-restore > backup-restore-seed.json
+npm run proof:portable-backup-seed > backup-restore-seed.json
 ```
 
 `HAYASEND_ATTACHMENT_UPLOAD_ORIGINS` is required only for a storage origin that
@@ -59,7 +58,6 @@ restore verifier at the source resources.
 Run against the restored API, database, and private object store:
 
 ```bash
-export HAYASEND_BACKUP_RESTORE_PROOF_MODE=restore
 export HAYASEND_BACKUP_RESTORE_PROOF_CONFIRM=isolated-backup-restore-proof
 export HAYASEND_BACKUP_RESTORE_SOURCE_FILE=/run/secrets/backup-restore-seed.json
 export HAYASEND_HOSTED_PROOF_API_URL=https://restored-api.example.invalid
