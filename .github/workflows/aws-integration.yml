@@ -159,6 +159,13 @@ jobs:
               --query "StackResourceSummaries[?LogicalResourceId=='$1'].PhysicalResourceId | [0]" \
               --output text
           }
+          stack_parameter() {
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].Parameters[?ParameterKey=='$1'].ParameterValue | [0]" \
+              --output text
+          }
           api_base_url="$(stack_output ApiBaseUrl)"
           http_api_id="$(
             aws cloudformation describe-stack-resource \
@@ -174,6 +181,9 @@ jobs:
           backup_vault_arn="$(stack_output BackupVaultArn)"
           backup_service_role_arn="$(stack_output BackupServiceRoleArn)"
           restore_testing_plan_arn="$(stack_output RestoreTestingPlanArn)"
+          restore_testing_plan_name="$(
+            stack_parameter RestoreTestingPlanName
+          )"
           restore_testing_service_role_arn="$(
             stack_output RestoreTestingServiceRoleArn
           )"
@@ -217,6 +227,7 @@ jobs:
               "$backup_vault_arn" \
               "$backup_service_role_arn" \
               "$restore_testing_plan_arn" \
+              "$restore_testing_plan_name" \
               "$restore_testing_service_role_arn"; do
               if [[ -z "$value" || "$value" = "None" ]]; then
                 echo "::error::A required AWS Backup output is missing."
@@ -233,6 +244,7 @@ jobs:
             echo "BACKUP_VAULT_ARN=$backup_vault_arn"
             echo "BACKUP_SERVICE_ROLE_ARN=$backup_service_role_arn"
             echo "RESTORE_TESTING_PLAN_ARN=$restore_testing_plan_arn"
+            echo "RESTORE_TESTING_PLAN_NAME=$restore_testing_plan_name"
             echo "RESTORE_TESTING_SERVICE_ROLE_ARN=$restore_testing_service_role_arn"
             echo "BACKUP_PROOF_STATE=$RUNNER_TEMP/hayasend-backup-proof-state.json"
             echo "DISPATCHER_FUNCTION=$dispatcher_function"
@@ -465,6 +477,7 @@ jobs:
             --vault-arn "$BACKUP_VAULT_ARN" \
             --backup-role-arn "$BACKUP_SERVICE_ROLE_ARN" \
             --restore-plan-arn "$RESTORE_TESTING_PLAN_ARN" \
+            --restore-plan-name "$RESTORE_TESTING_PLAN_NAME" \
             --email-id "$email_id" \
             --attachment-id "$attachment_id" \
             --attachment-sha256 "$attachment_sha256" \
@@ -488,6 +501,7 @@ jobs:
               --bucket "$PAYLOAD_BUCKET" \
               --vault-arn "$BACKUP_VAULT_ARN" \
               --restore-plan-arn "$RESTORE_TESTING_PLAN_ARN" \
+              --restore-plan-name "$RESTORE_TESTING_PLAN_NAME" \
               --state-file "$BACKUP_PROOF_STATE"
           fi
 
