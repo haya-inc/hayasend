@@ -119,6 +119,13 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       'Resource: !Sub "${ArtifactBucket.Arn}/hayasend/*"',
     );
     expect(serviceRoleSection).toContain(
+      "Sid: InvokeOnlyManagedCustomResourceFunctions",
+    );
+    expect(serviceRoleSection).toContain("Action: lambda:InvokeFunction");
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"',
+    );
+    expect(serviceRoleSection).toContain(
       "Sid: GenerateOnlyTheBootstrapSecretValue",
     );
     expect(serviceRoleSection).toContain(
