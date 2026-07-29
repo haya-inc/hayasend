@@ -43,4 +43,20 @@ describe("AWS integration workflow cleanup", () => {
       "role-duration-seconds: ${{ inputs.prove_backup_restore && 21600 || 3600 }}",
     );
   });
+
+  it("skips backup-vault cleanup when creation never completed", () => {
+    const workflow = readFileSync(
+      fileURLToPath(
+        new URL("../.github/workflows/aws-integration.yml", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(workflow).toContain('"$backup_vault_name" != "None"');
+    expect(workflow).toContain(
+      'if [[ "$backup_vault_error" = *"ResourceNotFoundException"* ]]',
+    );
+    expect(workflow).toContain(
+      "was not created or was already removed.",
+    );
+  });
 });
