@@ -101,6 +101,55 @@ command required to disable it. The result repeats retained resource physical
 IDs after verified stack deletion. Do not improvise a bulk purge; handle those
 resources under the applicable recovery, compliance, and privacy policy.
 
+## Backup and isolated restore
+
+New stacks enable a daily AWS Backup rule at 05:00 UTC for the DynamoDB ledger,
+payload bucket, and optional inbound bucket. The default recovery-point
+retention is 35 days, so the backup RPO target is 24 hours. S3 payload
+versioning is enabled independently, with noncurrent versions retained for
+seven days by default. These are recovery objectives and configuration, not a
+guarantee that a particular job completed.
+
+For production, review and apply the explicit restore-testing option:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws \
+  --enable-restore-testing
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws \
+  --enable-restore-testing \
+  --apply
+```
+
+The weekly plan selects the latest DynamoDB and S3 recovery points from the
+preceding seven days and restores them into isolated temporary resources.
+AWS Backup starts cleanup after the one-hour validation window. S3 cleanup can
+take longer while object deletion converges.
+
+At least monthly, and after any schema or persistence change:
+
+1. confirm the latest scheduled backup jobs for every selected resource
+   completed;
+2. confirm the latest DynamoDB and S3 restore-testing jobs completed;
+3. record job IDs, recovery-point ARNs, start/completion times, restored
+   resource IDs, and cleanup completion in the release evidence;
+4. in a separately controlled drill, validate representative ledger,
+   idempotency, outbox, recipient-event, and payload checksum semantics against
+   isolated restored resources;
+5. confirm no temporary restored table or bucket remains after the documented
+   cleanup window.
+
+`status aws` reports whether the configured backup plan, vault, selections,
+and restore-testing resources exist. It intentionally does not report
+`restore_verified: true`; a green infrastructure status is not semantic
+restore evidence.
+
+The backup vault uses `DeletionPolicy: Retain` and is covered by the
+retained-resource stack policy. `cleanup aws` reports it but does not delete
+it. Never empty or delete a vault as part of generic stack cleanup. Let
+recovery points expire, copy them when policy requires longer retention, and
+perform any final vault deletion through a separate reviewed data-disposition
+procedure.
+
 ## After deployment
 
 1. Subscribe the on-call destination to the `AlarmTopicArn` stack output and

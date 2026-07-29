@@ -58,6 +58,12 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   WorkerReservedConcurrency: "10",
   EnableGradualDeployments: "false",
   DeploymentPreferenceType: "Canary10Percent5Minutes",
+  EnableBackups: "true",
+  BackupRetentionDays: "35",
+  BackupVaultName: "HayaSendBackup",
+  PayloadNoncurrentVersionRetentionDays: "7",
+  EnableRestoreTesting: "false",
+  RestoreTestingPlanName: "HayaSendRestoreTesting",
 };
 
 const LEGACY_STACK_DEFAULTS: Record<string, string> = {
@@ -71,6 +77,9 @@ const OUTPUT_KEYS = [
   "AlarmTopicArn",
   "OperationsDashboardName",
   "InboundMxRecord",
+  "BackupVaultArn",
+  "BackupPlanId",
+  "RestoreTestingPlanArn",
 ] as const;
 
 const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
@@ -78,6 +87,7 @@ const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
   "PayloadBucket",
   "InboundKey",
   "InboundBucket",
+  "BackupVault",
 ]);
 
 const CORE_LAMBDA_ALIAS_LOGICAL_IDS = [
@@ -192,6 +202,10 @@ export interface AwsDeployOptions {
   templateHistoryLimit?: string;
   workerReservedConcurrency?: string;
   deploymentPreferenceType?: string;
+  enableBackups?: boolean;
+  backupRetentionDays?: string;
+  payloadNoncurrentVersionRetentionDays?: string;
+  enableRestoreTesting?: boolean;
   tags: string[];
 }
 
@@ -659,6 +673,33 @@ function normalizeOptions(
     }
     explicitParameters.DeploymentPreferenceType =
       options.deploymentPreferenceType;
+  }
+  if (options.enableBackups !== undefined) {
+    explicitParameters.EnableBackups = String(options.enableBackups);
+  }
+  const backupRetentionDays = requireInteger(
+    options.backupRetentionDays,
+    "--backup-retention-days",
+    1,
+    365,
+  );
+  if (backupRetentionDays) {
+    explicitParameters.BackupRetentionDays = backupRetentionDays;
+  }
+  const payloadNoncurrentVersionRetentionDays = requireInteger(
+    options.payloadNoncurrentVersionRetentionDays,
+    "--payload-noncurrent-version-retention-days",
+    1,
+    30,
+  );
+  if (payloadNoncurrentVersionRetentionDays) {
+    explicitParameters.PayloadNoncurrentVersionRetentionDays =
+      payloadNoncurrentVersionRetentionDays;
+  }
+  if (options.enableRestoreTesting !== undefined) {
+    explicitParameters.EnableRestoreTesting = String(
+      options.enableRestoreTesting,
+    );
   }
 
   return {
@@ -1293,14 +1334,61 @@ function gradualDeploymentSummary(
   );
   return {
     enabled: parameters.EnableGradualDeployments === "true",
-    strategy:
-      parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
+    strategy: parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
     aliases_ready: missingAliases.length === 0,
     deployment_groups_ready: missingDeploymentGroups.length === 0,
     required_aliases: requiredAliases,
     missing_aliases: missingAliases,
     required_deployment_groups: requiredDeploymentGroups,
     missing_deployment_groups: missingDeploymentGroups,
+  };
+}
+
+function backupSummary(
+  parameters: Record<string, string>,
+  resources: StackResource[],
+) {
+  const logicalIds = new Set(
+    resources
+      .filter((resource) =>
+        ["CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"].includes(
+          resource.status,
+        ),
+      )
+      .map((resource) => resource.logicalId),
+  );
+  const enabled = parameters.EnableBackups === "true";
+  const required = enabled
+    ? ["BackupServiceRole", "BackupVault", "BackupPlan", "BackupSelection"]
+    : [];
+  const missing = required.filter((logicalId) => !logicalIds.has(logicalId));
+  const restoreTestingEnabled =
+    enabled && parameters.EnableRestoreTesting === "true";
+  const restoreTestingRequired = restoreTestingEnabled
+    ? [
+        "RestoreTestingServiceRole",
+        "RestoreTestingPlan",
+        "DynamoDbRestoreTestingSelection",
+        "S3RestoreTestingSelection",
+      ]
+    : [];
+  const restoreTestingMissing = restoreTestingRequired.filter(
+    (logicalId) => !logicalIds.has(logicalId),
+  );
+  return {
+    enabled,
+    retention_days: Number(parameters.BackupRetentionDays ?? 35),
+    payload_noncurrent_version_retention_days: Number(
+      parameters.PayloadNoncurrentVersionRetentionDays ?? 7,
+    ),
+    resources_ready: missing.length === 0,
+    missing_resources: missing,
+    restore_testing: {
+      enabled: restoreTestingEnabled,
+      plan_name: parameters.RestoreTestingPlanName ?? "HayaSendRestoreTesting",
+      resources_ready: restoreTestingMissing.length === 0,
+      missing_resources: restoreTestingMissing,
+    },
   };
 }
 
@@ -1526,6 +1614,23 @@ function effectiveParameters(
     ),
     ...options.explicitParameters,
   };
+  const normalizedStack = options.stack
+    .replaceAll(/[^A-Za-z0-9]/g, "_")
+    .slice(0, 25);
+  const restorePlanSuffix = createHash("sha256")
+    .update(`${options.account}:${options.region}:${options.stack}`)
+    .digest("hex")
+    .slice(0, 10);
+  parameters.RestoreTestingPlanName = `HayaSend_${normalizedStack}_${restorePlanSuffix}`;
+  parameters.BackupVaultName = `HayaSend_${normalizedStack}_${restorePlanSuffix}`;
+  if (
+    parameters.EnableRestoreTesting === "true" &&
+    parameters.EnableBackups !== "true"
+  ) {
+    throw new Error(
+      "--enable-restore-testing requires backups to remain enabled.",
+    );
+  }
   const requiredAliases = [
     ...CORE_LAMBDA_ALIAS_LOGICAL_IDS,
     ...(parameters.EnableInbound === "true"
@@ -1614,6 +1719,16 @@ function applyCommand(
     parameters.WorkerReservedConcurrency ?? "10",
     "--deployment-preference-type",
     parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
+    ...(parameters.EnableBackups === "true"
+      ? ["--enable-backups"]
+      : ["--disable-backups"]),
+    "--backup-retention-days",
+    parameters.BackupRetentionDays ?? "35",
+    "--payload-noncurrent-version-retention-days",
+    parameters.PayloadNoncurrentVersionRetentionDays ?? "7",
+    ...(parameters.EnableRestoreTesting === "true"
+      ? ["--enable-restore-testing"]
+      : ["--disable-restore-testing"]),
     ...(parameters.BootstrapSecretArn
       ? ["--bootstrap-secret-arn", parameters.BootstrapSecretArn]
       : []),
@@ -1923,6 +2038,7 @@ export async function statusAws(
   const resources = await listStackResources(dependencies, options);
   const problems = problematicResources(resources);
   const deployments = gradualDeploymentSummary(stack.parameters, resources);
+  const backups = backupSummary(stack.parameters, resources);
   const alarms = await alarmSummary(dependencies, options, resources);
   const health = stack.outputs.ApiBaseUrl
     ? await publicHealth(stack.outputs.ApiBaseUrl, dependencies)
@@ -1945,6 +2061,8 @@ export async function statusAws(
     deployments.enabled &&
     deployments.aliases_ready &&
     deployments.deployment_groups_ready &&
+    backups.resources_ready &&
+    backups.restore_testing.resources_ready &&
     problems.length === 0 &&
     alarms.total > 0 &&
     alarms.problems.length === 0 &&
@@ -1995,6 +2113,7 @@ export async function statusAws(
           problems,
         },
         deployments,
+        backups,
       },
       ses: {
         production_access: ses.productionAccess,
@@ -2320,6 +2439,7 @@ export async function deployAws(
     : [];
   const parameters = effectiveParameters(options, stack, stackResources);
   const deployments = gradualDeploymentSummary(parameters, stackResources);
+  const backups = backupSummary(parameters, stackResources);
   const deploymentTemplate = renderAwsTemplate(
     template,
     availableLambdaAliases(stackResources),
@@ -2328,10 +2448,7 @@ export async function deployAws(
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "hayasend-deploy-"));
   try {
     const emptyConfig = join(temporaryDirectory, "samconfig.toml");
-    const deploymentTemplatePath = join(
-      temporaryDirectory,
-      "template.yaml",
-    );
+    const deploymentTemplatePath = join(temporaryDirectory, "template.yaml");
     const buildDirectory = join(temporaryDirectory, "build");
     const samBuildEnvironment = await npmSamCompatibilityEnvironment(
       dependencies,
@@ -2415,9 +2532,7 @@ export async function deployAws(
         },
         template: {
           source: "package:template.yaml",
-          sha256: createHash("sha256")
-            .update(deploymentTemplate)
-            .digest("hex"),
+          sha256: createHash("sha256").update(deploymentTemplate).digest("hex"),
           validation: "pass",
           build: "pass",
         },
@@ -2430,10 +2545,9 @@ export async function deployAws(
         },
         deployments: {
           ...deployments,
-          mode: deployments.enabled
-            ? "alarm_rollback"
-            : "alias_bootstrap",
+          mode: deployments.enabled ? "alarm_rollback" : "alias_bootstrap",
         },
+        backups,
         dns_changes: "never",
         ...(options.apply
           ? {}
@@ -2501,6 +2615,7 @@ export async function deployAws(
             protectedStack.parameters,
             stackResources,
           ),
+          backups: backupSummary(protectedStack.parameters, stackResources),
           outputs: protectedStack.outputs,
         }),
       );
@@ -2600,6 +2715,7 @@ export async function deployAws(
       );
     }
     validateBootstrapSecret(bootstrapSecretArn, options);
+    const deployedResources = await listStackResources(dependencies, options);
     dependencies.log(
       JSON.stringify({
         schema_version: 1,
@@ -2616,8 +2732,9 @@ export async function deployAws(
         },
         deployments: gradualDeploymentSummary(
           deployed.parameters,
-          await listStackResources(dependencies, options),
+          deployedResources,
         ),
+        backups: backupSummary(deployed.parameters, deployedResources),
         outputs: deployed.outputs,
         next: {
           environment: {

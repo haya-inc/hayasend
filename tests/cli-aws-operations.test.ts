@@ -45,6 +45,17 @@ function existingStack(overrides: Record<string, unknown> = {}) {
             ParameterValue: "Canary10Percent5Minutes",
           },
           { ParameterKey: "EnableInbound", ParameterValue: "false" },
+          { ParameterKey: "EnableBackups", ParameterValue: "true" },
+          { ParameterKey: "BackupRetentionDays", ParameterValue: "35" },
+          {
+            ParameterKey: "PayloadNoncurrentVersionRetentionDays",
+            ParameterValue: "7",
+          },
+          { ParameterKey: "EnableRestoreTesting", ParameterValue: "true" },
+          {
+            ParameterKey: "RestoreTestingPlanName",
+            ParameterValue: "HayaSend_hayasend_1234567890",
+          },
         ],
         Outputs: [
           {
@@ -91,6 +102,7 @@ function stackPolicy() {
           Action: ["Update:Replace", "Update:Delete"],
           Principal: "*",
           Resource: [
+            "LogicalResourceId/BackupVault",
             "LogicalResourceId/DataTable",
             "LogicalResourceId/InboundBucket",
             "LogicalResourceId/InboundKey",
@@ -148,6 +160,27 @@ function stackResources() {
           ResourceStatus: "UPDATE_COMPLETE",
         },
       ]),
+      ...[
+        ["BackupServiceRole", "AWS::IAM::Role"],
+        ["BackupVault", "AWS::Backup::BackupVault"],
+        ["BackupPlan", "AWS::Backup::BackupPlan"],
+        ["BackupSelection", "AWS::Backup::BackupSelection"],
+        ["RestoreTestingServiceRole", "AWS::IAM::Role"],
+        ["RestoreTestingPlan", "AWS::Backup::RestoreTestingPlan"],
+        [
+          "DynamoDbRestoreTestingSelection",
+          "AWS::Backup::RestoreTestingSelection",
+        ],
+        ["S3RestoreTestingSelection", "AWS::Backup::RestoreTestingSelection"],
+      ].map(([LogicalResourceId, ResourceType]) => ({
+        LogicalResourceId,
+        PhysicalResourceId:
+          LogicalResourceId === "BackupVault"
+            ? "HayaSend_hayasend_1234567890"
+            : `hayasend-${LogicalResourceId}`,
+        ResourceType,
+        ResourceStatus: "UPDATE_COMPLETE",
+      })),
     ],
   });
 }
@@ -285,12 +318,22 @@ describe("AWS lifecycle operations", () => {
           retained_resources_protected: true,
         },
         drift: { status: "IN_SYNC" },
-        resources: { total: 12, problems: [] },
+        resources: { total: 20, problems: [] },
         deployments: {
           enabled: true,
           aliases_ready: true,
           deployment_groups_ready: true,
           strategy: "Canary10Percent5Minutes",
+        },
+        backups: {
+          enabled: true,
+          retention_days: 35,
+          payload_noncurrent_version_retention_days: 7,
+          resources_ready: true,
+          restore_testing: {
+            enabled: true,
+            resources_ready: true,
+          },
         },
       },
       alarms: {
@@ -622,7 +665,7 @@ describe("AWS lifecycle operations", () => {
     expect(plan).toMatchObject({
       object: "aws_cleanup_plan",
       mutating: false,
-      stack: { resource_count: 12 },
+      stack: { resource_count: 20 },
       deletion: {
         retained_resources: [
           {
@@ -632,6 +675,10 @@ describe("AWS lifecycle operations", () => {
           {
             logical_id: "PayloadBucket",
             physical_id: "hayasend-payloads-123456789012",
+          },
+          {
+            logical_id: "BackupVault",
+            physical_id: "HayaSend_hayasend_1234567890",
           },
         ],
       },

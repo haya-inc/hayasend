@@ -650,6 +650,10 @@ template are not replayed. Supported overrides are:
 - `--worker-reserved-concurrency 0..1000` (`0` uses the account's unreserved
   concurrency pool);
 - `--deployment-preference-type Canary10Percent5Minutes|Canary10Percent10Minutes|Canary10Percent15Minutes|Canary10Percent30Minutes|Linear10PercentEvery1Minute|Linear10PercentEvery2Minutes|Linear10PercentEvery3Minutes|Linear10PercentEvery10Minutes`;
+- `--enable-backups` or `--disable-backups`;
+- `--backup-retention-days 1..365`;
+- `--payload-noncurrent-version-retention-days 1..30`;
+- `--enable-restore-testing` or `--disable-restore-testing`;
 - repeatable `--tag KEY=VALUE`.
 
 Enabling inbound receiving requires explicit non-`.invalid` recipient
@@ -674,6 +678,22 @@ create requests.
 
 Lambda logs default to 30-day retention. The same parameter is visible in the
 plan, carried forward on update, and used by the manual SAM workflow.
+
+Daily AWS Backup protection is enabled for new stacks by default. It selects
+the DynamoDB ledger, the versioned payload bucket, and the inbound bucket when
+inbound is enabled. Recovery points default to 35-day retention. Payload
+noncurrent versions default to seven days so accidental overwrites and
+deletions have a short object-level recovery window without unbounded S3
+growth.
+
+`--enable-restore-testing` creates a weekly AWS Backup restore-testing plan for
+DynamoDB and S3. Restores use temporary isolated resources and are cleaned up
+by AWS Backup after the validation window; S3 cleanup can remain visible while
+AWS finishes deleting objects. The flag is opt-in because every restore job is
+billable. It cannot be combined with `--disable-backups`. Resource readiness
+in `status aws` proves that the plans and selections exist, not that the latest
+restore job passed; retain the restore-job evidence described in the
+[operations runbook](operations.md).
 
 After execution, the CLI waits for CloudFormation, reads the API URL, bootstrap
 secret ARN, alarm topic, dashboard, and optional inbound MX target, then prints
@@ -713,7 +733,8 @@ the application. It checks the AWS CLI and caller identity, SES
 production/sending state and quota, CloudFormation stack state, termination
 protection, the retained-resource stack policy, last reported drift,
 individual stack resources, stack-owned CloudWatch alarms, and the public
-`/healthz` endpoint. `--detect-drift` explicitly starts and awaits a fresh
+`/healthz` endpoint. It also checks that every configured backup and restore
+testing resource exists. `--detect-drift` explicitly starts and awaits a fresh
 CloudFormation drift check. It reports only drifted logical IDs, resource
 types, and statuses, never property differences or property values. Only
 problematic resources and alarms are expanded in the result. The output also
@@ -721,10 +742,11 @@ links the generated dashboard and prints exact drift, `upgrade aws`, `cleanup
 aws`, and authenticated `doctor` next steps.
 
 `operational` covers infrastructure, alarms, public health, all required
-`live` aliases, and their CodeDeploy deployment groups. `send_ready` also
-requires SES production access and sending to be enabled. A missing stack or
-an alias-bootstrap-only first deployment is a successful inspection with both
-values false and an exact next command.
+`live` aliases, their CodeDeploy deployment groups, and configured backup and
+restore-testing resources. `send_ready` also requires SES production access
+and sending to be enabled. A missing stack or an alias-bootstrap-only first
+deployment is a successful inspection with both values false and an exact
+next command.
 
 ## Upgrade AWS
 
@@ -760,9 +782,12 @@ delete request fails, it attempts to restore the protection. It waits for
 `stack-delete-complete` and verifies that the stack is absent.
 
 Cleanup never purges resources protected by `DeletionPolicy: Retain`. Its
-plan and result identify the retained DynamoDB table, payload bucket, and any
-enabled inbound bucket and KMS key. Export, retain, or destroy those resources
-through a separate reviewed data-lifecycle procedure.
+plan and result identify the retained DynamoDB table, payload bucket, backup
+vault, and any enabled inbound bucket and KMS key. A vault with recovery
+points cannot be deleted. Expire or copy recovery points under the applicable
+retention policy before a separate reviewed vault-deletion procedure. Export,
+retain, or destroy the other resources through the same reviewed data
+lifecycle.
 
 ## Send a hosted template
 

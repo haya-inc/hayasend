@@ -37,7 +37,9 @@ Review the account, Region, SES state, parameters, tags, and exact apply
 command in the JSON result. Then apply:
 
 ```bash
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws --apply
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
+  --enable-restore-testing \
+  --apply
 ```
 
 Apply builds the packaged SAM application, creates an unexecuted
@@ -47,6 +49,12 @@ changes DNS. After a successful create or update, the CLI enforces a stack
 policy that denies replacement or deletion of retained data resources and
 enables CloudFormation termination protection. Apply fails loudly if either
 protection cannot be verified.
+
+New stacks protect the DynamoDB ledger and versioned payload bucket with a
+daily AWS Backup plan and 35-day retention. The production example explicitly
+adds weekly isolated restore testing. Restore jobs are billable, so omit
+`--enable-restore-testing` for a short-lived proof. Review the retention and
+backup resource names in the plan before applying.
 
 ## 3. Enable safe updates
 
@@ -82,8 +90,9 @@ The result keeps two decisions separate:
 - `operational` requires a stable stack, verified termination protection, the
   HayaSend retained-resource stack policy, an `IN_SYNC` drift result, no
   problematic stack resources, all required Lambda aliases and CodeDeploy
-  deployment groups, all discovered HayaSend alarms in `OK`, and a successful
-  public `/healthz` request;
+  deployment groups, all configured backup and restore-testing resources, all
+  discovered HayaSend alarms in `OK`, and a successful public `/healthz`
+  request;
 - `send_ready` additionally requires SES production access and account
   sending to be enabled.
 
@@ -151,7 +160,9 @@ exists. It does not purge retained customer data. The DynamoDB table, payload
 bucket, and enabled inbound bucket and KMS key have `DeletionPolicy: Retain`;
 their physical IDs are printed before and after deletion. Decide their
 retention, export, and eventual destruction separately under the applicable
-backup, audit, and privacy policy.
+backup, audit, and privacy policy. The backup vault is also retained; recovery
+points must expire or be copied under policy before a separately reviewed
+vault deletion.
 
 ## Routine operating loop
 

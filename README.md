@@ -414,6 +414,7 @@ AWS. After reviewing it, repeat the command with `--apply`:
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
   --log-retention-days 30 \
+  --enable-restore-testing \
   --apply
 ```
 
@@ -426,6 +427,14 @@ DNS. See the
 [CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
 preservation, finite Lambda log retention, failure recovery, and output
 privacy.
+
+New stacks enable daily AWS Backup protection for the DynamoDB ledger and
+versioned S3 payload data, with 35-day recovery-point retention by default.
+`--enable-restore-testing` adds weekly isolated DynamoDB and S3 restore tests;
+it is explicit because restore jobs incur usage charges. The retained backup
+vault is protected by the same stack policy as customer data. Review the
+effective retention, vault, and restore-testing readiness in every plan and
+`status aws` result.
 
 The same CLI covers the complete stack lifecycle:
 
@@ -440,12 +449,13 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
 
 `status aws --detect-drift` runs a fresh bounded CloudFormation drift check and
 combines its metadata-only result with protection state, SES sending
-readiness, stack-resource failures, CloudWatch alarms, public API health, and
-the dashboard link. `cleanup aws` is plan-first, requires a separate explicit
-protection-disable acknowledgement, and deliberately retains the DynamoDB
-table, payload bucket, and enabled inbound data resources; it prints their
-physical IDs for a separate retention or destruction decision. See the
-copy-paste [AWS quickstart](docs/aws-quickstart.md) and the
+readiness, backup and restore-testing resource readiness, stack-resource
+failures, CloudWatch alarms, public API health, and the dashboard link.
+`cleanup aws` is plan-first, requires a separate explicit protection-disable
+acknowledgement, and deliberately retains the DynamoDB table, payload bucket,
+backup vault, and enabled inbound data resources; it prints their physical IDs
+for a separate retention or destruction decision. See the copy-paste
+[AWS quickstart](docs/aws-quickstart.md) and the
 [operations runbook](docs/operations.md).
 
 The first apply creates versioned `live` Lambda aliases. Apply the returned

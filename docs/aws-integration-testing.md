@@ -14,6 +14,14 @@ ARN. It also verifies that the CLI enabled termination protection, installed
 the retained-resource stack policy, and completed a fresh `IN_SYNC` drift
 check.
 
+This ordinary disposable-stack workflow passes `--disable-backups` and
+`--disable-restore-testing` on every create and update. That avoids a retained
+vault, scheduled backup jobs, and temporary restored resources in the shared
+test account. It asserts the disabled state in both the reviewed plan and live
+status. Production plans keep daily backups enabled; backup and isolated
+restore evidence is a separate retained-data drill and must not be inferred
+from this workflow.
+
 After the clean install, the workflow creates empty groups at the four legacy
 Lambda-generated names with no retention policy, changes `LogRetentionDays`
 from 7 to 14, and applies a second reviewed change set. It asserts that both
