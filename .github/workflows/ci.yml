@@ -715,7 +715,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 600 and
+            .entryCount <= 610 and
             .size < 740000 and
             .unpackedSize < 3800000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -799,6 +799,8 @@ jobs:
             ([.files[].path] |
               index("deploy/cloud-run/backend.tf.example") != null) and
             ([.files[].path] |
+              index("deploy/cloud-run/rollback.sh") != null) and
+            ([.files[].path] |
               index("deploy/azure-container-apps/main.tf") != null) and
             ([.files[].path] |
               index("deploy/azure-container-apps/.terraform.lock.hcl") != null) and
@@ -827,11 +829,15 @@ jobs:
             ([.files[].path] |
               index("deploy/render/.render-schema-sha256") != null) and
             ([.files[].path] |
+              index("deploy/render/rollback.sh") != null) and
+            ([.files[].path] |
               index("deploy/railway/.railway/railway.ts") != null) and
             ([.files[].path] |
               index("deploy/railway/.railway-cli-version") != null) and
             ([.files[].path] |
               index("deploy/railway/.railway-cli-linux-x86_64-sha256") != null) and
+            ([.files[].path] |
+              index("deploy/railway/rollback.sh") != null) and
             ([.files[].path] |
               index("deploy/flyio/fly.toml") != null) and
             ([.files[].path] |
@@ -923,6 +929,7 @@ jobs:
           test -f "$package_root/deploy/cloud-run/.terraform-version"
           test -f "$package_root/deploy/cloud-run/backend.tf.example"
           test -x "$package_root/deploy/cloud-run/deploy.sh"
+          test -x "$package_root/deploy/cloud-run/rollback.sh"
           test -x "$package_root/deploy/cloud-run/cleanup.sh"
           test -f "$package_root/deploy/azure-container-apps/main.tf"
           test -f \
@@ -955,6 +962,7 @@ jobs:
           test -x "$package_root/deploy/render/verify.sh"
           test -x "$package_root/deploy/render/proof.sh"
           test -x "$package_root/deploy/render/verify-project.sh"
+          test -x "$package_root/deploy/render/rollback.sh"
           test -x "$package_root/deploy/render/cleanup.sh"
           test -x "$package_root/deploy/render/cleanup-project.sh"
           test -f \
@@ -964,6 +972,7 @@ jobs:
             "$package_root/deploy/railway/.railway-cli-linux-x86_64-sha256"
           test -x "$package_root/deploy/railway/deploy.sh"
           test -x "$package_root/deploy/railway/verify.sh"
+          test -x "$package_root/deploy/railway/rollback.sh"
           test -x "$package_root/deploy/railway/cleanup.sh"
           test -f "$package_root/deploy/flyio/fly.toml"
           test -f "$package_root/deploy/flyio/.flyctl-version"
