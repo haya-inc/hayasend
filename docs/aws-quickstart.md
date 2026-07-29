@@ -39,6 +39,8 @@ policy. The operator policy can manage only HayaSend stack names under the
 selected prefix, that artifact path, and `iam:PassRole` for the exact service
 role. It does not grant the operator Lambda, DynamoDB, SES, backup, or other
 application data-plane provisioning permissions.
+The service role may invoke the regional AWS-owned SAM transform, but it
+cannot create arbitrary CloudFormation stacks or change sets.
 
 Apply from a one-time IAM bootstrap session only after reviewing the template:
 
