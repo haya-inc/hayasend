@@ -64,9 +64,20 @@ export async function readBoundedFile(
   configuredPath: string,
   maximumBytes: number,
 ) {
-  const root = await realpath(resolve(cwd));
-  const path = await realpath(resolve(root, configuredPath));
+  const requestedRoot = resolve(cwd);
+  const requestedRootPrefix = requestedRoot.endsWith(sep)
+    ? requestedRoot
+    : `${requestedRoot}${sep}`;
+  const candidatePath = resolve(requestedRoot, configuredPath);
+  if (
+    candidatePath !== requestedRoot &&
+    !candidatePath.startsWith(requestedRootPrefix)
+  ) {
+    throw new Error("File inputs must resolve inside the current directory.");
+  }
+  const root = await realpath(requestedRoot);
   const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  const path = await realpath(candidatePath);
   if (path !== root && !path.startsWith(rootPrefix)) {
     throw new Error("File inputs must resolve inside the current directory.");
   }
