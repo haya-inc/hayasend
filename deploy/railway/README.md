@@ -212,12 +212,16 @@ The workflow runs only on protected `main` and requires the exact project UUID
 and proposed USD 10 ceiling as dispatch confirmations,
 refuses non-empty or multi-environment projects, downloads and verifies the
 pinned CLI, creates a masked one-run HayaSend API key, applies the reviewed
-console-only graph, runs the semantic proof inside the API container, checks
-drift, and always requests guarded deletion of the dedicated project. It does
-not configure Railway billing or usage limits; the environment values are an
-operator assertion and the current plan and hard limit must be checked in the
-Railway Usage screen before approval and dispatch. The final provider
-inventory and billing page still require independent verification.
+console-only graph with the immutable v0.3.0 compatibility baseline, upgrades
+it to the immutable current image, runs the semantic proof inside the API
+container, and checks drift. It then uses the guarded rollback wrapper to
+redeploy v0.3.0 without reversing forward migrations and records baseline,
+upgrade, and rollback evidence. It always requests guarded deletion of the
+dedicated project. It does not configure Railway billing or usage limits; the
+environment values are an operator assertion and the current plan and hard
+limit must be checked in the Railway Usage screen before approval and dispatch.
+The final provider inventory and billing page still require independent
+verification.
 
 ## Official references
 

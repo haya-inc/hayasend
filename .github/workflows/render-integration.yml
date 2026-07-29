@@ -27,6 +27,7 @@ jobs:
     environment: render-integration
     env:
       HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_ROLLBACK_IMAGE: ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519
       HAYASEND_RENDER_API_URL: ${{ vars.RENDER_TEST_API_URL }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_API_SERVICE_ID: ${{ vars.RENDER_TEST_API_SERVICE_ID }}
@@ -118,7 +119,19 @@ jobs:
         shell: bash
         run: echo "attempted=true" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy and verify the reviewed immutable image
+      - name: Deploy the reviewed previous compatible baseline
+        shell: bash
+        env:
+          HAYASEND_IMAGE: ${{ env.HAYASEND_ROLLBACK_IMAGE }}
+        run: |
+          set -euo pipefail
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/deploy.sh \
+            | tee "$RUNNER_TEMP/render-baseline.txt"
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/verify.sh
+
+      - name: Upgrade and verify the reviewed current immutable image
         shell: bash
         run: |
           set -euo pipefail
@@ -127,6 +140,17 @@ jobs:
             | tee "$RUNNER_TEMP/render-deploy.txt"
           RENDER_CLI="$RENDER_CLI" \
             deploy/render/verify.sh
+          jq --null-input \
+            --arg from "$HAYASEND_ROLLBACK_IMAGE" \
+            --arg to "$HAYASEND_IMAGE" '
+              {
+                object: "render_upgrade_proof",
+                migration_policy: "migration-first-forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_upgrade: true
+              }
+            ' > "$RUNNER_TEMP/render-upgrade.json"
 
       - name: Run the semantic proof as an isolated one-off job
         shell: bash
@@ -136,6 +160,27 @@ jobs:
           set -euo pipefail
           RENDER_CLI="$RENDER_CLI" \
             deploy/render/proof.sh
+
+      - name: Roll back to the reviewed previous immutable release
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: render
+        run: |
+          set -euo pipefail
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/rollback.sh \
+            | tee "$RUNNER_TEMP/render-rollback.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_IMAGE" \
+            --arg to "$HAYASEND_ROLLBACK_IMAGE" '
+              {
+                object: "render_rollback_proof",
+                migration_policy: "forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_rollback: true
+              }
+            ' > "$RUNNER_TEMP/render-rollback.json"
 
       - name: Disconnect and delete the exact dedicated project
         if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.deployment_attempt.outputs.attempted == 'true' }}
@@ -154,7 +199,11 @@ jobs:
         with:
           name: render-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/render-baseline.txt
+            ${{ runner.temp }}/render-upgrade.json
             ${{ runner.temp }}/render-portable-proof.json
+            ${{ runner.temp }}/render-rollback.json
+            ${{ runner.temp }}/render-rollback.txt
             ${{ runner.temp }}/render-cleanup.txt
           if-no-files-found: warn
           retention-days: 7

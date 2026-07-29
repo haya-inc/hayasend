@@ -349,6 +349,7 @@ describe.skipIf(process.platform === "win32")(
       const fixture = await fakeCommands();
       const result = run("rollback.sh", fixture, {
         ...baseEnvironment,
+        HAYASEND_ALLOW_ROLLBACK: "flyio",
         HAYASEND_ROLLBACK_IMAGE: rollbackImage,
         HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST:
           rollbackMachineImageDigest,
@@ -368,6 +369,22 @@ describe.skipIf(process.platform === "win32")(
       expect(result.stdout).toContain(
         "rolled back to the reviewed immutable image",
       );
+    });
+
+    it("refuses rollback without the exact operator guard", async () => {
+      const fixture = await fakeCommands();
+      const result = run("rollback.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_ROLLBACK_IMAGE: rollbackImage,
+        HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST:
+          rollbackMachineImageDigest,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Set HAYASEND_ALLOW_ROLLBACK=flyio",
+      );
+      expect(await readFile(fixture.log, "utf8")).toBe("");
     });
 
     it("rejects an invented console proof confirmation", async () => {

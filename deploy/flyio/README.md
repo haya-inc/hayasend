@@ -302,12 +302,16 @@ configure the `flyio-integration` GitHub environment with:
 
 Dispatch must repeat the exact app name and proposed USD 50 ceiling. The
 workflow verifies the deployed two-Machine topology and immutable amd64 image,
-runs the PostgreSQL 17 semantic proof in a separately named disposable
-Machine, destroys that Machine even after failure, inventories the private
-bucket through the application's scoped Tigris credentials, and deletes the
-bucket, app, and attached Managed Postgres cluster only after zero-object
-evidence. It does not configure SendGrid or send mail. It is implemented and
-locally validated, but has not yet been executed.
+uses the guarded rollback wrapper to establish the immutable v0.3.0
+compatibility baseline, upgrades both process groups to the immutable current
+amd64 image, and runs the PostgreSQL 17 semantic proof in a separately named
+disposable Machine. It then redeploys the v0.3.0 amd64 application image
+without reversing forward migrations and records baseline, upgrade, and
+rollback evidence. The workflow destroys the proof Machine even after failure,
+inventories the private bucket through the application's scoped Tigris
+credentials, and deletes the bucket, app, and attached Managed Postgres
+cluster only after zero-object evidence. It does not configure SendGrid or send
+mail. It is implemented and locally validated, but has not yet been executed.
 
 ## Official references
 

@@ -249,13 +249,16 @@ accepted. Dispatch must repeat the exact project ID and proposed USD 25
 ceiling.
 
 The workflow verifies zero HayaSend residue before mutation, creates the
-disposable low-cost graph, runs the 30-day semantic proof inside the private
-Cloud Run Job, and destroys partial or complete Terraform state on failure or
-success. It then inventories services, jobs, Worker Pools, Cloud SQL, buckets,
-secrets, service accounts, networking, Pub/Sub, and IAM for zero residue. It
-does not configure SendGrid or send an email. The workflow is implemented and
-locally validated, but has not yet been executed; it is not production
-evidence.
+disposable low-cost graph on the immutable v0.3.0 compatibility baseline,
+upgrades it to the immutable current image, runs the 30-day semantic proof
+inside the private Cloud Run Job, and uses the guarded rollback wrapper to
+redeploy the v0.3.0 application image without reversing forward migrations.
+It records baseline, upgrade, and rollback evidence, then destroys partial or
+complete Terraform state on failure or success. It inventories services, jobs,
+Worker Pools, Cloud SQL, buckets, secrets, service accounts, networking,
+Pub/Sub, and IAM for zero residue. It does not configure SendGrid or send an
+email. The workflow is implemented and locally validated, but has not yet been
+executed; it is not production evidence.
 
 ## Official references
 

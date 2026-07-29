@@ -13,6 +13,9 @@ const deploymentDirectory = resolve("deploy/render");
 const image =
   "ghcr.io/haya-inc/hayasend@sha256:" +
   "0123456789abcdef".repeat(4);
+const rollbackImage =
+  "ghcr.io/haya-inc/hayasend@sha256:" +
+  "fedcba9876543210".repeat(4);
 
 async function fakeCommands() {
   const directory = await mkdtemp(
@@ -141,6 +144,48 @@ describe.skipIf(process.platform === "win32")(
       expect(await readFile(fixture.log, "utf8")).toContain(
         "https://hayasend-api.onrender.com/readyz",
       );
+    });
+
+    it("rolls back both services to one reviewed immutable image", async () => {
+      const fixture = await fakeCommands();
+      const result = run("rollback.sh", fixture, {
+        HAYASEND_ALLOW_ROLLBACK: "render",
+        HAYASEND_IMAGE: image,
+        HAYASEND_RENDER_API_URL:
+          "https://hayasend-api.onrender.com",
+        HAYASEND_ROLLBACK_IMAGE: rollbackImage,
+        RENDER_API_SERVICE_ID: "srv-api123",
+        RENDER_WORKER_SERVICE_ID: "srv-worker123",
+      });
+      const commands = await readFile(fixture.log, "utf8");
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).toContain(
+        `deploys create srv-api123 --image ${rollbackImage}`,
+      );
+      expect(commands).toContain(
+        `deploys create srv-worker123 --image ${rollbackImage}`,
+      );
+      expect(commands).toContain(
+        "deploys list srv-api123 --output json",
+      );
+      expect(result.stdout).toContain(
+        "preserves forward migrations",
+      );
+    });
+
+    it("refuses rollback without the exact operator guard", async () => {
+      const fixture = await fakeCommands();
+      const result = run("rollback.sh", fixture, {
+        HAYASEND_ROLLBACK_IMAGE: rollbackImage,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Set HAYASEND_ALLOW_ROLLBACK=render",
+      );
+      expect(await readFile(fixture.log, "utf8")).toBe("");
     });
 
     it("runs the shared semantic proof as an exact one-off API job", async () => {

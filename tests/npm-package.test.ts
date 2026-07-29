@@ -51,6 +51,23 @@ describe("npm CLI distribution", () => {
     );
   });
 
+  it("ships guarded hosted rollback helpers within a bounded package", async () => {
+    const workflow = await readFile(
+      new URL("../.github/workflows/ci.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain(".entryCount <= 610");
+    for (const provider of ["cloud-run", "render", "railway"]) {
+      expect(workflow).toContain(
+        `index("deploy/${provider}/rollback.sh") != null`,
+      );
+      expect(workflow).toContain(
+        `test -x "$package_root/deploy/${provider}/rollback.sh"`,
+      );
+    }
+  });
+
   it("publishes the attested release tarball idempotently", async () => {
     const workflow = await readFile(
       new URL("../.github/workflows/release.yml", import.meta.url),

@@ -44,6 +44,17 @@ describe("Railway hosted lifecycle workflow", () => {
       "Run the portable semantic proof inside Railway",
     );
     expect(workflow).toContain(
+      "Deploy the reviewed previous compatible baseline",
+    );
+    expect(workflow).toContain(
+      "Upgrade to the reviewed current console-only graph",
+    );
+    expect(workflow).toContain("deploy/railway/rollback.sh");
+    expect(workflow).toContain('object: "railway_upgrade_proof"');
+    expect(workflow).toContain(
+      'object: "railway_rollback_proof"',
+    );
+    expect(workflow).toContain(
       "node dist/portable/hosted-proof.js",
     );
     expect(workflow).toContain(

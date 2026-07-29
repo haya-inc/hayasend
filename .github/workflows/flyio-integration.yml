@@ -36,6 +36,8 @@ jobs:
       HAYASEND_FLY_ORG: ${{ vars.FLY_TEST_ORG }}
       HAYASEND_FLY_PROOF_MACHINE_NAME: hayasend-proof-${{ github.run_id }}${{ github.run_attempt }}
       HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_ROLLBACK_IMAGE: ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519
+      HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST: sha256:4731fbc644c55088399f6a8c11105d9c3b300acb2b3beda71b581289327f2a4b
       HAYASEND_TRANSPORT: console
 
     steps:
@@ -113,12 +115,61 @@ jobs:
           deploy/flyio/verify.sh
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
+      - name: Establish the reviewed previous compatible baseline
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: flyio
+        run: |
+          set -euo pipefail
+          deploy/flyio/rollback.sh \
+            | tee "$RUNNER_TEMP/flyio-baseline.txt"
+
+      - name: Upgrade to the reviewed current immutable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy/flyio/deploy.sh \
+            | tee "$RUNNER_TEMP/flyio-upgrade.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_ROLLBACK_IMAGE" \
+            --arg to "$HAYASEND_IMAGE" '
+              {
+                object: "flyio_upgrade_proof",
+                migration_policy: "migration-first-forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_upgrade: true
+              }
+            ' > "$RUNNER_TEMP/flyio-upgrade.json"
+
       - name: Run the semantic proof in a disposable Machine
         shell: bash
         env:
           HAYASEND_FLY_PROOF_FILE: ${{ runner.temp }}/flyio-portable-proof.json
           HAYASEND_FLY_PROOF_MACHINE_ID_FILE: ${{ runner.temp }}/flyio-proof-machine-id.txt
         run: deploy/flyio/proof.sh
+
+      - name: Roll back to the reviewed previous immutable release
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: flyio
+        run: |
+          set -euo pipefail
+          deploy/flyio/rollback.sh \
+            | tee "$RUNNER_TEMP/flyio-rollback.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_IMAGE" \
+            --arg to "$HAYASEND_ROLLBACK_IMAGE" '
+              {
+                object: "flyio_rollback_proof",
+                migration_policy: "forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_rollback: true
+              }
+            ' > "$RUNNER_TEMP/flyio-rollback.json"
+          echo "HAYASEND_IMAGE=$HAYASEND_ROLLBACK_IMAGE" >> "$GITHUB_ENV"
+          echo "HAYASEND_FLY_MACHINE_IMAGE_DIGEST=$HAYASEND_ROLLBACK_MACHINE_IMAGE_DIGEST" >> "$GITHUB_ENV"
 
       - name: Ensure the disposable proof Machine is absent
         id: proof_machine_cleanup
@@ -158,7 +209,12 @@ jobs:
         with:
           name: flyio-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/flyio-baseline.txt
+            ${{ runner.temp }}/flyio-upgrade.json
+            ${{ runner.temp }}/flyio-upgrade.txt
             ${{ runner.temp }}/flyio-portable-proof.json
+            ${{ runner.temp }}/flyio-rollback.json
+            ${{ runner.temp }}/flyio-rollback.txt
             ${{ runner.temp }}/flyio-bucket-inventory.json
             ${{ runner.temp }}/flyio-cleanup.txt
           if-no-files-found: warn
