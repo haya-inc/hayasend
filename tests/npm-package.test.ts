@@ -51,13 +51,27 @@ describe("npm CLI distribution", () => {
     );
   });
 
-  it("ships guarded hosted rollback helpers within a bounded package", async () => {
+  it("ships guarded hosted recovery helpers within a bounded package", async () => {
     const workflow = await readFile(
       new URL("../.github/workflows/ci.yml", import.meta.url),
       "utf8",
     );
+    const packageJson = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { scripts?: Record<string, string> };
 
     expect(workflow).toContain(".entryCount <= 610");
+    expect(workflow).toContain(".size < 760000");
+    expect(workflow).toContain(".unpackedSize < 3900000");
+    expect(workflow).toContain(
+      'index("dist/portable/backup-restore-proof.js") != null',
+    );
+    expect(workflow).toContain(
+      'test -f \\\n            "$package_root/dist/portable/backup-restore-proof.js"',
+    );
+    expect(packageJson.scripts?.["proof:portable-backup-restore"]).toBe(
+      "node dist/portable/backup-restore-proof.js",
+    );
     for (const provider of ["cloud-run", "render", "railway"]) {
       expect(workflow).toContain(
         `index("deploy/${provider}/rollback.sh") != null`,

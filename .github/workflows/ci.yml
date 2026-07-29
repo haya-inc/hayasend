@@ -716,8 +716,8 @@ jobs:
           )"
           jq --exit-status '
             .entryCount <= 610 and
-            .size < 740000 and
-            .unpackedSize < 3800000 and
+            .size < 760000 and
+            .unpackedSize < 3900000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -734,6 +734,8 @@ jobs:
               index("dist/portable/worker.js") != null) and
             ([.files[].path] |
               index("dist/portable/hosted-proof.js") != null) and
+            ([.files[].path] |
+              index("dist/portable/backup-restore-proof.js") != null) and
             ([.files[].path] |
               index("scripts/cloudflare-cost-model.mjs") != null) and
             ([.files[].path] | index("src/aws/api.ts") != null) and
@@ -898,6 +900,8 @@ jobs:
             "$package_root/migrations/postgres/0004_provider_message_correlation.sql"
           test -f "$package_root/dist/portable/migrate.js"
           test -f "$package_root/dist/portable/worker.js"
+          test -f \
+            "$package_root/dist/portable/backup-restore-proof.js"
           test -f "$package_root/scripts/cloudflare-cost-model.mjs"
           test -f \
             "$package_root/schemas/runtime-capabilities.v1.schema.json"

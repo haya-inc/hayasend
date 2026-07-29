@@ -19,12 +19,12 @@ const MAXIMUM_SCHEDULE_DAYS = 30;
 const DEFAULT_SCHEDULE_DAYS = 30;
 const DEFAULT_TIMEOUT_SECONDS = 120;
 
-type Fetcher = (
+export type Fetcher = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
 
-interface CountRow extends QueryResultRow {
+export interface CountRow extends QueryResultRow {
   emails: string;
   messages: string;
   recipients: string;
@@ -42,7 +42,7 @@ interface DatabaseIdentityRow extends QueryResultRow {
   server_version_num: string;
 }
 
-interface DeliveryFixtureRow extends QueryResultRow {
+export interface DeliveryFixtureRow extends QueryResultRow {
   email_entity: unknown;
   message_entity: unknown;
   outbox_entity: unknown;
@@ -53,7 +53,7 @@ interface DeliveryFixtureRow extends QueryResultRow {
   idempotency_count: string;
 }
 
-interface FinalFixtureRow extends QueryResultRow {
+export interface FinalFixtureRow extends QueryResultRow {
   email_entity: unknown;
   message_entity: unknown;
   outbox_entity: unknown;
@@ -190,7 +190,7 @@ export interface PortableHostedProofEvidence {
   };
 }
 
-function parseEntity<T>(value: unknown): T {
+export function parseEntity<T>(value: unknown): T {
   if (typeof value === "string") {
     return JSON.parse(value) as T;
   }
@@ -200,7 +200,7 @@ function parseEntity<T>(value: unknown): T {
   return value as T;
 }
 
-function integer(value: string | undefined, name: string): number {
+export function integer(value: string | undefined, name: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`Hosted proof ${name} count is invalid.`);
@@ -272,7 +272,7 @@ function validateOptions(options: PortableHostedProofOptions): URL {
   return new URL("/", apiUrl);
 }
 
-async function responseJson<T>(
+export async function responseJson<T>(
   fetcher: Fetcher,
   url: URL,
   init?: RequestInit,
@@ -287,7 +287,7 @@ async function responseJson<T>(
   return (await response.json()) as T;
 }
 
-async function healthCheck(
+export async function healthCheck(
   fetcher: Fetcher,
   apiOrigin: URL,
   path: "/healthz" | "/readyz",
@@ -305,14 +305,14 @@ async function healthCheck(
   }
 }
 
-function authorization(apiKey: string): Record<string, string> {
+export function authorization(apiKey: string): Record<string, string> {
   return {
     authorization: `Bearer ${apiKey}`,
     "content-type": "application/json",
   };
 }
 
-async function baselineCounts(pool: Pool): Promise<CountRow> {
+export async function baselineCounts(pool: Pool): Promise<CountRow> {
   const result = await pool.query<CountRow>(
     `SELECT
        (SELECT count(*)::text FROM emails) AS emails,
@@ -337,7 +337,7 @@ async function baselineCounts(pool: Pool): Promise<CountRow> {
   return row;
 }
 
-async function databaseMajorVersion(pool: Pool): Promise<number> {
+export async function databaseMajorVersion(pool: Pool): Promise<number> {
   const result = await pool.query<DatabaseIdentityRow>(
     "SELECT current_setting('server_version_num') AS server_version_num",
   );
@@ -353,7 +353,7 @@ async function databaseMajorVersion(pool: Pool): Promise<number> {
   return majorVersion;
 }
 
-function assertEmptyBaseline(row: CountRow): void {
+export function assertEmptyBaseline(row: CountRow): void {
   for (const [name, value] of Object.entries(row)) {
     if (integer(value, name) !== 0) {
       throw new Error(
@@ -363,7 +363,7 @@ function assertEmptyBaseline(row: CountRow): void {
   }
 }
 
-async function deliveryFixture(
+export async function deliveryFixture(
   pool: Pool,
   emailId: string,
 ): Promise<DeliveryFixtureRow> {
@@ -398,7 +398,7 @@ async function deliveryFixture(
   return row;
 }
 
-async function delayedJobCount(
+export async function delayedJobCount(
   pool: Pool,
   emailId: string,
   outboxId: string,
@@ -418,7 +418,7 @@ async function delayedJobCount(
   return integer(result.rows[0]?.total, "delayed job");
 }
 
-async function advanceDueRow(
+export async function advanceDueRow(
   client: PoolClient,
   emailId: string,
   outboxId: string,
@@ -543,7 +543,7 @@ async function advanceDueRow(
   }
 }
 
-async function waitForSent(
+export async function waitForSent(
   fetcher: Fetcher,
   apiOrigin: URL,
   apiKey: string,
@@ -576,7 +576,7 @@ async function waitForSent(
   throw new Error("Hosted proof timed out waiting for worker recovery.");
 }
 
-async function finalFixture(
+export async function finalFixture(
   pool: Pool,
   emailId: string,
   outboxId: string,
@@ -624,7 +624,7 @@ async function finalFixture(
   return row;
 }
 
-async function cleanupFixture(
+export async function cleanupFixture(
   pool: Pool,
   emailId: string,
   outboxId?: string,
@@ -732,7 +732,7 @@ async function discoverFixtureEmailId(
   return emailId;
 }
 
-function assertInitialFixture(
+export function assertInitialFixture(
   fixture: DeliveryFixtureRow,
   emailId: string,
   scheduledAt: string,
@@ -763,7 +763,7 @@ function assertInitialFixture(
   return fixture.outbox_id;
 }
 
-function assertFinalFixture(fixture: FinalFixtureRow): void {
+export function assertFinalFixture(fixture: FinalFixtureRow): void {
   const email = parseEntity<DeliveryEntity>(fixture.email_entity);
   const message = parseEntity<DeliveryEntity>(fixture.message_entity);
   const outbox = parseEntity<OutboxEntity>(fixture.outbox_entity);
