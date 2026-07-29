@@ -59,8 +59,10 @@ deployment to stop or fail with `DEPLOYMENT_STOP_ON_ALARM` enabled, the linked
 automatic rollback deployment to succeed, CloudFormation to finish
 `UPDATE_ROLLBACK_COMPLETE`, the live alias to return to its exact prior
 version, and the public health endpoint to remain healthy. The workflow then
-restores the exact reviewed source file and alarm state before any API or
-backup proof continues.
+waits through CloudFormation's bounded rollback transition, then restores the
+exact reviewed source file and alarm state before any API or
+backup proof continues. The post-rollback check uses the same public
+`/healthz` endpoint as the deployed service and does not send API credentials.
 
 ## Safety boundary
 
