@@ -632,13 +632,27 @@ jobs:
           current_source_sha="$(
             shasum --algorithm 256 "$source_file" | awk '{print $1}'
           )"
-          stack_status="$(
-            aws cloudformation describe-stacks \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --query "Stacks[0].StackStatus" \
-              --output text
-          )"
+          stack_status=""
+          for _ in {1..120}; do
+            stack_status="$(
+              aws cloudformation describe-stacks \
+                --stack-name "$STACK_NAME" \
+                --region "$AWS_REGION" \
+                --query "Stacks[0].StackStatus" \
+                --output text
+            )"
+            case "$stack_status" in
+              UPDATE_ROLLBACK_COMPLETE)
+                break
+                ;;
+              *_IN_PROGRESS)
+                sleep 5
+                ;;
+              *)
+                break
+                ;;
+            esac
+          done
           if [[ "$current_alias_version" != "$baseline_alias_version" ]]; then
             echo "::error::The live API alias did not return to its baseline version."
             exit 1
