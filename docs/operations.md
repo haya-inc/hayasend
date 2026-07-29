@@ -17,7 +17,10 @@ artifact bucket, a role trusted only by
 `cloudformation.amazonaws.com` (optionally constrained by a permissions
 boundary), and a managed operator policy. The operator policy is scoped to the
 selected HayaSend stack prefix, artifact path, CloudFormation operations, and
-`iam:PassRole` for that one role.
+`iam:PassRole` for that one role. It also includes only the read-only
+`sts:GetCallerIdentity`, regional `ses:GetAccount`, and regional
+`cloudwatch:DescribeAlarms` calls required by the lifecycle preflight and
+health summary.
 
 The bootstrap command never attaches the operator policy. Review and attach it
 to the routine human or CI principal through the organization's IAM process.
@@ -25,7 +28,7 @@ The bootstrap principal remains capable of changing IAM and is therefore not
 a routine deployment identity. HayaSend enables and verifies termination
 protection on the bootstrap stack after every successful create or update.
 
-The plan-first CLI needs read access for:
+The generated operator policy includes the plan-first read access for:
 
 - `sts:GetCallerIdentity`;
 - `ses:GetAccount`;
@@ -38,6 +41,8 @@ also uses `cloudformation:DetectStackDrift`,
 `cloudformation:DescribeStackDriftDetectionStatus`, and
 `cloudformation:DescribeStackResourceDrifts`. It does not read log events,
 message data, secret values, or drift property values.
+The policy grants no SES send or configuration mutation and no direct
+CloudWatch mutation.
 
 `--apply` additionally reads CloudFormation change sets and failure events
 through `cloudformation:ListChangeSets`,

@@ -587,8 +587,11 @@ the exact HayaSend template, and an operator managed policy. The operator
 policy is limited to the chosen HayaSend stack-name prefix, the dedicated
 artifact path, CloudFormation lifecycle and drift operations, and
 `iam:PassRole` for the exact service role with
-`iam:PassedToService=cloudformation.amazonaws.com`. It contains no
-AdministratorAccess and no application data-plane provisioning actions.
+`iam:PassedToService=cloudformation.amazonaws.com`. It includes only the
+read-only `sts:GetCallerIdentity`, regional `ses:GetAccount`, and regional
+`cloudwatch:DescribeAlarms` calls needed by lifecycle preflight and status.
+It contains no AdministratorAccess, SES send or configuration mutation, or
+application data-plane provisioning actions.
 
 Apply requires a separate exact-account confirmation:
 

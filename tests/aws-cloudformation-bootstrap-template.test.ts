@@ -80,9 +80,17 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     expect(operatorSection).toContain(
       "cloudformation:ChangeSetName: samcli-deploy*",
     );
+    expect(operatorSection).toContain("sts:GetCallerIdentity");
+    expect(operatorSection).toContain("ses:GetAccount");
+    expect(operatorSection).toContain("cloudwatch:DescribeAlarms");
+    expect(operatorSection).toContain("aws:RequestedRegion: !Ref AWS::Region");
     expect(operatorSection).not.toContain("changeSet/*/*");
     expect(operatorSection).not.toMatch(
-      /\b(?:lambda|dynamodb|sqs|sns|ses|backup|kms):/,
+      /\b(?:lambda|dynamodb|sqs|sns|backup|kms):/,
+    );
+    expect(operatorSection).not.toMatch(/\bses:(?!GetAccount\b)[A-Za-z*]+/);
+    expect(operatorSection).not.toMatch(
+      /\bcloudwatch:(?!DescribeAlarms\b)[A-Za-z*]+/,
     );
     expect(operatorSection).not.toContain("Action: *");
     expect(bootstrap).not.toContain("AdministratorAccess");
