@@ -238,6 +238,7 @@ Resources:
                   - s3:CreateBucket
                   - s3:DeleteBucket
                   - s3:DeleteBucketPolicy
+                  - s3:GetBucketCORS
                   - s3:GetEncryptionConfiguration
                   - s3:GetLifecycleConfiguration
                   - s3:GetBucketLocation
@@ -256,6 +257,7 @@ Resources:
                   - s3:PutBucketPublicAccessBlock
                   - s3:PutBucketTagging
                   - s3:PutBucketVersioning
+                  - s3:PutBucketCORS
                   - sqs:CreateQueue
                   - sqs:DeleteQueue
                   - sqs:GetQueueAttributes
