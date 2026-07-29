@@ -120,7 +120,17 @@ function baseRunner(
       args[0] === "cloudformation" &&
       args[1] === "list-stack-resources"
     ) {
-      return json({ StackResourceSummaries: [] });
+      return json({
+        StackResourceSummaries: [
+          ["DataTable", "AWS::DynamoDB::Table"],
+          ["PayloadBucket", "AWS::S3::Bucket"],
+          ["BackupVault", "AWS::Backup::BackupVault"],
+        ].map(([LogicalResourceId, ResourceType]) => ({
+          LogicalResourceId,
+          ResourceType,
+          ResourceStatus: "CREATE_COMPLETE",
+        })),
+      });
     }
     if (
       command === "aws" &&
@@ -748,6 +758,8 @@ describe("plan-first AWS deployment CLI", () => {
     expect(policyBody).toContain("LogicalResourceId/DataTable");
     expect(policyBody).toContain("LogicalResourceId/PayloadBucket");
     expect(policyBody).toContain("LogicalResourceId/BackupVault");
+    expect(policyBody).not.toContain("LogicalResourceId/InboundBucket");
+    expect(policyBody).not.toContain("LogicalResourceId/InboundKey");
     expect(
       runner.mock.calls.some(
         ([command, args]) =>

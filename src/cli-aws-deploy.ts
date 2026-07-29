@@ -136,25 +136,6 @@ const DEPLOYMENT_PREFERENCE_TYPES = new Set([
   "Linear10PercentEvery10Minutes",
 ]);
 
-const STACK_POLICY = {
-  Statement: [
-    {
-      Effect: "Allow",
-      Action: "Update:*",
-      Principal: "*",
-      Resource: "*",
-    },
-    {
-      Effect: "Deny",
-      Action: ["Update:Replace", "Update:Delete"],
-      Principal: "*",
-      Resource: [...RETAINED_RESOURCE_LOGICAL_IDS]
-        .sort()
-        .map((logicalId) => `LogicalResourceId/${logicalId}`),
-    },
-  ],
-};
-
 const STABLE_STACK_STATUSES = new Set([
   "CREATE_COMPLETE",
   "UPDATE_COMPLETE",
@@ -922,7 +903,35 @@ async function describeStack(
   };
 }
 
-function expectedStackPolicy(value: unknown) {
+function retainedLogicalIds(resources: StackResource[]) {
+  return resources
+    .map((resource) => resource.logicalId)
+    .filter((logicalId) => RETAINED_RESOURCE_LOGICAL_IDS.has(logicalId))
+    .sort();
+}
+
+function stackPolicy(logicalIds: string[]) {
+  return {
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: "Update:*",
+        Principal: "*",
+        Resource: "*",
+      },
+      {
+        Effect: "Deny",
+        Action: ["Update:Replace", "Update:Delete"],
+        Principal: "*",
+        Resource: logicalIds.map(
+          (logicalId) => `LogicalResourceId/${logicalId}`,
+        ),
+      },
+    ],
+  };
+}
+
+function expectedStackPolicy(value: unknown, logicalIds: string[]) {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -942,9 +951,9 @@ function expectedStackPolicy(value: unknown) {
       candidate.Resource === "*"
     );
   });
-  const expectedResources = [...RETAINED_RESOURCE_LOGICAL_IDS]
-    .sort()
-    .map((logicalId) => `LogicalResourceId/${logicalId}`);
+  const expectedResources = logicalIds.map(
+    (logicalId) => `LogicalResourceId/${logicalId}`,
+  );
   const deny = statements.some((statement) => {
     if (!statement || typeof statement !== "object") {
       return false;
@@ -975,6 +984,7 @@ function expectedStackPolicy(value: unknown) {
 async function inspectStackPolicy(
   dependencies: AwsDeployDependencies,
   options: NormalizedTarget,
+  resources: StackResource[],
 ) {
   const value = await requireJson<{ StackPolicyBody?: unknown }>(
     dependencies,
@@ -1001,7 +1011,10 @@ async function inspectStackPolicy(
   }
   return {
     present: true,
-    protectedRetainedResources: expectedStackPolicy(policy),
+    protectedRetainedResources: expectedStackPolicy(
+      policy,
+      retainedLogicalIds(resources),
+    ),
   };
 }
 
@@ -1009,6 +1022,13 @@ async function enforceStackProtections(
   dependencies: AwsDeployDependencies,
   options: NormalizedTarget,
 ) {
+  const resources = await listStackResources(dependencies, options);
+  const logicalIds = retainedLogicalIds(resources);
+  if (logicalIds.length === 0) {
+    throw new Error(
+      "Deployment completed, but CloudFormation returned no retained resources to protect.",
+    );
+  }
   await requireCommand(
     dependencies,
     "aws",
@@ -1018,7 +1038,7 @@ async function enforceStackProtections(
       "--stack-name",
       options.stack,
       "--stack-policy-body",
-      JSON.stringify(STACK_POLICY),
+      JSON.stringify(stackPolicy(logicalIds)),
     ]),
     "CloudFormation stack-policy enforcement",
   );
@@ -1035,7 +1055,7 @@ async function enforceStackProtections(
     "CloudFormation termination-protection enforcement",
   );
   const [policy, protectedStack] = await Promise.all([
-    inspectStackPolicy(dependencies, options),
+    inspectStackPolicy(dependencies, options, resources),
     describeStack(dependencies, options),
   ]);
   if (
@@ -2034,8 +2054,12 @@ export async function statusAws(
         : {}),
     };
   }
-  const stackPolicy = await inspectStackPolicy(dependencies, options);
   const resources = await listStackResources(dependencies, options);
+  const stackPolicy = await inspectStackPolicy(
+    dependencies,
+    options,
+    resources,
+  );
   const problems = problematicResources(resources);
   const deployments = gradualDeploymentSummary(stack.parameters, resources);
   const backups = backupSummary(stack.parameters, resources);
