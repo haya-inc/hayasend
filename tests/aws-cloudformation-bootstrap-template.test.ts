@@ -124,6 +124,8 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     expect(serviceRoleSection).toContain(
       'Resource: !Sub "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${ApplicationStackNamePrefix}*/*"',
     );
+    expect(serviceRoleSection).toContain("s3:GetBucketCORS");
+    expect(serviceRoleSection).toContain("s3:PutBucketCORS");
     expect(serviceRoleSection).toContain(
       'Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*"',
     );

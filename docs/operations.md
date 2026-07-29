@@ -70,9 +70,11 @@ bootstrap secret without reading any secret, and failed-stack cleanup can
 delete schedules only from schedule groups whose names begin with the selected
 application stack prefix. Some other CloudFormation service actions still
 require `Resource: "*"`, especially create-time Lambda, API Gateway, backup,
-KMS, and SES operations whose final ARN does not yet exist. Treat the optional
-organizational permissions boundary and SCPs as the outer guardrail. CI
-rejects a newly introduced application resource type until its required
+KMS, SES, and S3 bucket-configuration operations whose final ARN does not yet
+exist. S3 CORS handling is limited to reading and writing the CORS
+configuration; the service role has no S3 object read permission. Treat the
+optional organizational permissions boundary and SCPs as the outer guardrail.
+CI rejects a newly introduced application resource type until its required
 service prefix is reviewed in the bootstrap-policy conformance test.
 
 `cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
