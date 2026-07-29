@@ -1551,11 +1551,23 @@ Outputs:
       - BackupsEnabled
       - !Ref BackupPlan
       - ""
+  BackupServiceRoleArn:
+    Description: Service role used by AWS Backup. Empty when backups are disabled.
+    Value: !If
+      - BackupsEnabled
+      - !GetAtt BackupServiceRole.Arn
+      - ""
   RestoreTestingPlanArn:
     Description: Weekly isolated restore testing plan. Empty when restore testing is disabled.
     Value: !If
       - RestoreTestingEnabled
       - !GetAtt RestoreTestingPlan.RestoreTestingPlanArn
+      - ""
+  RestoreTestingServiceRoleArn:
+    Description: Service role used for isolated restores. Empty when restore testing is disabled.
+    Value: !If
+      - RestoreTestingEnabled
+      - !GetAtt RestoreTestingServiceRole.Arn
       - ""
   ApiLogGroupName:
     Value: !Ref ApiLogGroup

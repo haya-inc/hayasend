@@ -8,6 +8,11 @@ on:
         type: boolean
         required: false
         default: false
+      prove_backup_restore:
+        description: Run an isolated AWS Backup semantic restore proof
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -21,13 +26,14 @@ jobs:
   deploy-test-delete:
     name: Deploy, test, and delete
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 330
     environment: aws-integration
     env:
       AWS_REGION: ${{ vars.AWS_TEST_REGION || 'ap-northeast-1' }}
       AWS_TEST_ACCOUNT_ID: ${{ vars.AWS_TEST_ACCOUNT_ID }}
       AWS_TEST_ROLE_ARN: ${{ vars.AWS_TEST_ROLE_ARN }}
       STACK_NAME: hayasend-it-${{ github.run_id }}-${{ github.run_attempt }}
+      PROVE_BACKUP_RESTORE: ${{ inputs.prove_backup_restore }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -75,7 +81,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: ${{ env.AWS_TEST_ACCOUNT_ID }}
           role-session-name: HayaSend-${{ github.run_id }}-${{ github.run_attempt }}
-          role-duration-seconds: 3600
+          role-duration-seconds: ${{ inputs.prove_backup_restore && 21600 || 3600 }}
           mask-aws-account-id: true
           unset-current-credentials: true
 
@@ -90,6 +96,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          backup_flags=(--disable-backups --disable-restore-testing)
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" ]]; then
+            backup_flags=(--enable-backups --enable-restore-testing --backup-retention-days 1)
+          fi
           npm run --silent cli -- deploy aws \
             --account "$AWS_TEST_ACCOUNT_ID" \
             --stack "$STACK_NAME" \
@@ -98,19 +108,22 @@ jobs:
             --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
-            --disable-backups \
-            --disable-restore-testing \
+            "${backup_flags[@]}" \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/hayasend-deploy-plan.json"
           node -e \
-            'const plan = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); if (plan.parameters.ApiThrottlingRateLimit !== "7.5" || plan.parameters.ApiThrottlingBurstLimit !== "11" || plan.parameters.EnableGradualDeployments !== "false" || plan.parameters.EnableBackups !== "false" || plan.parameters.EnableRestoreTesting !== "false" || plan.backups.enabled !== false || plan.deployments.mode !== "alias_bootstrap") process.exit(1)' \
+            'const plan = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); const expected=process.env.PROVE_BACKUP_RESTORE==="true"; if (plan.parameters.ApiThrottlingRateLimit !== "7.5" || plan.parameters.ApiThrottlingBurstLimit !== "11" || plan.parameters.EnableGradualDeployments !== "false" || plan.parameters.EnableBackups !== String(expected) || plan.parameters.EnableRestoreTesting !== String(expected) || plan.backups.enabled !== expected || plan.backups.restore_testing.enabled !== expected || plan.deployments.mode !== "alias_bootstrap") process.exit(1)' \
             "$RUNNER_TEMP/hayasend-deploy-plan.json"
 
       - name: Deploy reviewed ephemeral stack
         shell: bash
         run: |
           set -euo pipefail
+          backup_flags=(--disable-backups --disable-restore-testing)
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" ]]; then
+            backup_flags=(--enable-backups --enable-restore-testing --backup-retention-days 1)
+          fi
           npm run --silent cli -- deploy aws \
             --account "$AWS_TEST_ACCOUNT_ID" \
             --stack "$STACK_NAME" \
@@ -119,8 +132,7 @@ jobs:
             --api-burst-limit 11 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
-            --disable-backups \
-            --disable-restore-testing \
+            "${backup_flags[@]}" \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             --apply \
@@ -159,6 +171,12 @@ jobs:
           bootstrap_secret_arn="$(stack_output BootstrapSecretArn)"
           payload_bucket="$(stack_output PayloadBucketName)"
           data_table="$(stack_output TableName)"
+          backup_vault_arn="$(stack_output BackupVaultArn)"
+          backup_service_role_arn="$(stack_output BackupServiceRoleArn)"
+          restore_testing_plan_arn="$(stack_output RestoreTestingPlanArn)"
+          restore_testing_service_role_arn="$(
+            stack_output RestoreTestingServiceRoleArn
+          )"
           dispatcher_function="$(stack_output DispatcherFunctionName)"
           schedule_group="$(stack_output EmailScheduleGroupName)"
           api_log_group="$(stack_output ApiLogGroupName)"
@@ -194,12 +212,29 @@ jobs:
               exit 1
             fi
           done
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" ]]; then
+            for value in \
+              "$backup_vault_arn" \
+              "$backup_service_role_arn" \
+              "$restore_testing_plan_arn" \
+              "$restore_testing_service_role_arn"; do
+              if [[ -z "$value" || "$value" = "None" ]]; then
+                echo "::error::A required AWS Backup output is missing."
+                exit 1
+              fi
+            done
+          fi
           {
             echo "API_BASE_URL=$api_base_url"
             echo "HTTP_API_ID=$http_api_id"
             echo "BOOTSTRAP_SECRET_ARN=$bootstrap_secret_arn"
             echo "PAYLOAD_BUCKET=$payload_bucket"
             echo "DATA_TABLE=$data_table"
+            echo "BACKUP_VAULT_ARN=$backup_vault_arn"
+            echo "BACKUP_SERVICE_ROLE_ARN=$backup_service_role_arn"
+            echo "RESTORE_TESTING_PLAN_ARN=$restore_testing_plan_arn"
+            echo "RESTORE_TESTING_SERVICE_ROLE_ARN=$restore_testing_service_role_arn"
+            echo "BACKUP_PROOF_STATE=$RUNNER_TEMP/hayasend-backup-proof-state.json"
             echo "DISPATCHER_FUNCTION=$dispatcher_function"
             echo "SCHEDULE_GROUP=$schedule_group"
             echo "MANAGED_LOG_GROUPS=$api_log_group $worker_log_group $dispatcher_log_group $ses_events_log_group $retention_log_group"
@@ -211,6 +246,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          backup_flags=(--disable-backups --disable-restore-testing)
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" ]]; then
+            backup_flags=(--enable-backups --enable-restore-testing --backup-retention-days 1)
+          fi
           for log_group in $LEGACY_LOG_GROUPS; do
             aws logs create-log-group \
               --log-group-name "$log_group" \
@@ -223,8 +262,7 @@ jobs:
             --region "$AWS_REGION" \
             --worker-reserved-concurrency 0 \
             --log-retention-days 14 \
-            --disable-backups \
-            --disable-restore-testing \
+            "${backup_flags[@]}" \
             --allow-destructive-changes \
             --tag Purpose=IntegrationTest \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
@@ -241,7 +279,7 @@ jobs:
             --detect-drift \
             > "$RUNNER_TEMP/hayasend-status.json"
           node -e \
-            'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if (value.stack.termination_protection !== true || value.stack.stack_policy.retained_resources_protected !== true || value.stack.drift.status !== "IN_SYNC" || value.stack.drift.detected_now !== true || value.stack.deployments.enabled !== true || value.stack.deployments.aliases_ready !== true || value.stack.deployments.deployment_groups_ready !== true || value.stack.backups.enabled !== false || value.stack.backups.resources_ready !== true || value.stack.backups.restore_testing.enabled !== false) process.exit(1)' \
+            'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); const expected=process.env.PROVE_BACKUP_RESTORE==="true"; if (value.stack.termination_protection !== true || value.stack.stack_policy.retained_resources_protected !== true || value.stack.drift.status !== "IN_SYNC" || value.stack.drift.detected_now !== true || value.stack.deployments.enabled !== true || value.stack.deployments.aliases_ready !== true || value.stack.deployments.deployment_groups_ready !== true || value.stack.backups.enabled !== expected || value.stack.backups.resources_ready !== true || value.stack.backups.restore_testing.enabled !== expected || value.stack.backups.restore_testing.resources_ready !== true) process.exit(1)' \
             "$RUNNER_TEMP/hayasend-status.json"
 
           updated_retention_resource="$(
@@ -408,6 +446,51 @@ jobs:
              (.GSI1SK == null)' \
             <<< "$item" >/dev/null
 
+      - name: Prove isolated semantic restore
+        if: ${{ inputs.prove_backup_restore }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/hayasend-aws-evidence.json"
+          email_id="$(jq -er '.backup_probe.email_id' "$evidence")"
+          attachment_id="$(jq -er '.backup_probe.attachment_id' "$evidence")"
+          attachment_sha256="$(
+            jq -er '.backup_probe.attachment_sha256' "$evidence"
+          )"
+          node scripts/aws-backup-restore-proof.mjs prove \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --region "$AWS_REGION" \
+            --table "$DATA_TABLE" \
+            --bucket "$PAYLOAD_BUCKET" \
+            --vault-arn "$BACKUP_VAULT_ARN" \
+            --backup-role-arn "$BACKUP_SERVICE_ROLE_ARN" \
+            --restore-plan-arn "$RESTORE_TESTING_PLAN_ARN" \
+            --email-id "$email_id" \
+            --attachment-id "$attachment_id" \
+            --attachment-sha256 "$attachment_sha256" \
+            --state-file "$BACKUP_PROOF_STATE" \
+            | tee "$RUNNER_TEMP/hayasend-backup-restore-evidence.json"
+
+      - name: Clean isolated restore resources
+        if: ${{ always() && inputs.prove_backup_restore && steps.aws-credentials.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${DATA_TABLE:-}" &&
+                -n "${PAYLOAD_BUCKET:-}" &&
+                -n "${BACKUP_VAULT_ARN:-}" &&
+                -n "${RESTORE_TESTING_PLAN_ARN:-}" &&
+                -n "${BACKUP_PROOF_STATE:-}" ]]; then
+            node scripts/aws-backup-restore-proof.mjs cleanup \
+              --account "$AWS_TEST_ACCOUNT_ID" \
+              --region "$AWS_REGION" \
+              --table "$DATA_TABLE" \
+              --bucket "$PAYLOAD_BUCKET" \
+              --vault-arn "$BACKUP_VAULT_ARN" \
+              --restore-plan-arn "$RESTORE_TESTING_PLAN_ARN" \
+              --state-file "$BACKUP_PROOF_STATE"
+          fi
+
       - name: Show CloudFormation failure events
         if: ${{ failure() && steps.aws-credentials.outcome == 'success' }}
         shell: bash
@@ -444,6 +527,12 @@ jobs:
             fi
             if [[ -z "${DATA_TABLE:-}" || "$DATA_TABLE" = "None" ]]; then
               DATA_TABLE="$(resource_id DataTable)"
+            fi
+            if [[ "$PROVE_BACKUP_RESTORE" = "true" &&
+                  ( -z "${BACKUP_VAULT_ARN:-}" ||
+                    "$BACKUP_VAULT_ARN" = "None" ) ]]; then
+              backup_vault_name="$(resource_id BackupVault)"
+              BACKUP_VAULT_ARN="arn:aws:backup:${AWS_REGION}:${AWS_TEST_ACCOUNT_ID}:backup-vault:${backup_vault_name}"
             fi
             if [[ -z "${SCHEDULE_GROUP:-}" || "$SCHEDULE_GROUP" = "None" ]]; then
               SCHEDULE_GROUP="$(resource_id EmailScheduleGroup)"
@@ -520,6 +609,51 @@ jobs:
             aws dynamodb wait table-not-exists \
               --table-name "$DATA_TABLE" \
               --region "$AWS_REGION"
+          fi
+
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" &&
+                -n "${BACKUP_VAULT_ARN:-}" &&
+                "$BACKUP_VAULT_ARN" != "None" ]]; then
+            backup_vault_name="${BACKUP_VAULT_ARN##*:}"
+            for attempt in {1..20}; do
+              recovery_points="$(
+                aws backup list-recovery-points-by-backup-vault \
+                  --backup-vault-name "$backup_vault_name" \
+                  --region "$AWS_REGION" \
+                  --query "RecoveryPoints[].RecoveryPointArn" \
+                  --output text 2>/dev/null || true
+              )"
+              if [[ -z "$recovery_points" ]]; then
+                break
+              fi
+              for recovery_point in $recovery_points; do
+                aws backup delete-recovery-point \
+                  --backup-vault-name "$backup_vault_name" \
+                  --recovery-point-arn "$recovery_point" \
+                  --region "$AWS_REGION" || true
+              done
+              sleep 15
+            done
+            recovery_points="$(
+              aws backup list-recovery-points-by-backup-vault \
+                --backup-vault-name "$backup_vault_name" \
+                --region "$AWS_REGION" \
+                --query "RecoveryPoints[].RecoveryPointArn" \
+                --output text
+            )"
+            if [[ -n "$recovery_points" ]]; then
+              echo "::error::Recovery points remain in $backup_vault_name."
+              exit 1
+            fi
+            aws backup delete-backup-vault \
+              --backup-vault-name "$backup_vault_name" \
+              --region "$AWS_REGION"
+            if aws backup describe-backup-vault \
+              --backup-vault-name "$backup_vault_name" \
+              --region "$AWS_REGION" >/dev/null 2>&1; then
+              echo "::error::Retained backup vault still exists after cleanup."
+              exit 1
+            fi
           fi
 
           log_group_prefix="/aws/lambda/${STACK_NAME}-"

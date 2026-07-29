@@ -138,6 +138,24 @@ At least monthly, and after any schema or persistence change:
 5. confirm no temporary restored table or bucket remains after the documented
    cleanup window.
 
+The protected-main hosted drill automates those application-level checks in
+the dedicated test account:
+
+```bash
+gh workflow run aws-integration.yml \
+  --repo haya-inc/hayasend \
+  --ref main \
+  -f retain_stack=false \
+  -f prove_backup_restore=true
+```
+
+The successful evidence contains backup and restore job IDs, exact recovery
+point ARNs, backup and restore durations, the full-table DynamoDB digest,
+required atomic-record counts, the attachment checksum, AWS Backup validation
+status, and explicit zero-residue cleanup results. It contains no email body,
+recipient address, subject, API key, or attachment bytes. A green ordinary
+integration run is not a substitute for this drill.
+
 `status aws` reports whether the configured backup plan, vault, selections,
 and restore-testing resources exist. It intentionally does not report
 `restore_verified: true`; a green infrastructure status is not semantic
