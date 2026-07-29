@@ -51,7 +51,9 @@ The opt-in `prove_canary_rollback` input runs only after the normal reviewed
 upgrade has completed successfully. It records the live API alias version,
 adds a harmless run-specific export to the API entry point in the ephemeral
 checkout, and starts one new alarm-monitored canary. After CodeDeploy creates
-the deployment, the workflow repeatedly holds the exact alias error alarm in
+the deployment, the workflow discovers each deployment group under the
+stack-owned application and queries deployments with the required
+application/group pair. It repeatedly holds the exact alias error alarm in
 `ALARM` until the update fails. A pass requires CodeDeploy's original
 deployment to stop or fail with `DEPLOYMENT_STOP_ON_ALARM` enabled, the linked
 automatic rollback deployment to succeed, CloudFormation to finish

@@ -58,6 +58,15 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain("prove_canary_rollback:");
     expect(workflow).toContain('source_file="src/aws/api.ts"');
     expect(workflow).toContain('--alarm-name "$API_ALIAS_ALARM"');
+    expect(workflow).toContain("aws deploy list-deployment-groups");
+    expect(workflow).toContain(
+      '--deployment-group-name "$deployment_group_name"',
+    );
+    expect(workflow).toContain(
+      '--deployment-group-name "$triggering_deployment_group"',
+    );
+    expect(workflow).toContain("--query deployments");
+    expect(workflow).not.toContain("--query deploymentIds");
     expect(workflow).toContain("DEPLOYMENT_STOP_ON_ALARM");
     expect(workflow).toContain(".rollbackInfo.rollbackTriggeringDeploymentId");
     expect(workflow).toContain(
