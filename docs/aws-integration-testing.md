@@ -53,7 +53,9 @@ AWS Budget and root-account alerts before the first run. The workflow:
 - deletes the synthetic legacy and stack-owned CloudWatch log groups;
 - explicitly acknowledges termination-protection disable, deletes the stack
   through `cleanup aws`, then deletes the S3 bucket and DynamoDB table retained
-  by HayaSend's production-safe deletion policies.
+  by HayaSend's production-safe deletion policies. Payload cleanup is
+  version-aware and removes every object version and delete marker through an
+  exact-account and exact-bucket confirmation before bucket deletion.
 
 Cleanup allows up to 60 seconds for CloudWatch's post-stack deletion view to
 converge. A stack-owned group still visible after that bound is reported,
