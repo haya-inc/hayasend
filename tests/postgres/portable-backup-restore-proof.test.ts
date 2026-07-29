@@ -87,7 +87,7 @@ if (!databaseUrl) {
             ? input.href
             : input.url;
       const url = new URL(raw);
-      return app.request(`${url.pathname}${url.search}`, init);
+      return app.request(url.href, init);
     };
   }
 
