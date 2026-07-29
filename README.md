@@ -403,16 +403,27 @@ export HAYASEND_AWS_ACCOUNT_ID="$(
   aws sts get-caller-identity --query Account --output text
 )"
 
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" bootstrap aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws
 ```
 
-The plan validates the tools and template, performs a clean temporary SAM
+`bootstrap aws` first validates a separate, package-owned least-privilege
+boundary: a dedicated private artifact bucket, a CloudFormation service role,
+and an operator policy limited to that bucket, the HayaSend stack prefix, and
+passing the exact service role. Applying the bootstrap requires the exact
+account confirmation and may optionally apply an organizational permissions
+boundary. Review and attach its operator policy before routine deployments;
+the CLI does not attach it automatically.
+
+The deployment plan validates the tools and template, performs a clean temporary SAM
 build, reports SES production access and sending quota, and renders every
 parameter and tag. It does not upload artifacts, create a change set, or alter
 AWS. After reviewing it, repeat the command with `--apply`:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
+  --cloudformation-role-arn "$HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN" \
+  --artifact-bucket "$HAYASEND_AWS_ARTIFACT_BUCKET" \
   --log-retention-days 30 \
   --enable-restore-testing \
   --apply

@@ -577,6 +577,52 @@ expected account and Region once:
 ```bash
 export HAYASEND_AWS_ACCOUNT_ID=123456789012
 export AWS_REGION=ap-northeast-1
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" bootstrap aws
+```
+
+`bootstrap aws` is a separate, plan-first one-time trust-boundary operation.
+Its package-owned template creates a private versioned artifact bucket, a
+CloudFormation service role limited to the services and actions required by
+the exact HayaSend template, and an operator managed policy. The operator
+policy is limited to the chosen HayaSend stack-name prefix, the dedicated
+artifact path, CloudFormation lifecycle and drift operations, and
+`iam:PassRole` for the exact service role with
+`iam:PassedToService=cloudformation.amazonaws.com`. It contains no
+AdministratorAccess and no application data-plane provisioning actions.
+
+Apply requires a separate exact-account confirmation:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" bootstrap aws \
+  --application-stack-prefix hayasend \
+  --artifact-retention-days 90 \
+  --apply \
+  --confirm-account 123456789012
+```
+
+Available bootstrap controls are `--stack`,
+`--application-stack-prefix`, `--artifact-retention-days 30..3650`, and the
+optional `--permissions-boundary-arn`. The boundary must belong to the exact
+partition and either the expected account or AWS. Existing bootstrap
+parameters are preserved when omitted on update. A removal or possible
+replacement requires `--allow-destructive-changes`. The bootstrap stack
+defaults to `HayaSendDeploymentBootstrap`; the CLI rejects an application
+prefix that could also match the bootstrap stack and let the operator mutate
+its own trust boundary. A successful apply enables and verifies termination
+protection on the bootstrap stack.
+
+The bootstrap caller needs the one-time IAM, S3, and CloudFormation authority
+to create that boundary. The returned operator policy is not attached
+automatically. Review it first, attach it to the normal SSO/CI deployment
+principal, and keep the bootstrap principal out of routine use. The retained
+artifact bucket and bootstrap stack have a separate lifecycle from an
+application stack.
+
+Use the two non-secret outputs for routine lifecycle commands:
+
+```bash
+export HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN=arn:aws:iam::123456789012:role/example
+export HAYASEND_AWS_ARTIFACT_BUCKET=example-artifact-bucket
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws
 ```
 
@@ -636,6 +682,9 @@ command explicitly overrides them. Parameters removed from the current
 template are not replayed. Supported overrides are:
 
 - `--bootstrap-secret-arn ARN`;
+- `--cloudformation-role-arn ARN` (or
+  `HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN`);
+- `--artifact-bucket NAME` (or `HAYASEND_AWS_ARTIFACT_BUCKET`);
 - `--api-rate-limit 1..10000` (plain decimal values are accepted);
 - `--api-burst-limit 1..5000` (integer);
 - `--log-retention-days 1|3|5|7|14|30|60|90|120|150|180|365|400|545|731|1096|1827|2192|2557|2922|3288|3653`;
@@ -659,6 +708,10 @@ template are not replayed. Supported overrides are:
 Enabling inbound receiving requires explicit non-`.invalid` recipient
 suffixes. An existing bootstrap secret ARN must belong to the expected account
 and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
+The CloudFormation role must belong to the exact account and AWS partition.
+When omitted on an existing stack, the CLI reads and preserves that stack's
+recorded `RoleARN` for SAM updates and deletion. Supplying a dedicated
+artifact bucket disables SAM's automatic artifact-bucket resolution.
 The production default reserves 10 worker executions. New or quota-constrained
 accounts can set the override to `0`; queue scaling still caps worker
 concurrency at 10.

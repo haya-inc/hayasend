@@ -13,6 +13,7 @@ import {
 import { parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { bootstrapAws } from "./cli-aws-bootstrap.js";
 import {
   cleanupAws,
   defaultCommandRunner,
@@ -1424,6 +1425,8 @@ async function deployCommand(
       "region",
       "stack",
       "profile",
+      "cloudformation-role-arn",
+      "artifact-bucket",
       "bootstrap-secret-arn",
       "api-rate-limit",
       "api-burst-limit",
@@ -1482,6 +1485,8 @@ async function deployCommand(
   const region = flag(args, "region");
   const stack = flag(args, "stack");
   const profile = flag(args, "profile");
+  const cloudformationRoleArn = flag(args, "cloudformation-role-arn");
+  const artifactBucket = flag(args, "artifact-bucket");
   const bootstrapSecretArn = flag(args, "bootstrap-secret-arn");
   const apiRateLimit = flag(args, "api-rate-limit");
   const apiBurstLimit = flag(args, "api-burst-limit");
@@ -1509,6 +1514,8 @@ async function deployCommand(
       ...(region ? { region } : {}),
       ...(stack ? { stack } : {}),
       ...(profile ? { profile } : {}),
+      ...(cloudformationRoleArn ? { cloudformationRoleArn } : {}),
+      ...(artifactBucket ? { artifactBucket } : {}),
       operation,
       apply: hasFlag(args, "apply"),
       allowDestructiveChanges: hasFlag(args, "allow-destructive-changes"),
@@ -1547,6 +1554,55 @@ async function deployCommand(
           ? { enableRestoreTesting: false }
           : {}),
       tags: flags(args, "tag"),
+    },
+    {
+      cwd: dependencies.cwd,
+      env: dependencies.env,
+      log: dependencies.io.log,
+      runCommand: dependencies.runCommand,
+    },
+  );
+}
+
+async function bootstrapCommand(args: string[], dependencies: CliDependencies) {
+  if (args[0] !== "aws") {
+    throw new Error(
+      `Unknown bootstrap target: ${args[0] || "(missing)"}. Run hayasend help.`,
+    );
+  }
+  validateOptions(args, {
+    values: [
+      "account",
+      "region",
+      "profile",
+      "stack",
+      "application-stack-prefix",
+      "permissions-boundary-arn",
+      "artifact-retention-days",
+      "confirm-account",
+    ],
+    booleans: ["apply", "allow-destructive-changes"],
+  });
+  const account = flag(args, "account");
+  const region = flag(args, "region");
+  const profile = flag(args, "profile");
+  const stack = flag(args, "stack");
+  const applicationStackPrefix = flag(args, "application-stack-prefix");
+  const permissionsBoundaryArn = flag(args, "permissions-boundary-arn");
+  const artifactRetentionDays = flag(args, "artifact-retention-days");
+  const confirmAccount = flag(args, "confirm-account");
+  await bootstrapAws(
+    {
+      ...(account ? { account } : {}),
+      ...(region ? { region } : {}),
+      ...(profile ? { profile } : {}),
+      ...(stack ? { stack } : {}),
+      ...(applicationStackPrefix ? { applicationStackPrefix } : {}),
+      ...(permissionsBoundaryArn ? { permissionsBoundaryArn } : {}),
+      ...(artifactRetentionDays ? { artifactRetentionDays } : {}),
+      apply: hasFlag(args, "apply"),
+      allowDestructiveChanges: hasFlag(args, "allow-destructive-changes"),
+      ...(confirmAccount ? { confirmAccount } : {}),
     },
     {
       cwd: dependencies.cwd,
@@ -1604,13 +1660,21 @@ async function cleanupCommand(args: string[], dependencies: CliDependencies) {
     return;
   }
   validateOptions(args, {
-    values: ["account", "region", "stack", "profile", "confirm-stack"],
+    values: [
+      "account",
+      "region",
+      "stack",
+      "profile",
+      "cloudformation-role-arn",
+      "confirm-stack",
+    ],
     booleans: ["apply", "disable-termination-protection"],
   });
   const account = flag(args, "account");
   const region = flag(args, "region");
   const stack = flag(args, "stack");
   const profile = flag(args, "profile");
+  const cloudformationRoleArn = flag(args, "cloudformation-role-arn");
   const confirmStack = flag(args, "confirm-stack");
   await cleanupAws(
     {
@@ -1618,6 +1682,7 @@ async function cleanupCommand(args: string[], dependencies: CliDependencies) {
       ...(region ? { region } : {}),
       ...(stack ? { stack } : {}),
       ...(profile ? { profile } : {}),
+      ...(cloudformationRoleArn ? { cloudformationRoleArn } : {}),
       apply: hasFlag(args, "apply"),
       ...(confirmStack ? { confirmStack } : {}),
       disableTerminationProtection: hasFlag(
@@ -1848,6 +1913,12 @@ Commands:
       creates live Lambda aliases; the next upgrade enables alarm-driven
       canary traffic shifting and automatic rollback.
 
+  bootstrap aws [--account ACCOUNT_ID] [--region REGION]
+      Validate and plan a one-time CloudFormation deployment bootstrap.
+      Add --apply and the exact --confirm-account value to create a dedicated
+      artifact bucket, CloudFormation service role, and scoped operator policy.
+      An optional --permissions-boundary-arn limits the service role further.
+
   status aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Show the stack, SES readiness, CloudFormation resources, CloudWatch
       alarms, public health, dashboard link, and exact next commands.
@@ -1990,6 +2061,10 @@ Environment:
                        direct attachment uploads
   HAYASEND_AWS_ACCOUNT_ID
                        Expected 12-digit AWS account for AWS lifecycle commands
+  HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN
+                       Exact service role preserved for deploy/upgrade/cleanup
+  HAYASEND_AWS_ARTIFACT_BUCKET
+                       Dedicated SAM artifact bucket from bootstrap aws
   AWS_REGION            Default Region for AWS lifecycle commands
 `);
 }
@@ -2025,6 +2100,9 @@ export async function runCli(
       break;
     case "deploy":
       await deployCommand(args.slice(1), dependencies);
+      break;
+    case "bootstrap":
+      await bootstrapCommand(args.slice(1), dependencies);
       break;
     case "status":
       await statusAwsCommand(args.slice(1), dependencies);

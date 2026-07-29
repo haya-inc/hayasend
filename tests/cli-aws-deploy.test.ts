@@ -556,6 +556,50 @@ describe("plan-first AWS deployment CLI", () => {
     ).toBe(false);
   });
 
+  it("rejects a CloudFormation role outside the exact account or partition", async () => {
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--cloudformation-role-arn",
+          "arn:aws:iam::999999999999:role/HayaSendCloudFormation",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          io: capturingIo().io,
+          runCommand: baseRunner(),
+        },
+      ),
+    ).rejects.toThrow("exact expected AWS account and partition");
+
+    await expect(
+      runCli(
+        [
+          "deploy",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--cloudformation-role-arn",
+          "arn:aws-cn:iam::123456789012:role/HayaSendCloudFormation",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          io: capturingIo().io,
+          runCommand: baseRunner(),
+        },
+      ),
+    ).rejects.toThrow("exact expected AWS account and partition");
+  });
+
   it("creates, inspects, and executes one exact additive change set", async () => {
     const capture = capturingIo();
     let stackReads = 0;
@@ -577,6 +621,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "CREATE_COMPLETE",
+              RoleARN: "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
               EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [
@@ -665,6 +710,10 @@ describe("plan-first AWS deployment CLI", () => {
         "hayasend",
         "--worker-reserved-concurrency",
         "0",
+        "--cloudformation-role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
         "--apply",
         "--tag",
         "Purpose=IntegrationTest",
@@ -723,6 +772,17 @@ describe("plan-first AWS deployment CLI", () => {
         doctor_command: ["npm", "run", "cli", "--", "doctor"],
       },
     });
+    expect(
+      JSON.parse(capture.logs[2] ?? "{}").next.enable_gradual_deployments
+        .command,
+    ).toEqual(
+      expect.arrayContaining([
+        "--cloudformation-role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
+      ]),
+    );
 
     const deployCall = runner.mock.calls.find(
       ([command, args]) => command === "sam" && args[0] === "deploy",
@@ -732,11 +792,16 @@ describe("plan-first AWS deployment CLI", () => {
         "--no-execute-changeset",
         "--no-confirm-changeset",
         "--no-fail-on-empty-changeset",
+        "--role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
+        "--s3-bucket",
+        "hayasend-artifacts-123456789012",
         "EnableInbound=false",
         "WorkerReservedConcurrency=0",
         "Purpose=IntegrationTest",
       ]),
     );
+    expect(deployCall?.[1]).not.toContain("--resolve-s3");
     expect(deployCall?.[1]).not.toContain("BootstrapSecretArn=");
     const executeCall = runner.mock.calls.find(
       ([command, args]) =>
@@ -940,6 +1005,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "UPDATE_COMPLETE",
+              RoleARN: "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
               EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [],
@@ -987,6 +1053,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "UPDATE_COMPLETE",
+              RoleARN: "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
               EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [
@@ -1046,8 +1113,21 @@ describe("plan-first AWS deployment CLI", () => {
         termination_protection: true,
         retained_resource_stack_policy: true,
       },
+      cloudformation: {
+        service_role_arn:
+          "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
+      },
       outputs: { ApiBaseUrl: "https://existing.example.test" },
     });
+    const deployCall = runner.mock.calls.find(
+      ([command, args]) => command === "sam" && args[0] === "deploy",
+    );
+    expect(deployCall?.[1]).toEqual(
+      expect.arrayContaining([
+        "--role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormation",
+      ]),
+    );
     expect(
       runner.mock.calls.some(
         ([command, args]) =>

@@ -25,7 +25,44 @@ HayaSend AWS command calls STS and refuses to continue when the authenticated
 account differs. Pass `--account`, `--region`, `--stack`, or `--profile` only
 when overriding these defaults. The default stack name is `hayasend`.
 
-## 2. Create the stack
+## 2. Bootstrap least-privilege deployment
+
+Plan the one-time deployment boundary:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" bootstrap aws
+```
+
+The plan validates a package-owned CloudFormation template for a dedicated,
+private SAM artifact bucket, a CloudFormation service role, and an operator
+policy. The operator policy can manage only HayaSend stack names under the
+selected prefix, that artifact path, and `iam:PassRole` for the exact service
+role. It does not grant the operator Lambda, DynamoDB, SES, backup, or other
+application data-plane provisioning permissions.
+
+Apply from a one-time IAM bootstrap session only after reviewing the template:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" bootstrap aws \
+  --apply \
+  --confirm-account "$HAYASEND_AWS_ACCOUNT_ID"
+```
+
+Use `--permissions-boundary-arn` when your organization requires a boundary
+on the CloudFormation service role. Attach the returned operator policy to the
+normal human or CI deployment role after reviewing it. Export the two
+non-secret outputs:
+
+```bash
+export HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN=arn:aws:iam::123456789012:role/example
+export HAYASEND_AWS_ARTIFACT_BUCKET=example-artifact-bucket
+```
+
+The bootstrap stack itself remains a privileged trust boundary. Updating it
+still requires the one-time IAM bootstrap principal; the normal operator
+policy deliberately cannot modify IAM roles or policies.
+
+## 3. Create the stack
 
 Generate a read-only plan:
 
@@ -38,6 +75,7 @@ command in the JSON result. Then apply:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
+  --cloudformation-role-arn "$HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN" \
   --enable-restore-testing \
   --apply
 ```
@@ -60,7 +98,12 @@ in the [AWS integration guide](aws-integration-testing.md); configuration
 readiness alone does not prove that application records and attachment bytes
 survive a restore.
 
-## 3. Enable safe updates
+When `HAYASEND_AWS_ARTIFACT_BUCKET` is set, the CLI uses only that bootstrap
+bucket. `--cloudformation-role-arn` is recorded on the stack; later upgrade
+and cleanup commands preserve it when the flag is omitted. You may pass the
+role explicitly on every command for clearer audit output.
+
+## 4. Enable safe updates
 
 AWS needs an earlier Lambda version before CodeDeploy can shift traffic.
 The first apply therefore creates the `live` aliases only. Review and apply
@@ -77,7 +120,7 @@ roll back when the alias-specific error alarm fires or CodeDeploy reports a
 failure. Set `--deployment-preference-type` on a reviewed plan to choose one
 of the documented AWS SAM canary or linear strategies.
 
-## 4. Check whether it is ready
+## 5. Check whether it is ready
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
@@ -116,7 +159,7 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 Keep the key in an approved secret manager and out of command arguments,
 transcripts, and issue reports.
 
-## 5. Update safely
+## 6. Update safely
 
 Plan an update to the existing stack:
 
@@ -138,7 +181,7 @@ printed destructive action.
 
 Run `status aws` again after every update.
 
-## 6. Remove the running stack
+## 7. Remove the running stack
 
 First print the deletion plan:
 

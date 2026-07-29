@@ -166,6 +166,8 @@ export interface AwsDeployOptions {
   region?: string;
   stack?: string;
   profile?: string;
+  cloudformationRoleArn?: string;
+  artifactBucket?: string;
   operation?: "deploy" | "upgrade";
   apply: boolean;
   allowDestructiveChanges: boolean;
@@ -207,6 +209,7 @@ export interface AwsTargetOptions {
   region?: string;
   stack?: string;
   profile?: string;
+  cloudformationRoleArn?: string;
 }
 
 export interface AwsStatusOptions extends AwsTargetOptions {
@@ -224,6 +227,7 @@ interface NormalizedTarget {
   region: string;
   stack: string;
   profile?: string;
+  cloudformationRoleArn?: string;
 }
 
 interface NormalizedOptions extends NormalizedTarget {
@@ -232,11 +236,13 @@ interface NormalizedOptions extends NormalizedTarget {
   allowDestructiveChanges: boolean;
   explicitParameters: Record<string, string>;
   tags: Array<{ key: string; value: string }>;
+  artifactBucket?: string;
 }
 
 interface StackDescription {
   exists: boolean;
   status?: string;
+  roleArn?: string;
   creationTime?: string;
   lastUpdatedTime?: string;
   terminationProtectionEnabled?: boolean;
@@ -498,7 +504,10 @@ function validateRecipientSuffixes(value: string) {
 function normalizeTargetOptions(
   options: AwsTargetOptions,
   env: NodeJS.ProcessEnv,
-): Pick<NormalizedOptions, "account" | "region" | "stack" | "profile"> {
+): Pick<
+  NormalizedOptions,
+  "account" | "region" | "stack" | "profile" | "cloudformationRoleArn"
+> {
   const account = options.account ?? env.HAYASEND_AWS_ACCOUNT_ID;
   if (!account || !/^\d{12}$/.test(account)) {
     throw new Error(
@@ -520,12 +529,46 @@ function normalizeTargetOptions(
   if (options.profile && !/^[A-Za-z0-9_+=,.@-]{1,128}$/.test(options.profile)) {
     throw new Error("--profile contains unsupported characters.");
   }
+  const cloudformationRoleArn =
+    options.cloudformationRoleArn ?? env.HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN;
+  if (cloudformationRoleArn) {
+    validateCloudFormationRoleArn(cloudformationRoleArn, account, region);
+  }
   return {
     account,
     region,
     stack,
     ...(options.profile ? { profile: options.profile } : {}),
+    ...(cloudformationRoleArn ? { cloudformationRoleArn } : {}),
   };
+}
+
+function expectedPartition(region: string) {
+  return region.startsWith("cn-")
+    ? "aws-cn"
+    : region.startsWith("us-gov-")
+      ? "aws-us-gov"
+      : "aws";
+}
+
+function validateCloudFormationRoleArn(
+  value: string,
+  account: string,
+  region: string,
+) {
+  const match =
+    /^arn:(aws|aws-us-gov|aws-cn):iam::(\d{12}):role\/[A-Za-z0-9_+=,.@/-]{1,512}$/.exec(
+      value,
+    );
+  if (
+    !match ||
+    match[1] !== expectedPartition(region) ||
+    match[2] !== account
+  ) {
+    throw new Error(
+      "--cloudformation-role-arn must name an IAM role in the exact expected AWS account and partition.",
+    );
+  }
 }
 
 function normalizeOptions(
@@ -533,6 +576,18 @@ function normalizeOptions(
   env: NodeJS.ProcessEnv,
 ): NormalizedOptions {
   const target = normalizeTargetOptions(options, env);
+  const artifactBucket =
+    options.artifactBucket ?? env.HAYASEND_AWS_ARTIFACT_BUCKET;
+  if (
+    artifactBucket !== undefined &&
+    (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(artifactBucket) ||
+      artifactBucket.includes("..") ||
+      /^\d{1,3}(?:\.\d{1,3}){3}$/.test(artifactBucket))
+  ) {
+    throw new Error(
+      "--artifact-bucket or HAYASEND_AWS_ARTIFACT_BUCKET must be a valid S3 bucket name.",
+    );
+  }
   if (options.allowDestructiveChanges && !options.apply) {
     throw new Error("--allow-destructive-changes requires --apply.");
   }
@@ -690,6 +745,7 @@ function normalizeOptions(
     allowDestructiveChanges: options.allowDestructiveChanges,
     explicitParameters,
     tags: parseTags(options.tags),
+    ...(artifactBucket ? { artifactBucket } : {}),
   };
 }
 
@@ -853,6 +909,7 @@ async function describeStack(
       StackStatus?: unknown;
       CreationTime?: unknown;
       LastUpdatedTime?: unknown;
+      RoleARN?: unknown;
       EnableTerminationProtection?: unknown;
       DriftInformation?: {
         StackDriftStatus?: unknown;
@@ -884,6 +941,7 @@ async function describeStack(
     ...(typeof stack.LastUpdatedTime === "string"
       ? { lastUpdatedTime: stack.LastUpdatedTime }
       : {}),
+    ...(typeof stack.RoleARN === "string" ? { roleArn: stack.RoleARN } : {}),
     ...(typeof stack.EnableTerminationProtection === "boolean"
       ? {
           terminationProtectionEnabled: stack.EnableTerminationProtection,
@@ -1562,7 +1620,7 @@ async function publicHealth(
 
 function targetCommand(
   operation: "deploy" | "status" | "upgrade" | "cleanup",
-  options: NormalizedTarget,
+  options: NormalizedTarget & { artifactBucket?: string },
 ) {
   return [
     "npx",
@@ -1577,6 +1635,13 @@ function targetCommand(
     "--stack",
     options.stack,
     ...(options.profile ? ["--profile", options.profile] : []),
+    ...(options.cloudformationRoleArn
+      ? ["--cloudformation-role-arn", options.cloudformationRoleArn]
+      : []),
+    ...(options.artifactBucket &&
+    (operation === "deploy" || operation === "upgrade")
+      ? ["--artifact-bucket", options.artifactBucket]
+      : []),
   ];
 }
 
@@ -1593,12 +1658,7 @@ function validateBootstrapSecret(value: string, options: NormalizedOptions) {
       "BootstrapSecretArn must name a Secrets Manager secret in the expected account and Region.",
     );
   }
-  const expectedPartition = options.region.startsWith("cn-")
-    ? "aws-cn"
-    : options.region.startsWith("us-gov-")
-      ? "aws-us-gov"
-      : "aws";
-  if (!value.startsWith(`arn:${expectedPartition}:`)) {
+  if (!value.startsWith(`arn:${expectedPartition(options.region)}:`)) {
     throw new Error(
       "BootstrapSecretArn must use the AWS partition for the expected Region.",
     );
@@ -1696,6 +1756,7 @@ function applyCommand(
   options: NormalizedOptions,
   parameters: Record<string, string>,
   tags: Array<{ key: string; value: string }>,
+  cloudformationRoleArn: string | undefined,
 ) {
   return [
     "npx",
@@ -1714,6 +1775,12 @@ function applyCommand(
     "--api-burst-limit",
     parameters.ApiThrottlingBurstLimit ?? "20",
     ...(options.profile ? ["--profile", options.profile] : []),
+    ...(cloudformationRoleArn
+      ? ["--cloudformation-role-arn", cloudformationRoleArn]
+      : []),
+    ...(options.artifactBucket
+      ? ["--artifact-bucket", options.artifactBucket]
+      : []),
     ...(parameters.EnableInbound === "true"
       ? [
           "--enable-inbound",
@@ -2113,6 +2180,7 @@ export async function statusAws(
         name: options.stack,
         exists: true,
         status: stack.status ?? null,
+        cloudformation_role_arn: stack.roleArn ?? null,
         created_at: stack.creationTime ?? null,
         updated_at: stack.lastUpdatedTime ?? null,
         termination_protection: stack.terminationProtectionEnabled ?? false,
@@ -2176,8 +2244,14 @@ export async function statusAws(
           ...targetCommand("status", options),
           "--detect-drift",
         ],
-        upgrade_plan_command: targetCommand("upgrade", options),
-        cleanup_plan_command: targetCommand("cleanup", options),
+        upgrade_plan_command: targetCommand("upgrade", {
+          ...options,
+          ...(stack.roleArn ? { cloudformationRoleArn: stack.roleArn } : {}),
+        }),
+        cleanup_plan_command: targetCommand("cleanup", {
+          ...options,
+          ...(stack.roleArn ? { cloudformationRoleArn: stack.roleArn } : {}),
+        }),
       },
     }),
   );
@@ -2199,6 +2273,14 @@ export async function cleanupAws(
   );
   const identity = await requireAwsIdentity(dependencies, options);
   const stack = await describeStack(dependencies, options);
+  const cloudformationRoleArn = options.cloudformationRoleArn ?? stack.roleArn;
+  if (cloudformationRoleArn) {
+    validateCloudFormationRoleArn(
+      cloudformationRoleArn,
+      options.account,
+      options.region,
+    );
+  }
   if (!stack.exists) {
     dependencies.log(
       JSON.stringify({
@@ -2246,7 +2328,10 @@ export async function cleanupAws(
       physical_id: resource.physicalId ?? null,
     }));
   const applyCommand = [
-    ...targetCommand("cleanup", options),
+    ...targetCommand("cleanup", {
+      ...options,
+      ...(cloudformationRoleArn ? { cloudformationRoleArn } : {}),
+    }),
     "--apply",
     "--confirm-stack",
     options.stack,
@@ -2273,6 +2358,7 @@ export async function cleanupAws(
         name: options.stack,
         exists: true,
         status: stack.status,
+        cloudformation_role_arn: cloudformationRoleArn ?? null,
         termination_protection: stack.terminationProtectionEnabled ?? false,
         resource_count: resources.length,
       },
@@ -2310,7 +2396,7 @@ export async function cleanupAws(
       awsArgs(options, [
         "cloudformation",
         "update-termination-protection",
-        "--disable-termination-protection",
+        "--no-enable-termination-protection",
         "--stack-name",
         options.stack,
       ]),
@@ -2334,6 +2420,7 @@ export async function cleanupAws(
         "delete-stack",
         "--stack-name",
         options.stack,
+        ...(cloudformationRoleArn ? ["--role-arn", cloudformationRoleArn] : []),
       ]),
       "CloudFormation stack deletion",
     );
@@ -2433,6 +2520,14 @@ export async function deployAws(
   const identity = await requireAwsIdentity(dependencies, options);
   const ses = await requireSesAccount(dependencies, options);
   const stack = await describeStack(dependencies, options);
+  const cloudformationRoleArn = options.cloudformationRoleArn ?? stack.roleArn;
+  if (cloudformationRoleArn) {
+    validateCloudFormationRoleArn(
+      cloudformationRoleArn,
+      options.account,
+      options.region,
+    );
+  }
   if (options.operation === "upgrade" && !stack.exists) {
     throw new Error(
       `Stack ${options.stack} does not exist; run deploy aws first.`,
@@ -2543,6 +2638,7 @@ export async function deployAws(
           name: options.stack,
           exists: stack.exists,
           status: stack.status ?? null,
+          cloudformation_role_arn: cloudformationRoleArn ?? null,
         },
         ses: {
           production_access: ses.productionAccess,
@@ -2567,6 +2663,22 @@ export async function deployAws(
           retained_resource_stack_policy: "enforced_on_apply",
           retained_logical_ids: [...RETAINED_RESOURCE_LOGICAL_IDS].sort(),
         },
+        cloudformation: {
+          service_role_arn: cloudformationRoleArn ?? null,
+          source: rawOptions.cloudformationRoleArn
+            ? "explicit"
+            : dependencies.env.HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN
+              ? "environment"
+              : stack.roleArn
+                ? "existing_stack"
+                : "caller_credentials",
+        },
+        artifacts: {
+          bucket: options.artifactBucket ?? null,
+          mode: options.artifactBucket
+            ? "dedicated_bootstrap_bucket"
+            : "sam_resolved_bucket",
+        },
         deployments: {
           ...deployments,
           mode: deployments.enabled ? "alarm_rollback" : "alias_bootstrap",
@@ -2575,7 +2687,14 @@ export async function deployAws(
         dns_changes: "never",
         ...(options.apply
           ? {}
-          : { apply_command: applyCommand(options, parameters, tags) }),
+          : {
+              apply_command: applyCommand(
+                options,
+                parameters,
+                tags,
+                cloudformationRoleArn,
+              ),
+            }),
       }),
     );
 
@@ -2590,7 +2709,9 @@ export async function deployAws(
       join(buildDirectory, "template.yaml"),
       "--stack-name",
       options.stack,
-      "--resolve-s3",
+      ...(options.artifactBucket
+        ? ["--s3-bucket", options.artifactBucket]
+        : ["--resolve-s3"]),
       "--s3-prefix",
       `hayasend/${options.stack}`,
       "--capabilities",
@@ -2599,6 +2720,7 @@ export async function deployAws(
       "--no-execute-changeset",
       "--no-fail-on-empty-changeset",
       "--no-progressbar",
+      ...(cloudformationRoleArn ? ["--role-arn", cloudformationRoleArn] : []),
       "--parameter-overrides",
       ...Object.entries(parameters)
         .filter(([key, value]) => key !== "BootstrapSecretArn" || value !== "")
@@ -2634,6 +2756,9 @@ export async function deployAws(
             termination_protection:
               protectedStack.terminationProtectionEnabled === true,
             retained_resource_stack_policy: stack.exists,
+          },
+          cloudformation: {
+            service_role_arn: cloudformationRoleArn ?? null,
           },
           deployments: gradualDeploymentSummary(
             protectedStack.parameters,
@@ -2754,6 +2879,9 @@ export async function deployAws(
           termination_protection: true,
           retained_resource_stack_policy: true,
         },
+        cloudformation: {
+          service_role_arn: cloudformationRoleArn ?? null,
+        },
         deployments: gradualDeploymentSummary(
           deployed.parameters,
           deployedResources,
@@ -2776,7 +2904,10 @@ export async function deployAws(
             ? {}
             : {
                 enable_gradual_deployments: {
-                  command: targetCommand("upgrade", options),
+                  command: targetCommand("upgrade", {
+                    ...options,
+                    ...(cloudformationRoleArn ? { cloudformationRoleArn } : {}),
+                  }),
                   handling:
                     "Review and apply the next upgrade after live aliases exist; HayaSend will then enable alarm-driven traffic shifting.",
                 },

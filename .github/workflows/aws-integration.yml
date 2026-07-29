@@ -578,7 +578,7 @@ jobs:
               --confirm-stack "$STACK_NAME" \
               --disable-termination-protection || {
                 aws cloudformation update-termination-protection \
-                  --disable-termination-protection \
+                  --no-enable-termination-protection \
                   --stack-name "$STACK_NAME" \
                   --region "$AWS_REGION" >/dev/null 2>&1 || true
                 aws cloudformation delete-stack \

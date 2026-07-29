@@ -11,6 +11,20 @@ Cost Explorer and CloudWatch usage after deployment.
 
 ## Deployment principal
 
+Run `bootstrap aws` from a separately controlled one-time IAM bootstrap
+session. Its reviewed template creates a private, encrypted, versioned
+artifact bucket, a role trusted only by
+`cloudformation.amazonaws.com` (optionally constrained by a permissions
+boundary), and a managed operator policy. The operator policy is scoped to the
+selected HayaSend stack prefix, artifact path, CloudFormation operations, and
+`iam:PassRole` for that one role.
+
+The bootstrap command never attaches the operator policy. Review and attach it
+to the routine human or CI principal through the organization's IAM process.
+The bootstrap principal remains capable of changing IAM and is therefore not
+a routine deployment identity. HayaSend enables and verifies termination
+protection on the bootstrap stack after every successful create or update.
+
 The plan-first CLI needs read access for:
 
 - `sts:GetCallerIdentity`;
@@ -30,23 +44,32 @@ through `cloudformation:ListChangeSets`,
 `cloudformation:DescribeChangeSet`, and
 `cloudformation:DescribeStackEvents`. It uses ordinary SAM deployment
 operations, including artifact-bucket access and CloudFormation change-set
-creation/execution. The deployment principal must be authorized for every
-resource type in `template.yaml`; `CAPABILITY_IAM` is always explicit.
+creation/execution. With `--cloudformation-role-arn`, the routine deployment
+principal does not need permissions for every resource type in
+`template.yaml`; CloudFormation assumes that exact role to create, update, and
+delete the stack. The role ARN must match the expected account and partition.
+AWS records it as the stack's `RoleARN`, and HayaSend preserves it on upgrade
+and cleanup when the option is omitted. `CAPABILITY_IAM` remains explicit.
 After execution it uses `cloudformation:SetStackPolicy`,
 `cloudformation:GetStackPolicy`, and
 `cloudformation:UpdateTerminationProtection` to enforce and verify the
 retained-resource and stack-deletion controls.
-HayaSend does not ship a broad administrator policy disguised as a
-least-privilege policy. Derive the deployment role from the checked-in
-template, organizational permission boundaries, Region, and enabled inbound
-features, then review it through the same infrastructure process as other
-production roles.
+The checked-in bootstrap policy is action-scoped to the AWS services generated
+by `template.yaml`; it is not AdministratorAccess. IAM role creation and
+passing are restricted to the application stack prefix and approved AWS
+services. Some other CloudFormation service actions still require
+`Resource: "*"`, especially create-time Lambda, API Gateway, backup, KMS, and
+SES operations whose final ARN does not yet exist. Treat the optional
+organizational permissions boundary and SCPs as the outer guardrail. CI
+rejects a newly introduced application resource type until its required
+service prefix is reviewed in the bootstrap-policy conformance test.
 
 `cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
 protected stack, `cloudformation:UpdateTerminationProtection` in addition to
-the read operations. CloudFormation still needs its normal service-role or
-caller permissions to delete stack-owned resources. Cleanup never empties or
-deletes resources protected by `DeletionPolicy: Retain`.
+the read operations. Cleanup passes the explicitly configured or
+stack-recorded service role to `DeleteStack`; CloudFormation never falls back
+to routine operator credentials when a role is associated. Cleanup never
+empties or deletes resources protected by `DeletionPolicy: Retain`.
 
 The CLI never reads the bootstrap secret value, edits DNS, or passes
 credentials as command-line arguments. Its JSON output contains account IDs,

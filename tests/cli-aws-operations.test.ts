@@ -28,6 +28,8 @@ function existingStack(overrides: Record<string, unknown> = {}) {
     Stacks: [
       {
         StackStatus: "UPDATE_COMPLETE",
+        RoleARN:
+          "arn:aws:iam::123456789012:role/HayaSendCloudFormationServiceRole",
         CreationTime: "2026-07-28T00:00:00.000Z",
         LastUpdatedTime: "2026-07-29T00:00:00.000Z",
         EnableTerminationProtection: true,
@@ -684,7 +686,13 @@ describe("AWS lifecycle operations", () => {
       },
     });
     expect(plan.apply_command).toEqual(
-      expect.arrayContaining(["--apply", "--confirm-stack", "hayasend"]),
+      expect.arrayContaining([
+        "--cloudformation-role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormationServiceRole",
+        "--apply",
+        "--confirm-stack",
+        "hayasend",
+      ]),
     );
     expect(
       runner.mock.calls.some(
@@ -811,6 +819,26 @@ describe("AWS lifecycle operations", () => {
       deleted: true,
       stack: "hayasend",
     });
+    const deleteCall = runner.mock.calls.find(
+      ([command, args]) =>
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "delete-stack",
+    );
+    const disableCall = runner.mock.calls.find(
+      ([command, args]) =>
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "update-termination-protection" &&
+        args.includes("--no-enable-termination-protection"),
+    );
+    expect(disableCall?.[1]).not.toContain("--disable-termination-protection");
+    expect(deleteCall?.[1]).toEqual(
+      expect.arrayContaining([
+        "--role-arn",
+        "arn:aws:iam::123456789012:role/HayaSendCloudFormationServiceRole",
+      ]),
+    );
   });
 
   it("re-enables termination protection when delete submission fails", async () => {
