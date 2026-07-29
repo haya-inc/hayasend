@@ -144,9 +144,11 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"
-              - Sid: InspectOnlyManagedLambdaConcurrency
+              - Sid: InspectOnlyManagedLambdaRuntimeState
                 Effect: Allow
-                Action: lambda:GetProvisionedConcurrencyConfig
+                Action:
+                  - lambda:GetProvisionedConcurrencyConfig
+                  - lambda:GetRuntimeManagementConfig
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApplicationStackNamePrefix}*"
               - Effect: Allow
                 Action:
