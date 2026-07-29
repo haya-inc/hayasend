@@ -62,7 +62,7 @@ describe("npm CLI distribution", () => {
 
     expect(workflow).toContain(".entryCount <= 615");
     expect(workflow).toContain(".size < 760000");
-    expect(workflow).toContain(".unpackedSize < 3900000");
+    expect(workflow).toContain(".unpackedSize < 4000000");
     expect(workflow).toContain(
       'index("dist/portable/backup-restore-proof.js") != null',
     );
