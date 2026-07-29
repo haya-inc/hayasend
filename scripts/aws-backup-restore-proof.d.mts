@@ -14,6 +14,17 @@ export interface BackupRestoreProofOptions {
 
 export function stableCanonicalJson(value: unknown): string;
 
+export function assertRestoreTestingPlanIdentity(
+  plan: {
+    RestoreTestingPlanName?: string;
+    RestoreTestingPlanArn?: string;
+  } | undefined,
+  options: BackupRestoreProofOptions,
+): {
+  RestoreTestingPlanName?: string;
+  RestoreTestingPlanArn?: string;
+};
+
 export function summarizeDynamoProbe(
   items: Array<Record<string, unknown>>,
   emailId: string,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertRestoreTestingPlanIdentity,
   restoredResourceTarget,
   stableCanonicalJson,
   summarizeDynamoProbe,
@@ -41,12 +42,37 @@ const options = {
   vaultArn: "arn:aws:backup:ap-northeast-1:123456789012:backup-vault:test",
   vaultName: "test",
   restorePlanArn:
-    "arn:aws:backup:ap-northeast-1:123456789012:restore-testing-plan:test",
-  restorePlanName: "test",
+    "arn:aws:backup:ap-northeast-1:123456789012:restore-testing-plan:HayaSend_test_1234-867cbaf4-a45d-464e-ba8b-6035bc96770b",
+  restorePlanName: "HayaSend_test_1234",
   stateFile: "/tmp/test.json",
 };
 
 describe("AWS Backup semantic restore proof", () => {
+  it("keeps the exact plan name separate from AWS's ARN identifier", () => {
+    expect(
+      assertRestoreTestingPlanIdentity(
+        {
+          RestoreTestingPlanName: options.restorePlanName,
+          RestoreTestingPlanArn: options.restorePlanArn,
+        },
+        options,
+      ),
+    ).toEqual({
+      RestoreTestingPlanName: options.restorePlanName,
+      RestoreTestingPlanArn: options.restorePlanArn,
+    });
+    expect(() =>
+      assertRestoreTestingPlanIdentity(
+        {
+          RestoreTestingPlanName:
+            options.restorePlanArn.split(":").at(-1) ?? "",
+          RestoreTestingPlanArn: options.restorePlanArn,
+        },
+        options,
+      ),
+    ).toThrow("name and ARN do not match exactly");
+  });
+
   it("canonicalizes object keys and DynamoDB sets without reordering lists", () => {
     expect(
       stableCanonicalJson({

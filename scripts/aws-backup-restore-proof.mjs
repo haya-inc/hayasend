@@ -52,6 +52,7 @@ function parseOptions(argv) {
     "--bucket",
     "--vault-arn",
     "--restore-plan-arn",
+    "--restore-plan-name",
     "--state-file",
     "--backup-role-arn",
     "--email-id",
@@ -71,6 +72,7 @@ function parseOptions(argv) {
     bucket: requiredOption(options, "--bucket"),
     vaultArn: requiredOption(options, "--vault-arn"),
     restorePlanArn: requiredOption(options, "--restore-plan-arn"),
+    restorePlanName: requiredOption(options, "--restore-plan-name"),
     stateFile: requiredOption(options, "--state-file"),
     backupRoleArn: options.get("--backup-role-arn"),
     emailId: options.get("--email-id"),
@@ -107,6 +109,9 @@ function validateOptions(options) {
     throw new Error(
       "--restore-plan-arn must belong to the exact account and region.",
     );
+  }
+  if (!/^[A-Za-z0-9_]{1,50}$/.test(options.restorePlanName)) {
+    throw new Error("--restore-plan-name must be an exact valid plan name.");
   }
   if (!isAbsolute(options.stateFile)) {
     throw new Error("--state-file must be an absolute path.");
@@ -487,6 +492,18 @@ function restoreScheduleExpression(now = new Date()) {
   };
 }
 
+export function assertRestoreTestingPlanIdentity(plan, options) {
+  if (
+    plan?.RestoreTestingPlanName !== options.restorePlanName ||
+    plan?.RestoreTestingPlanArn !== options.restorePlanArn
+  ) {
+    throw new Error(
+      "The restore testing plan name and ARN do not match exactly.",
+    );
+  }
+  return plan;
+}
+
 async function scheduleRestoreTest(options, state, runAwsJson) {
   const current = await runAwsJson([
     "backup",
@@ -496,7 +513,11 @@ async function scheduleRestoreTest(options, state, runAwsJson) {
     "--region",
     options.region,
   ]);
-  const selection = current.RestoreTestingPlan?.RecoveryPointSelection;
+  const plan = assertRestoreTestingPlanIdentity(
+    current.RestoreTestingPlan,
+    options,
+  );
+  const selection = plan.RecoveryPointSelection;
   if (!selection) {
     throw new Error(
       "The restore testing plan has no recovery-point selection.",
@@ -823,7 +844,6 @@ async function prove(
   options.tableArn = `arn:aws:dynamodb:${options.region}:${options.account}:table/${options.table}`;
   options.bucketArn = `arn:aws:s3:::${options.bucket}`;
   options.vaultName = options.vaultArn.split(":").at(-1);
-  options.restorePlanName = options.restorePlanArn.split(":").at(-1);
   const state = {
     schema_version: 1,
     started_at: new Date().toISOString(),
@@ -993,7 +1013,6 @@ function enrichCleanupOptions(options, state) {
     tableArn: `arn:aws:dynamodb:${options.region}:${options.account}:table/${options.table}`,
     bucketArn: `arn:aws:s3:::${options.bucket}`,
     vaultName: options.vaultArn.split(":").at(-1),
-    restorePlanName: options.restorePlanArn.split(":").at(-1),
     stateFile: options.stateFile,
     startedAt: state.started_at,
   };

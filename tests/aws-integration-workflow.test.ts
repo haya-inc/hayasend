@@ -37,6 +37,12 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain(
       "node scripts/aws-backup-restore-proof.mjs cleanup",
     );
+    expect(workflow).toContain(
+      'stack_parameter RestoreTestingPlanName',
+    );
+    expect(workflow).toContain(
+      '--restore-plan-name "$RESTORE_TESTING_PLAN_NAME"',
+    );
     expect(proof).toContain("put-restore-validation-result");
     expect(workflow).toContain("delete-backup-vault");
     expect(workflow).toContain(
