@@ -429,9 +429,11 @@ Resources:
             Condition:
               StringEquals:
                 aws:RequestedRegion: !Ref AWS::Region
-          - Sid: ReadRegionalDriftTypeConfigurations
+          - Sid: ReadRegionalDriftMetadata
             Effect: Allow
-            Action: cloudformation:BatchDescribeTypeConfigurations
+            Action:
+              - cloudformation:BatchDescribeTypeConfigurations
+              - cloudformation:DescribeStackDriftDetectionStatus
             Resource: "*"
             Condition:
               StringEquals:
@@ -440,7 +442,6 @@ Resources:
             Effect: Allow
             Action:
               - cloudformation:DescribeChangeSet
-              - cloudformation:DescribeStackDriftDetectionStatus
               - cloudformation:DescribeStackEvents
               - cloudformation:DescribeStackResourceDrifts
               - cloudformation:DescribeStackResources
