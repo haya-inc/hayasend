@@ -546,19 +546,24 @@ async function scheduleRestoreTest(options, state, runAwsJson) {
   await persistState(options.stateFile, state);
 }
 
-function matchingRestoreJobs(result, options, state) {
+export function matchRestoreJobsToBackups(result, options, state) {
   const expectedRecoveryPoints = new Map(
     state.backup_jobs
       .filter((job) => job.recovery_point_arn)
-      .map((job) => [job.resource_arn, job.recovery_point_arn]),
+      .map((job) => [job.recovery_point_arn, job]),
   );
-  return (result.RestoreJobs ?? []).filter((job) => {
-    const expected = expectedRecoveryPoints.get(job.SourceResourceArn);
-    return (
-      expected !== undefined &&
-      job.RecoveryPointArn === expected &&
-      job.CreatedBy?.RestoreTestingPlanArn === options.restorePlanArn
-    );
+  return (result.RestoreJobs ?? []).flatMap((job) => {
+    const expected = expectedRecoveryPoints.get(job.RecoveryPointArn);
+    if (
+      expected === undefined ||
+      job.ResourceType !== expected.resource_type ||
+      job.CreatedBy?.RestoreTestingPlanArn !== options.restorePlanArn ||
+      (job.SourceResourceArn !== undefined &&
+        job.SourceResourceArn !== expected.resource_arn)
+    ) {
+      return [];
+    }
+    return [{ ...job, SourceResourceArn: expected.resource_arn }];
   });
 }
 
@@ -575,7 +580,7 @@ async function waitForRestoreJobs(options, state, runAwsJson) {
       "--region",
       options.region,
     ]);
-    const jobs = matchingRestoreJobs(result, options, state);
+    const jobs = matchRestoreJobsToBackups(result, options, state);
     if (jobs.some((job) => TERMINAL_RESTORE_FAILURES.has(job.Status))) {
       const failed = jobs.find((job) =>
         TERMINAL_RESTORE_FAILURES.has(job.Status),
@@ -723,12 +728,7 @@ async function discoverRestoreJobs(options, state, runAwsJson) {
     "--region",
     options.region,
   ]);
-  const sourceArns = new Set([options.tableArn, options.bucketArn]);
-  return (result.RestoreJobs ?? []).filter(
-    (job) =>
-      sourceArns.has(job.SourceResourceArn) &&
-      job.CreatedBy?.RestoreTestingPlanArn === options.restorePlanArn,
-  );
+  return matchRestoreJobsToBackups(result, options, state);
 }
 
 async function deleteRecoveryPoints(options, state, runAwsJson) {

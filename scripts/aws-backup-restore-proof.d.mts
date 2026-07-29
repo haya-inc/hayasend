@@ -25,6 +25,20 @@ export function assertRestoreTestingPlanIdentity(
   RestoreTestingPlanArn?: string;
 };
 
+export function matchRestoreJobsToBackups(
+  result: {
+    RestoreJobs?: Array<Record<string, any>>;
+  },
+  options: BackupRestoreProofOptions,
+  state: {
+    backup_jobs: Array<{
+      resource_type: "DynamoDB" | "S3";
+      resource_arn: string;
+      recovery_point_arn?: string;
+    }>;
+  },
+): Array<Record<string, any> & { SourceResourceArn: string }>;
+
 export function summarizeDynamoProbe(
   items: Array<Record<string, unknown>>,
   emailId: string,
