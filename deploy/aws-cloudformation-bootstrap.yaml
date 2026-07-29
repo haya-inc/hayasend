@@ -103,6 +103,10 @@ Resources:
                 Effect: Allow
                 Action: cloudformation:CreateChangeSet
                 Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31"
+              - Sid: ReadOnlyHayaSendDeploymentArtifacts
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ArtifactBucket.Arn}/hayasend/*"
               - Effect: Allow
                 Action:
                   - iam:AttachRolePolicy

@@ -72,10 +72,13 @@ application stack prefix. Some other CloudFormation service actions still
 require `Resource: "*"`, especially create-time Lambda, API Gateway, backup,
 KMS, SES, and S3 bucket-configuration operations whose final ARN does not yet
 exist. S3 CORS handling is limited to reading and writing the CORS
-configuration; the service role has no S3 object read permission. Treat the
-optional organizational permissions boundary and SCPs as the outer guardrail.
-CI rejects a newly introduced application resource type until its required
-service prefix is reviewed in the bootstrap-policy conformance test.
+configuration. The only S3 object-read permission is `GetObject` under the
+dedicated bootstrap bucket's `hayasend/*` artifact path so Lambda can load
+packaged code; application payload objects and every other bucket remain
+unreadable. Treat the optional organizational permissions boundary and SCPs
+as the outer guardrail. CI rejects a newly introduced application resource
+type until its required service prefix is reviewed in the bootstrap-policy
+conformance test.
 
 `cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
 protected stack, `cloudformation:UpdateTerminationProtection` in addition to
