@@ -13,6 +13,11 @@ on:
         type: boolean
         required: false
         default: false
+      prove_canary_rollback:
+        description: Force one alarm-driven Lambda canary rollback and verify recovery
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ jobs:
       AWS_TEST_ROLE_ARN: ${{ vars.AWS_TEST_ROLE_ARN }}
       STACK_NAME: hayasend-it-${{ github.run_id }}-${{ github.run_attempt }}
       PROVE_BACKUP_RESTORE: ${{ inputs.prove_backup_restore }}
+      PROVE_CANARY_ROLLBACK: ${{ inputs.prove_canary_rollback }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -197,6 +203,7 @@ jobs:
           api_function="$(stack_resource ApiFunction)"
           worker_function="$(stack_resource WorkerFunction)"
           ses_events_function="$(stack_resource SesEventsFunction)"
+          api_alias_alarm="$(stack_resource ApiFunctionAliasErrorAlarm)"
           legacy_retention_resource="$(
             stack_resource LegacyFunctionLogRetention
           )"
@@ -216,6 +223,7 @@ jobs:
             "$api_function" \
             "$worker_function" \
             "$ses_events_function" \
+            "$api_alias_alarm" \
             "$legacy_retention_resource"; do
             if [[ -z "$value" || "$value" = "None" ]]; then
               echo "::error::A required CloudFormation output is missing."
@@ -247,6 +255,8 @@ jobs:
             echo "RESTORE_TESTING_PLAN_NAME=$restore_testing_plan_name"
             echo "RESTORE_TESTING_SERVICE_ROLE_ARN=$restore_testing_service_role_arn"
             echo "BACKUP_PROOF_STATE=$RUNNER_TEMP/hayasend-backup-proof-state.json"
+            echo "API_FUNCTION=$api_function"
+            echo "API_ALIAS_ALARM=$api_alias_alarm"
             echo "DISPATCHER_FUNCTION=$dispatcher_function"
             echo "SCHEDULE_GROUP=$schedule_group"
             echo "MANAGED_LOG_GROUPS=$api_log_group $worker_log_group $dispatcher_log_group $ses_events_log_group $retention_log_group"
@@ -368,6 +378,294 @@ jobs:
             echo "::error::Inbound-disabled deployment created an inbound log group."
             exit 1
           fi
+
+      - name: Prove alarm-driven canary rollback
+        if: ${{ inputs.prove_canary_rollback }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_file="src/aws/api.ts"
+          original_source_sha="$(
+            shasum --algorithm 256 "$source_file" | awk '{print $1}'
+          )"
+          baseline_alias_version="$(
+            aws lambda get-alias \
+              --function-name "$API_FUNCTION" \
+              --name live \
+              --region "$AWS_REGION" \
+              --query FunctionVersion \
+              --output text
+          )"
+          proof_started_at="$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+          proof_reason="HayaSend integration rollback proof ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          upgrade_log="$RUNNER_TEMP/hayasend-canary-rollback-update.jsonl"
+
+          reset_proof_state() {
+            git show "HEAD:$source_file" > "$source_file"
+            aws cloudwatch set-alarm-state \
+              --alarm-name "$API_ALIAS_ALARM" \
+              --state-value OK \
+              --state-reason "$proof_reason completed" \
+              --region "$AWS_REGION" >/dev/null 2>&1 || true
+          }
+          trap reset_proof_state EXIT
+
+          node --input-type=module - "$source_file" "$GITHUB_RUN_ID" <<'NODE'
+          import { appendFile } from "node:fs/promises";
+          const [, , sourceFile, runId] = process.argv;
+          if (!/^[0-9]+$/.test(runId)) {
+            throw new Error("The GitHub run ID is invalid.");
+          }
+          await appendFile(
+            sourceFile,
+            `\nexport const HAYASEND_CANARY_ROLLBACK_PROOF = ${JSON.stringify(runId)};\n`,
+          );
+          NODE
+
+          backup_flags=(--disable-backups --disable-restore-testing)
+          if [[ "$PROVE_BACKUP_RESTORE" = "true" ]]; then
+            backup_flags=(--enable-backups --enable-restore-testing --backup-retention-days 1)
+          fi
+
+          set +e
+          npm run --silent cli -- upgrade aws \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --stack "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --worker-reserved-concurrency 0 \
+            --log-retention-days 14 \
+            "${backup_flags[@]}" \
+            --allow-destructive-changes \
+            --tag Purpose=IntegrationTest \
+            --tag "GitHubRun=$GITHUB_RUN_ID" \
+            --apply \
+            > "$upgrade_log" 2>&1 &
+          upgrade_pid=$!
+          set -e
+
+          application_names="$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::CodeDeploy::Application'].PhysicalResourceId" \
+              --output text
+          )"
+          if [[ -z "$application_names" || "$application_names" = "None" ]]; then
+            echo "::error::The stack has no CodeDeploy application."
+            exit 1
+          fi
+
+          triggering_deployment_id=""
+          triggering_application=""
+          for _ in {1..120}; do
+            for application_name in $application_names; do
+              deployment_ids="$(
+                aws deploy list-deployments \
+                  --application-name "$application_name" \
+                  --create-time-range "start=$proof_started_at" \
+                  --region "$AWS_REGION" \
+                  --query deploymentIds \
+                  --output text
+              )"
+              if [[ -z "$deployment_ids" || "$deployment_ids" = "None" ]]; then
+                continue
+              fi
+              for deployment_id in $deployment_ids; do
+                creator="$(
+                  aws deploy get-deployment \
+                    --deployment-id "$deployment_id" \
+                    --region "$AWS_REGION" \
+                    --query deploymentInfo.creator \
+                    --output text
+                )"
+                if [[ "$creator" != "codeDeployRollback" ]]; then
+                  triggering_deployment_id="$deployment_id"
+                  triggering_application="$application_name"
+                  break 3
+                fi
+              done
+            done
+            if ! kill -0 "$upgrade_pid" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          if [[ -z "$triggering_deployment_id" ]]; then
+            set +e
+            wait "$upgrade_pid"
+            set -e
+            echo "::error::The synthetic code change did not start a CodeDeploy deployment."
+            sed -n '1,160p' "$upgrade_log"
+            exit 1
+          fi
+
+          for _ in {1..240}; do
+            aws cloudwatch set-alarm-state \
+              --alarm-name "$API_ALIAS_ALARM" \
+              --state-value ALARM \
+              --state-reason "$proof_reason" \
+              --region "$AWS_REGION"
+            if ! kill -0 "$upgrade_pid" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          set +e
+          wait "$upgrade_pid"
+          upgrade_exit=$?
+          set -e
+          if [[ "$upgrade_exit" = "0" ]]; then
+            echo "::error::The alarmed canary update unexpectedly succeeded."
+            exit 1
+          fi
+
+          aws cloudwatch set-alarm-state \
+            --alarm-name "$API_ALIAS_ALARM" \
+            --state-value OK \
+            --state-reason "$proof_reason completed" \
+            --region "$AWS_REGION"
+          git show "HEAD:$source_file" > "$source_file"
+
+          rollback_deployment_id=""
+          rollback_status=""
+          for _ in {1..120}; do
+            deployment_ids="$(
+              aws deploy list-deployments \
+                --application-name "$triggering_application" \
+                --create-time-range "start=$proof_started_at" \
+                --region "$AWS_REGION" \
+                --query deploymentIds \
+                --output text
+            )"
+            if [[ -z "$deployment_ids" || "$deployment_ids" = "None" ]]; then
+              sleep 5
+              continue
+            fi
+            for deployment_id in $deployment_ids; do
+              deployment="$(
+                aws deploy get-deployment \
+                  --deployment-id "$deployment_id" \
+                  --region "$AWS_REGION" \
+                  --query deploymentInfo \
+                  --output json
+              )"
+              creator="$(jq --raw-output '.creator // ""' <<< "$deployment")"
+              triggering_id="$(
+                jq --raw-output \
+                  '.rollbackInfo.rollbackTriggeringDeploymentId // ""' \
+                  <<< "$deployment"
+              )"
+              if [[ "$creator" = "codeDeployRollback" &&
+                    "$triggering_id" = "$triggering_deployment_id" ]]; then
+                rollback_deployment_id="$deployment_id"
+                rollback_status="$(
+                  jq --raw-output '.status // ""' <<< "$deployment"
+                )"
+                break
+              fi
+            done
+            if [[ "$rollback_status" = "Succeeded" ]]; then
+              break
+            fi
+            sleep 5
+          done
+
+          triggering_deployment="$(
+            aws deploy get-deployment \
+              --deployment-id "$triggering_deployment_id" \
+              --region "$AWS_REGION" \
+              --query deploymentInfo \
+              --output json
+          )"
+          triggering_status="$(
+            jq --raw-output '.status // ""' <<< "$triggering_deployment"
+          )"
+          alarm_rollback_enabled="$(
+            jq --raw-output '
+              .autoRollbackConfiguration.enabled == true and
+              (.autoRollbackConfiguration.events // [] |
+                index("DEPLOYMENT_STOP_ON_ALARM") != null)
+            ' <<< "$triggering_deployment"
+          )"
+          if [[ "$triggering_status" != "Failed" &&
+                "$triggering_status" != "Stopped" ]]; then
+            echo "::error::The alarmed deployment ended as $triggering_status."
+            exit 1
+          fi
+          if [[ "$alarm_rollback_enabled" != "true" ]]; then
+            echo "::error::The failed deployment did not enable alarm rollback."
+            exit 1
+          fi
+          if [[ -z "$rollback_deployment_id" ||
+                "$rollback_status" != "Succeeded" ]]; then
+            echo "::error::CodeDeploy did not complete the automatic rollback."
+            exit 1
+          fi
+
+          current_alias_version="$(
+            aws lambda get-alias \
+              --function-name "$API_FUNCTION" \
+              --name live \
+              --region "$AWS_REGION" \
+              --query FunctionVersion \
+              --output text
+          )"
+          current_source_sha="$(
+            shasum --algorithm 256 "$source_file" | awk '{print $1}'
+          )"
+          stack_status="$(
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].StackStatus" \
+              --output text
+          )"
+          if [[ "$current_alias_version" != "$baseline_alias_version" ]]; then
+            echo "::error::The live API alias did not return to its baseline version."
+            exit 1
+          fi
+          if [[ "$current_source_sha" != "$original_source_sha" ]]; then
+            echo "::error::The workflow checkout was not restored after the proof."
+            exit 1
+          fi
+          if [[ "$stack_status" != "UPDATE_ROLLBACK_COMPLETE" ]]; then
+            echo "::error::The stack ended in unexpected state $stack_status."
+            exit 1
+          fi
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 5 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            "$API_BASE_URL/health" >/dev/null
+
+          jq -n \
+            --arg triggering_deployment_id "$triggering_deployment_id" \
+            --arg triggering_status "$triggering_status" \
+            --arg rollback_deployment_id "$rollback_deployment_id" \
+            --arg rollback_status "$rollback_status" \
+            --arg baseline_alias_version "$baseline_alias_version" \
+            --arg restored_alias_version "$current_alias_version" \
+            --arg stack_status "$stack_status" \
+            '{
+              ok: true,
+              object: "aws_canary_rollback_proof",
+              triggering_deployment_id: $triggering_deployment_id,
+              triggering_status: $triggering_status,
+              alarm_rollback_enabled: true,
+              stack_owned_alarm_forced: true,
+              rollback_deployment_id: $rollback_deployment_id,
+              rollback_status: $rollback_status,
+              baseline_alias_version: $baseline_alias_version,
+              restored_alias_version: $restored_alias_version,
+              stack_status: $stack_status,
+              health: "ok"
+            }'
+
+          trap - EXIT
 
       - name: Exercise deployed API
         shell: bash

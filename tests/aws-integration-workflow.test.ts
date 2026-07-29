@@ -37,9 +37,7 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain(
       "node scripts/aws-backup-restore-proof.mjs cleanup",
     );
-    expect(workflow).toContain(
-      'stack_parameter RestoreTestingPlanName',
-    );
+    expect(workflow).toContain("stack_parameter RestoreTestingPlanName");
     expect(workflow).toContain(
       '--restore-plan-name "$RESTORE_TESTING_PLAN_NAME"',
     );
@@ -48,6 +46,28 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain(
       "role-duration-seconds: ${{ inputs.prove_backup_restore && 21600 || 3600 }}",
     );
+  });
+
+  it("proves a stack-owned alarm rollback without leaving the checkout mutated", () => {
+    const workflow = readFileSync(
+      fileURLToPath(
+        new URL("../.github/workflows/aws-integration.yml", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(workflow).toContain("prove_canary_rollback:");
+    expect(workflow).toContain('source_file="src/aws/api.ts"');
+    expect(workflow).toContain('--alarm-name "$API_ALIAS_ALARM"');
+    expect(workflow).toContain("DEPLOYMENT_STOP_ON_ALARM");
+    expect(workflow).toContain(".rollbackInfo.rollbackTriggeringDeploymentId");
+    expect(workflow).toContain(
+      '"$current_alias_version" != "$baseline_alias_version"',
+    );
+    expect(workflow).toContain('git show "HEAD:$source_file" > "$source_file"');
+    expect(workflow).toContain(
+      'if [[ "$stack_status" != "UPDATE_ROLLBACK_COMPLETE" ]]',
+    );
+    expect(workflow).toContain('"$API_BASE_URL/health" >/dev/null');
   });
 
   it("skips backup-vault cleanup when creation never completed", () => {
@@ -61,8 +81,6 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain(
       'if [[ "$backup_vault_error" = *"ResourceNotFoundException"* ]]',
     );
-    expect(workflow).toContain(
-      "was not created or was already removed.",
-    );
+    expect(workflow).toContain("was not created or was already removed.");
   });
 });

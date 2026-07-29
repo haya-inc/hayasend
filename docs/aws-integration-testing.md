@@ -47,6 +47,19 @@ The workflow sets `WorkerReservedConcurrency=0` so a newly created account can
 use its unreserved Lambda concurrency pool without weakening the production
 default of 10 reserved worker executions.
 
+The opt-in `prove_canary_rollback` input runs only after the normal reviewed
+upgrade has completed successfully. It records the live API alias version,
+adds a harmless run-specific export to the API entry point in the ephemeral
+checkout, and starts one new alarm-monitored canary. After CodeDeploy creates
+the deployment, the workflow repeatedly holds the exact alias error alarm in
+`ALARM` until the update fails. A pass requires CodeDeploy's original
+deployment to stop or fail with `DEPLOYMENT_STOP_ON_ALARM` enabled, the linked
+automatic rollback deployment to succeed, CloudFormation to finish
+`UPDATE_ROLLBACK_COMPLETE`, the live alias to return to its exact prior
+version, and the public health endpoint to remain healthy. The workflow then
+restores the exact reviewed source file and alarm state before any API or
+backup proof continues.
+
 ## Safety boundary
 
 Use an AWS account that contains no production resources or data. Enable an
@@ -58,6 +71,9 @@ AWS Budget and root-account alerts before the first run. The workflow:
 - creates a unique CloudFormation stack per run;
 - proves the required two-phase Lambda rollout by creating aliases first and
   enabling alarm-driven CodeDeploy deployment groups on the reviewed update;
+- when `prove_canary_rollback` is enabled, mutates only the ephemeral checkout,
+  alarms only the exact stack-owned API alias alarm, requires the linked
+  CodeDeploy automatic rollback, and verifies the original alias and health;
 - sends no email to SES;
 - cancels every test schedule and deletes its temporary SES identity;
 - deletes the synthetic legacy and stack-owned CloudWatch log groups;
@@ -175,7 +191,8 @@ production release that changes recovery behavior:
 gh workflow run aws-integration.yml \
   --ref main \
   -f retain_stack=false \
-  -f prove_backup_restore=true
+  -f prove_backup_restore=true \
+  -f prove_canary_rollback=true
 ```
 
 The live check covers health, scoped keys, checksum-bound attachment upload,
@@ -204,3 +221,5 @@ Official references:
 - [AWS SAM GitHub Actions](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/deploying-using-github.html)
 - [SAM deploy reference](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-cli-command-reference-sam-deploy.html)
 - [SAM delete reference](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-cli-command-reference-sam-delete.html)
+- [CodeDeploy CloudWatch alarm monitoring](https://docs.aws.amazon.com/codedeploy/latest/userguide/monitoring-create-alarms.html)
+- [CodeDeploy rollback information](https://docs.aws.amazon.com/codedeploy/latest/APIReference/API_RollbackInfo.html)
