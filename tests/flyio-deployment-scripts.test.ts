@@ -88,8 +88,11 @@ elif [[ "\${1:-} \${2:-}" == "machine list" ]]; then
   machine_digest="\${FLY_FAKE_MACHINE_DIGEST:-$HAYASEND_FLY_MACHINE_IMAGE_DIGEST}"
   transport="\${HAYASEND_TRANSPORT:-console}"
   proof_guard=''
+  deployment_guard=''
   if [[ "$transport" == "console" ]]; then
     proof_guard=',"HAYASEND_CONSOLE_PROOF_CONFIRM":"isolated-non-sending"'
+  else
+    deployment_guard=',"HAYASEND_DEPLOYMENT_PROFILE":"flyio-sendgrid"'
   fi
   extra=''
   if [[ "\${FLY_FAKE_EXTRA_MACHINE:-false}" == "true" ]]; then
@@ -97,11 +100,11 @@ elif [[ "\${1:-} \${2:-}" == "machine list" ]]; then
   fi
   proof=''
   if [[ -f "\${state}.proof-created" && ! -f "\${state}.proof-deleted" ]]; then
-    proof=',{"id":"1234567890abcd","name":"'"$HAYASEND_FLY_PROOF_MACHINE_NAME"'","region":"nrt","state":"stopped","image_ref":{"digest":"'"$machine_digest"'","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"'"$machine_image"'","metadata":{"hayasend_proof":"portable-hosted-v1"},"env":{"HAYASEND_MODE":"portable","HAYASEND_TRANSPORT":"console","HAYASEND_CONSOLE_PROOF_CONFIRM":"isolated-non-sending","HAYASEND_OBJECT_STORAGE":"disabled","HAYASEND_HOSTED_PROOF_API_URL":"https://'"$HAYASEND_FLY_APP"'.fly.dev","HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS":"30","HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS":"300"},"mounts":[],"services":[]}}'
+    proof=',{"id":"1234567890abcd","name":"'"$HAYASEND_FLY_PROOF_MACHINE_NAME"'","region":"nrt","state":"stopped","image_ref":{"digest":"'"$machine_digest"'","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"'"$machine_image"'","metadata":{"hayasend_proof":"portable-hosted-v1"},"env":{"HAYASEND_MODE":"portable","HAYASEND_RUNTIME_PROFILE":"portable-postgres","HAYASEND_TRANSPORT":"console","HAYASEND_CONSOLE_PROOF_CONFIRM":"isolated-non-sending","HAYASEND_OBJECT_STORAGE":"disabled","HAYASEND_HOSTED_PROOF_API_URL":"https://'"$HAYASEND_FLY_APP"'.fly.dev","HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS":"30","HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS":"300"},"mounts":[],"services":[]}}'
   fi
-  printf '[{"id":"aaaaaaaaaaaaaa","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_TRANSPORT":"%s"%s},"metadata":{"fly_process_group":"api"},"mounts":[]}},{"id":"bbbbbbbbbbbbbb","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_TRANSPORT":"%s"%s},"metadata":{"fly_process_group":"worker"},"mounts":[]}}%s%s]\\n' \
-    "$machine_digest" "$machine_image" "$transport" "$proof_guard" \
-    "$machine_digest" "$machine_image" "$transport" "$proof_guard" \
+  printf '[{"id":"aaaaaaaaaaaaaa","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_RUNTIME_PROFILE":"portable-postgres","HAYASEND_TRANSPORT":"%s"%s%s},"metadata":{"fly_process_group":"api"},"mounts":[]}},{"id":"bbbbbbbbbbbbbb","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_RUNTIME_PROFILE":"portable-postgres","HAYASEND_TRANSPORT":"%s"%s%s},"metadata":{"fly_process_group":"worker"},"mounts":[]}}%s%s]\\n' \
+    "$machine_digest" "$machine_image" "$transport" "$proof_guard" "$deployment_guard" \
+    "$machine_digest" "$machine_image" "$transport" "$proof_guard" "$deployment_guard" \
     "$extra" "$proof"
 elif [[ "\${1:-} \${2:-}" == "checks list" ]]; then
   printf '%s\\n' '{"api":[{"name":"servicecheck-00-http-8080","status":"passing"}]}'
@@ -193,7 +196,8 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(commands).toContain(
         `deploy --app ${app} --config ${deploymentDirectory}/fly.toml ` +
-          `--image ${image} --env HAYASEND_TRANSPORT=console ` +
+          `--image ${image} --env HAYASEND_RUNTIME_PROFILE=portable-postgres ` +
+          "--env HAYASEND_TRANSPORT=console " +
           "--env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending " +
           "--strategy rolling " +
           "--release-command-timeout 10m --ha=false --yes",
@@ -284,6 +288,9 @@ describe.skipIf(process.platform === "win32")(
         `--name ${proofMachineName} --region nrt --detach`,
       );
       expect(commands).toContain(
+        "--env HAYASEND_RUNTIME_PROFILE=portable-postgres",
+      );
+      expect(commands).toContain(
         "--env HAYASEND_TRANSPORT=console",
       );
       expect(commands).toContain(
@@ -351,7 +358,9 @@ describe.skipIf(process.platform === "win32")(
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
       expect(commands).toContain(
-        `--image ${rollbackImage} --env HAYASEND_TRANSPORT=console ` +
+        `--image ${rollbackImage} ` +
+          "--env HAYASEND_RUNTIME_PROFILE=portable-postgres " +
+          "--env HAYASEND_TRANSPORT=console " +
           "--env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending " +
           "--strategy rolling " +
           "--skip-release-command --ha=false --yes",

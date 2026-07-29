@@ -14,6 +14,35 @@ export interface ProviderDiagnosticsEvidence {
   document: ProviderCapabilityDocument | Record<string, unknown>;
 }
 
+interface RuntimeCapabilityDiagnosticsDocument {
+  runtime: string;
+  adapter_version: string;
+  schema_version: string;
+  checked_at: string;
+}
+
+interface DeploymentCapabilityDiagnosticsDocument {
+  deployment: string;
+  adapter_version: string;
+  schema_version: string;
+  checked_at: string;
+  runtime: {
+    profile: string;
+  };
+  transport: {
+    provider: string;
+  };
+  maturity: {
+    combination: "experimental" | "beta" | "production";
+  };
+  production_ready: boolean;
+}
+
+export interface CapabilityDiagnosticsEvidence {
+  runtime?: RuntimeCapabilityDiagnosticsDocument;
+  deployment?: DeploymentCapabilityDiagnosticsDocument;
+}
+
 export interface RecoveryDiagnostics {
   object: "recovery_diagnostics";
   generated_at: string;
@@ -38,6 +67,24 @@ export interface RecoveryDiagnostics {
     checked_at: string | null;
     document_sha256: string;
   };
+  runtime_capability?: {
+    runtime: string;
+    adapter_version: string;
+    capability_version: string;
+    checked_at: string;
+    document_sha256: string;
+  };
+  deployment_capability?: {
+    deployment: string;
+    adapter_version: string;
+    capability_version: string;
+    checked_at: string;
+    runtime: string;
+    provider: string;
+    maturity: "experimental" | "beta" | "production";
+    production_ready: boolean;
+    document_sha256: string;
+  };
 }
 
 function documentDigest(document: unknown): string {
@@ -49,6 +96,7 @@ export class RecoveryDiagnosticsService {
     private readonly store: Store,
     private readonly queues: QueueDiagnostics,
     private readonly provider: ProviderDiagnosticsEvidence,
+    private readonly capabilities: CapabilityDiagnosticsEvidence = {},
   ) {}
 
   async get(now = new Date()): Promise<RecoveryDiagnostics> {
@@ -85,6 +133,37 @@ export class RecoveryDiagnosticsService {
         checked_at: this.provider.checked_at,
         document_sha256: documentDigest(this.provider.document),
       },
+      ...(this.capabilities.runtime
+        ? {
+            runtime_capability: {
+              runtime: this.capabilities.runtime.runtime,
+              adapter_version: this.capabilities.runtime.adapter_version,
+              capability_version: this.capabilities.runtime.schema_version,
+              checked_at: this.capabilities.runtime.checked_at,
+              document_sha256: documentDigest(this.capabilities.runtime),
+            },
+          }
+        : {}),
+      ...(this.capabilities.deployment
+        ? {
+            deployment_capability: {
+              deployment: this.capabilities.deployment.deployment,
+              adapter_version:
+                this.capabilities.deployment.adapter_version,
+              capability_version:
+                this.capabilities.deployment.schema_version,
+              checked_at: this.capabilities.deployment.checked_at,
+              runtime: this.capabilities.deployment.runtime.profile,
+              provider: this.capabilities.deployment.transport.provider,
+              maturity: this.capabilities.deployment.maturity.combination,
+              production_ready:
+                this.capabilities.deployment.production_ready,
+              document_sha256: documentDigest(
+                this.capabilities.deployment,
+              ),
+            },
+          }
+        : {}),
     };
   }
 }

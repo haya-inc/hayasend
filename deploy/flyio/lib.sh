@@ -233,6 +233,8 @@ assert_machine_inventory() {
   if ! jq --exit-status \
     --arg digest "$HAYASEND_FLY_MACHINE_IMAGE_DIGEST" \
     --arg transport "$HAYASEND_TRANSPORT" \
+    --arg runtime_profile "portable-postgres" \
+    --arg deployment_profile "flyio-sendgrid" \
     '
       def process_group:
         (
@@ -248,13 +250,21 @@ assert_machine_inventory() {
         .[];
         .state == "started" and
         (.config.image // "") != "" and
+        .config.env.HAYASEND_RUNTIME_PROFILE == $runtime_profile and
         .config.env.HAYASEND_TRANSPORT == $transport and
         (
           if $transport == "console" then
-            .config.env.HAYASEND_CONSOLE_PROOF_CONFIRM ==
-              "isolated-non-sending"
+            (
+              .config.env.HAYASEND_CONSOLE_PROOF_CONFIRM ==
+                "isolated-non-sending" and
+              (.config.env.HAYASEND_DEPLOYMENT_PROFILE // null) == null
+            )
           else
-            (.config.env.HAYASEND_CONSOLE_PROOF_CONFIRM // null) == null
+            (
+              (.config.env.HAYASEND_CONSOLE_PROOF_CONFIRM // null) == null and
+              .config.env.HAYASEND_DEPLOYMENT_PROFILE ==
+                $deployment_profile
+            )
           end
         ) and
         .image_ref.digest == $digest and
@@ -301,6 +311,8 @@ proof_machine_inventory() {
           .config.metadata.hayasend_proof ==
             "portable-hosted-v1" and
           .config.env.HAYASEND_MODE == "portable" and
+          .config.env.HAYASEND_RUNTIME_PROFILE ==
+            "portable-postgres" and
           .config.env.HAYASEND_TRANSPORT == "console" and
           .config.env.HAYASEND_CONSOLE_PROOF_CONFIRM ==
             "isolated-non-sending" and

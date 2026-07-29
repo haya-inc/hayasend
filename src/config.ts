@@ -6,6 +6,11 @@ import {
   readSync,
 } from "node:fs";
 import { isAbsolute } from "node:path";
+import {
+  resolvePortableCapabilityProfiles,
+  type PortableDeploymentProfile,
+  type PortableRuntimeProfile,
+} from "./capability-profiles.js";
 import { ValidationError } from "./core/errors.js";
 
 export const CONSOLE_PROOF_CONFIRMATION = "isolated-non-sending";
@@ -41,6 +46,8 @@ export interface Config {
     | "aws-ses"
     | "azure-communication-services"
     | "sendgrid";
+  portableRuntimeProfile?: PortableRuntimeProfile;
+  portableDeploymentProfile?: PortableDeploymentProfile;
   portableObjectStorage?:
     | "disabled"
     | "s3"
@@ -343,6 +350,18 @@ export function loadConfig(env = process.env): Config {
       "HAYASEND_TRANSPORT must be console, aws-ses, azure-communication-services, or sendgrid in portable mode.",
     );
   }
+  const portableCapabilityProfiles =
+    mode === "portable"
+      ? resolvePortableCapabilityProfiles({
+          runtime: env.HAYASEND_RUNTIME_PROFILE,
+          deployment: env.HAYASEND_DEPLOYMENT_PROFILE,
+          transport: portableTransport as
+            | "console"
+            | "aws-ses"
+            | "azure-communication-services"
+            | "sendgrid",
+        })
+      : undefined;
   const usesAcs = portableTransport === "azure-communication-services";
   const azureCommunicationEmailEndpoint =
     env.AZURE_COMMUNICATION_EMAIL_ENDPOINT
@@ -716,6 +735,14 @@ export function loadConfig(env = process.env): Config {
             | "aws-ses"
             | "azure-communication-services"
             | "sendgrid",
+          portableRuntimeProfile:
+            portableCapabilityProfiles!.runtime,
+          ...(portableCapabilityProfiles!.deployment
+            ? {
+                portableDeploymentProfile:
+                  portableCapabilityProfiles!.deployment,
+              }
+            : {}),
           portableObjectStorage: portableObjectStorage as
             | "disabled"
             | "s3"

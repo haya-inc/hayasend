@@ -119,6 +119,7 @@ describe("loadConfig", () => {
         "postgresql://database.internal/hayasend?sslmode=require",
       apiKey: "re_portable_bootstrap_key",
       portableTransport: "aws-ses",
+      portableRuntimeProfile: "portable-postgres",
       postgresPoolMax: 20,
       postgresIdleTimeoutMs: 10_000,
       postgresConnectionTimeoutMs: 5_000,
@@ -180,6 +181,42 @@ describe("loadConfig", () => {
         HAYASEND_CONSOLE_PROOF_CONFIRM: "isolated-non-sending",
       }).portableTransport,
     ).toBe("console");
+  });
+
+  it("validates an exact hosted runtime and transport combination", () => {
+    const base = {
+      HAYASEND_MODE: "portable",
+      HAYASEND_DATABASE_URL:
+        "postgresql://database.internal/hayasend?sslmode=require",
+      HAYASEND_API_KEY: "re_portable_bootstrap_key",
+      HAYASEND_TRANSPORT: "sendgrid",
+      SENDGRID_API_KEY:
+        "SG.sendgrid-scoped-api-key-with-at-least-32-characters",
+    };
+    expect(
+      loadConfig({
+        ...base,
+        HAYASEND_RUNTIME_PROFILE: "vercel-serverless",
+        HAYASEND_DEPLOYMENT_PROFILE: "vercel-sendgrid",
+      }),
+    ).toMatchObject({
+      portableRuntimeProfile: "vercel-serverless",
+      portableDeploymentProfile: "vercel-sendgrid",
+    });
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_RUNTIME_PROFILE: "portable-postgres",
+        HAYASEND_DEPLOYMENT_PROFILE: "vercel-sendgrid",
+      }),
+    ).toThrow("does not match");
+    expect(() =>
+      loadConfig({
+        ...base,
+        HAYASEND_RUNTIME_PROFILE: "vercel-serverless",
+        HAYASEND_DEPLOYMENT_PROFILE: "cloud-run-sendgrid",
+      }),
+    ).toThrow("does not match");
   });
 
   it("separates Pub/Sub publisher and subscriber process settings", () => {

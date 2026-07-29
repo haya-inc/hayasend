@@ -175,6 +175,7 @@ Configure at least these Vercel production variables:
 | `HAYASEND_MODE` | `portable` |
 | `HAYASEND_DATABASE_URL` | secret pooled PostgreSQL URL with provider-required TLS |
 | `HAYASEND_API_KEY` | independent secret `re_...` bootstrap key |
+| `HAYASEND_RUNTIME_PROFILE` | `vercel-serverless` |
 | `HAYASEND_TRANSPORT` | `console` for the first lifecycle proof |
 | `HAYASEND_CONSOLE_PROOF_CONFIRM` | `isolated-non-sending` for the console lifecycle only |
 | `HAYASEND_OBJECT_STORAGE` | `vercel-blob` |
@@ -190,7 +191,10 @@ route. HayaSend validates it in constant time. The Queue trigger makes
 
 The lifecycle profile contains no `SENDGRID_*` values and cannot submit mail.
 The deploy script requires and passes the exact console proof confirmation;
-SendGrid deployments omit it. Run the
+SendGrid deployments omit it and instead declare the exact
+`HAYASEND_DEPLOYMENT_PROFILE=vercel-sendgrid` combination. The deploy script
+always forces `HAYASEND_RUNTIME_PROFILE=vercel-serverless`, including the
+migration process. Run the
 [shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
 from an approved private database execution path. Vercel Cron or Queue
 reconciliation must recover the deliberately lost wake-up within the selected

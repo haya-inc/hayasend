@@ -189,6 +189,16 @@ PostgreSQL authority, idempotency, a schedule beyond seven days, lost wake-up
 recovery, provider-acceptance ledger, and fixture cleanup without claiming
 terminal delivery.
 
+Every portable process also declares `HAYASEND_RUNTIME_PROFILE`. Exact
+transport phases declare `HAYASEND_DEPLOYMENT_PROFILE`, which is accepted only
+when it maps to the selected runtime and `HAYASEND_TRANSPORT`. Current
+bindings are `azure-container-apps-acs`, `cloud-run-sendgrid`,
+`render-sendgrid`, `railway-sendgrid`, `flyio-sendgrid`, and
+`vercel-sendgrid`. Existing custom deployments that omit both declarations
+continue to resolve to `portable-postgres` without inventing an exact
+deployment claim. `hayasend doctor` independently verifies the reported
+runtime and deployment documents and their cross-binding.
+
 ## Transport direction
 
 Amazon SES remains the first production candidate. Cloudflare Email Sending

@@ -67,6 +67,7 @@ run_output="$(
     --vm-memory 512mb \
     --metadata hayasend_proof=portable-hosted-v1 \
     --env HAYASEND_MODE=portable \
+    --env HAYASEND_RUNTIME_PROFILE=portable-postgres \
     --env HAYASEND_TRANSPORT=console \
     --env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
     --env HAYASEND_OBJECT_STORAGE=disabled \

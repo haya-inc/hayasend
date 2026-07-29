@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Azure hosted lifecycle workflow", () => {
   it("uses OIDC, isolated ACS prerequisites, two proofs, rollback, and guarded cleanup", async () => {
-    const [workflow, cleanup, eventGrid] = await Promise.all([
+    const [workflow, cleanup, eventGrid, locals] = await Promise.all([
       readFile(
         new URL(
           "../.github/workflows/azure-integration.yml",
@@ -21,6 +21,13 @@ describe("Azure hosted lifecycle workflow", () => {
       readFile(
         new URL(
           "../deploy/azure-container-apps/event-grid.mjs",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+      readFile(
+        new URL(
+          "../deploy/azure-container-apps/locals.tf",
           import.meta.url,
         ),
         "utf8",
@@ -98,6 +105,12 @@ describe("Azure hosted lifecycle workflow", () => {
     );
     expect(eventGrid).toContain(
       "const config = inputs(false, false);",
+    );
+    expect(locals).toContain(
+      'HAYASEND_RUNTIME_PROFILE           = "portable-postgres"',
+    );
+    expect(locals).toContain(
+      'HAYASEND_DEPLOYMENT_PROFILE        = "azure-container-apps-acs"',
     );
   });
 });

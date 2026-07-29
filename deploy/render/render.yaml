@@ -36,6 +36,8 @@ projects:
                   property: connectionString
               - key: HAYASEND_API_KEY
                 sync: false
+              - key: HAYASEND_RUNTIME_PROFILE
+                value: portable-postgres
               - key: HAYASEND_TRANSPORT
                 value: console
               - key: HAYASEND_CONSOLE_PROOF_CONFIRM
@@ -69,6 +71,8 @@ projects:
                   name: hayasend-api
                   type: web
                   envVarKey: HAYASEND_API_KEY
+              - key: HAYASEND_RUNTIME_PROFILE
+                value: portable-postgres
               - key: HAYASEND_TRANSPORT
                 value: console
               - key: HAYASEND_CONSOLE_PROOF_CONFIRM

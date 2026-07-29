@@ -62,13 +62,22 @@ import {
   SendGridMailTransport,
 } from "./adapters/sendgrid/sendgrid-email-transport.js";
 import { WakeupJobQueue } from "./adapters/wakeup-job-queue.js";
+import { AWS_RUNTIME_CAPABILITIES } from "./adapters/aws-runtime-capabilities.js";
+import { resolvePortableCapabilityProfiles } from "./capability-profiles.js";
 import { loadConfig, type Config } from "./config.js";
 import { createId } from "./core/crypto.js";
 import type { Job } from "./core/types.js";
+import {
+  deploymentCapabilityDocument,
+} from "./deployment-capability-registry.js";
+import {
+  AWS_SES_DEPLOYMENT_CAPABILITIES,
+} from "./deployments/aws-ses-capabilities.js";
 import type { AttachmentStorage } from "./ports/attachment-storage.js";
 import type { OutboxMetrics } from "./ports/delivery-outbox-store.js";
 import type { JobWakeupPublisher } from "./ports/job-wakeup.js";
 import type { TransportEventIngress } from "./ports/transport-event-ingress.js";
+import { runtimeCapabilityDocument } from "./runtime-capability-registry.js";
 import { HAYASEND_VERSION } from "./version.js";
 import {
   ApiKeyService,
@@ -303,6 +312,10 @@ export function createAwsRuntime(
       checked_at: AWS_SES_CAPABILITIES.checked_at,
       document: AWS_SES_CAPABILITIES,
     },
+    {
+      runtime: AWS_RUNTIME_CAPABILITIES,
+      deployment: AWS_SES_DEPLOYMENT_CAPABILITIES,
+    },
   );
   const outbox = new OutboxReconciler(store, queue, {
     owner: createId("dispatcher"),
@@ -358,6 +371,27 @@ export function createPortableRuntime(
     config.jobMaxAttempts === undefined
   ) {
     throw new Error("Portable runtime settings are incomplete.");
+  }
+  const capabilityProfiles = resolvePortableCapabilityProfiles({
+    runtime: config.portableRuntimeProfile,
+    deployment: config.portableDeploymentProfile,
+    transport: config.portableTransport,
+  });
+  const runtimeCapability = runtimeCapabilityDocument(
+    capabilityProfiles.runtime,
+  );
+  if (!runtimeCapability) {
+    throw new Error(
+      "The selected portable runtime capability document is unavailable.",
+    );
+  }
+  const deploymentCapability = capabilityProfiles.deployment
+    ? deploymentCapabilityDocument(capabilityProfiles.deployment)
+    : undefined;
+  if (capabilityProfiles.deployment && !deploymentCapability) {
+    throw new Error(
+      "The selected portable deployment capability document is unavailable.",
+    );
   }
   const store = new PostgresStore(pool);
   const durableQueue = new PostgresJobQueue(pool, {
@@ -547,6 +581,12 @@ export function createPortableRuntime(
     store,
     durableQueue,
     providerEvidence,
+    {
+      runtime: runtimeCapability,
+      ...(deploymentCapability
+        ? { deployment: deploymentCapability }
+        : {}),
+    },
   );
   const outbox = new OutboxReconciler(store, queue, {
     owner: createId("dispatcher"),

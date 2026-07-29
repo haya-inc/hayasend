@@ -88,7 +88,10 @@ and worker revisions.
 The default graph contains no `SENDGRID_*` variables and cannot submit mail.
 For console deployments it injects the exact
 `HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` runtime guard; the value
-is absent from the SendGrid graph. Run the
+is absent from the SendGrid graph. The IaC always declares
+`HAYASEND_RUNTIME_PROFILE=portable-postgres` and adds the exact
+`HAYASEND_DEPLOYMENT_PROFILE=railway-sendgrid` binding only when SendGrid is
+selected. Run the
 [shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)
 from an approved private path to verify PostgreSQL-owned scheduling, recovery,
 and fixture cleanup.

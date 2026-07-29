@@ -83,6 +83,7 @@ export default defineRailway(() => {
   const sendGridEnvironment =
     transport === "sendgrid"
       ? {
+          HAYASEND_DEPLOYMENT_PROFILE: "railway-sendgrid",
           SENDGRID_API_KEY: sendGridApiKey as string,
         }
       : {};
@@ -100,6 +101,7 @@ export default defineRailway(() => {
     HAYASEND_API_KEY: apiKey,
     HAYASEND_DATABASE_URL: database.env.DATABASE_URL,
     HAYASEND_MODE: "portable",
+    HAYASEND_RUNTIME_PROFILE: "portable-postgres",
     HAYASEND_OBJECT_STORAGE: "s3",
     HAYASEND_OBJECT_STORAGE_BUCKET: ref(attachments, "BUCKET"),
     HAYASEND_POSTGRES_POOL_MAX: "8",

@@ -94,6 +94,12 @@ describe.skipIf(process.platform === "win32")(
       expect(locals).toContain(
         'HAYASEND_TRANSPORT                    = "console"',
       );
+      expect(locals).toContain(
+        'HAYASEND_RUNTIME_PROFILE       = "portable-postgres"',
+      );
+      expect(locals).toContain(
+        'HAYASEND_DEPLOYMENT_PROFILE = "cloud-run-sendgrid"',
+      );
     });
 
     it("can destroy partial disposable state without applying missing resources", async () => {
