@@ -63,6 +63,56 @@ function verify(
 describe.skipIf(process.platform === "win32")(
   "Cloud Run zero-residue verification",
   () => {
+    it("ships an opt-in console-only proof job with secret mounts", async () => {
+      const main = await readFile(
+        resolve(deploymentDirectory, "main.tf"),
+        "utf8",
+      );
+      const locals = await readFile(
+        resolve(deploymentDirectory, "locals.tf"),
+        "utf8",
+      );
+
+      expect(main).toContain(
+        'resource "google_cloud_run_v2_job" "hosted_proof"',
+      );
+      expect(main).toContain(
+        "count = var.enable_hosted_proof_job ? 1 : 0",
+      );
+      expect(main).toContain(
+        'args    = ["dist/portable/hosted-proof.js"]',
+      );
+      expect(main).toContain(
+        'name       = "api-key"',
+      );
+      expect(main).toContain(
+        'check "hosted_proof_job_safety"',
+      );
+      expect(locals).toContain(
+        'HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS   = "30"',
+      );
+      expect(locals).toContain(
+        'HAYASEND_TRANSPORT                    = "console"',
+      );
+    });
+
+    it("can destroy partial disposable state without applying missing resources", async () => {
+      const cleanup = await readFile(
+        resolve(deploymentDirectory, "cleanup.sh"),
+        "utf8",
+      );
+
+      expect(cleanup).toContain(
+        'HAYASEND_CLOUD_RUN_ALLOW_PARTIAL:-false',
+      );
+      expect(cleanup).toContain(
+        'if [[ -z "$(terraform state list)" ]]',
+      );
+      expect(cleanup).toContain(
+        "terraform destroy -input=false",
+      );
+    });
+
     it("checks every managed resource family including Pub/Sub and IAM", async () => {
       const fixture = await fakeGcloud();
       const result = verify(fixture);

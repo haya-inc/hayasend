@@ -1,0 +1,160 @@
+name: Render integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_project:
+        description: Exact approved dedicated Render project ID
+        type: string
+        required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum test cost in USD
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-render-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-proof-delete:
+    name: Deploy, prove, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: render-integration
+    env:
+      HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_RENDER_API_URL: ${{ vars.RENDER_TEST_API_URL }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_API_SERVICE_ID: ${{ vars.RENDER_TEST_API_SERVICE_ID }}
+      RENDER_BLUEPRINT_ID: ${{ vars.RENDER_TEST_BLUEPRINT_ID }}
+      RENDER_CLI_SHA256: 6cdcd11897b7bd7e673317e6f4aaf041b654d818444f3b1efec7240a835f79ec
+      RENDER_CLI_VERSION: 2.22.0
+      RENDER_ENVIRONMENT_ID: ${{ vars.RENDER_TEST_ENVIRONMENT_ID }}
+      RENDER_OWNER_ID: ${{ vars.RENDER_TEST_OWNER_ID }}
+      RENDER_POSTGRES_ID: ${{ vars.RENDER_TEST_POSTGRES_ID }}
+      RENDER_PROJECT_ID: ${{ vars.RENDER_TEST_PROJECT_ID }}
+      RENDER_WORKER_SERVICE_ID: ${{ vars.RENDER_TEST_WORKER_SERVICE_ID }}
+      RENDER_WORKSPACE: ${{ vars.RENDER_TEST_OWNER_ID }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate dedicated-project and cost assertions
+        id: account_guard
+        shell: bash
+        env:
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          CONFIRM_PROJECT: ${{ inputs.confirm_project }}
+          RENDER_TEST_ACCOUNT_KIND: ${{ vars.RENDER_TEST_ACCOUNT_KIND }}
+          RENDER_TEST_COST_CEILING_USD: ${{ vars.RENDER_TEST_COST_CEILING_USD }}
+          RENDER_TEST_DURATION_MINUTES: ${{ vars.RENDER_TEST_DURATION_MINUTES }}
+          RENDER_TEST_POSTGRES_PLAN: ${{ vars.RENDER_TEST_POSTGRES_PLAN }}
+          RENDER_TEST_PROJECT_NAME: ${{ vars.RENDER_TEST_PROJECT_NAME }}
+          RENDER_TEST_SERVICE_PLAN: ${{ vars.RENDER_TEST_SERVICE_PLAN }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Render hosted proof must run from protected main."
+            exit 1
+          fi
+          if [[ "$CONFIRM_PROJECT" != "$RENDER_PROJECT_ID" ]] ||
+            [[ "$RENDER_TEST_PROJECT_NAME" != "hayasend-render" ]] ||
+            [[ "$RENDER_TEST_ACCOUNT_KIND" != "general-purpose-test" ]]; then
+            echo "::error::Dispatch must identify the exact dedicated Render test project."
+            exit 1
+          fi
+          if [[ "$RENDER_TEST_SERVICE_PLAN" != "starter" ]] ||
+            [[ "$RENDER_TEST_POSTGRES_PLAN" != "basic-256mb" ]] ||
+            [[ "$RENDER_TEST_COST_CEILING_USD" != "30" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "$RENDER_TEST_COST_CEILING_USD" ]] ||
+            [[ "$RENDER_TEST_DURATION_MINUTES" != "45" ]]; then
+            echo "::error::The reviewed plans, proposed USD 30 cost boundary, and 45-minute duration are required."
+            exit 1
+          fi
+          if [[ -z "$RENDER_API_KEY" ]]; then
+            echo "::error::RENDER_API_KEY is required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the exact current Render CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/render-cli"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/render.zip" \
+            "https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          printf '%s  %s\n' \
+            "$RENDER_CLI_SHA256" \
+            "$cli_directory/render.zip" \
+            | sha256sum --check
+          unzip -q "$cli_directory/render.zip" -d "$cli_directory"
+          render_cli="$cli_directory/cli_v${RENDER_CLI_VERSION}"
+          test "$("$render_cli" --version | sed -n '1p')" = \
+            "render v${RENDER_CLI_VERSION}"
+          echo "RENDER_CLI=$render_cli" >> "$GITHUB_ENV"
+
+      - name: Verify the exact isolated Blueprint project
+        id: inventory_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RENDER_CLI" whoami --output json >/dev/null
+          "$RENDER_CLI" blueprints validate \
+            deploy/render/render.yaml \
+            --output json >/dev/null
+          deploy/render/verify-project.sh
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark the destructive lifecycle as started
+        id: deployment_attempt
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy and verify the reviewed immutable image
+        shell: bash
+        run: |
+          set -euo pipefail
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/deploy.sh \
+            | tee "$RUNNER_TEMP/render-deploy.txt"
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/verify.sh
+
+      - name: Run the semantic proof as an isolated one-off job
+        shell: bash
+        env:
+          HAYASEND_RENDER_PROOF_FILE: ${{ runner.temp }}/render-portable-proof.json
+        run: |
+          set -euo pipefail
+          RENDER_CLI="$RENDER_CLI" \
+            deploy/render/proof.sh
+
+      - name: Disconnect and delete the exact dedicated project
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.deployment_attempt.outputs.attempted == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: render-project
+          HAYASEND_RENDER_DEDICATED_PROJECT: "true"
+        run: |
+          set -euo pipefail
+          deploy/render/cleanup-project.sh \
+            | tee "$RUNNER_TEMP/render-cleanup.txt"
+
+      - name: Upload privacy-safe proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: render-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/render-portable-proof.json
+            ${{ runner.temp }}/render-cleanup.txt
+          if-no-files-found: warn
+          retention-days: 7

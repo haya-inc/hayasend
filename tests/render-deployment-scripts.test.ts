@@ -31,6 +31,12 @@ if [[ "\${1:-}" == "--version" ]]; then
   printf '%s\\n' "render v2.22.0"
 elif [[ "\${1:-} \${2:-}" == "deploys list" ]]; then
   printf '[{"image":{"ref":"%s"}}]\\n' "$HAYASEND_IMAGE"
+elif [[ "\${1:-} \${2:-}" == "jobs create" ]]; then
+  printf '%s\\n' '{"id":"job-1234567890abcdefghij","createdAt":"2026-07-29T00:00:00Z","status":"pending"}'
+elif [[ "\${1:-} \${2:-}" == "jobs list" ]]; then
+  printf '%s\\n' '[{"id":"job-1234567890abcdefghij","createdAt":"2026-07-29T00:00:00Z","status":"succeeded"}]'
+elif [[ "\${1:-}" == "logs" ]]; then
+  printf '%s' '{"id":"log-proof","labels":[],"message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.1\\",\\"database\\":{\\"major_version\\":18},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","timestamp":"2026-07-29T00:00:01Z"}'
 elif [[ "\${1:-}" == "services" && "\${2:-}" == "--include-previews" ]]; then
   printf '%s\\n' '[]'
 elif [[ "\${1:-} \${2:-}" == "postgres list" ]]; then
@@ -121,6 +127,38 @@ describe.skipIf(process.platform === "win32")(
       expect(await readFile(fixture.log, "utf8")).toContain(
         "https://hayasend-api.onrender.com/readyz",
       );
+    });
+
+    it("runs the shared semantic proof as an exact one-off API job", async () => {
+      const fixture = await fakeCommands();
+      const proofFile = resolve(fixture.directory, "proof.json");
+      const result = run("proof.sh", fixture, {
+        HAYASEND_RENDER_API_URL:
+          "https://hayasend-api.onrender.com",
+        HAYASEND_RENDER_PROOF_FILE: proofFile,
+        RENDER_API_KEY: "rnd_render_test_key",
+        RENDER_API_SERVICE_ID: "srv-api123",
+      });
+      const commands = await readFile(fixture.log, "utf8");
+      const proof = JSON.parse(await readFile(proofFile, "utf8")) as {
+        object: string;
+      };
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).toContain(
+        "jobs create srv-api123 --start-command " +
+          "env HAYASEND_HOSTED_PROOF_API_URL=https://hayasend-api.onrender.com " +
+          "HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS=30 " +
+          "HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS=300 " +
+          "node dist/portable/hosted-proof.js",
+      );
+      expect(commands).toContain("jobs list srv-api123 --output json");
+      expect(commands).toContain(
+        "logs --resources job-1234567890abcdefghij " +
+          "--start 2026-07-29T00:00:00Z",
+      );
+      expect(proof.object).toBe("portable_hosted_semantic_proof");
     });
 
     it("deletes only exact guarded resource identifiers", async () => {

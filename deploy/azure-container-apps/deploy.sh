@@ -33,6 +33,20 @@ if [[ "$azure_cli_version" != "$required_azure_cli_version" ]]; then
   echo "Azure CLI $required_azure_cli_version is required; found $azure_cli_version." >&2
   exit 1
 fi
+required_containerapp_extension_version="$(
+  tr -d '[:space:]' < .containerapp-extension-version
+)"
+containerapp_extension_version="$(
+  az extension show \
+    --name containerapp \
+    --query version \
+    --output tsv \
+    --only-show-errors
+)"
+if [[ "$containerapp_extension_version" != "$required_containerapp_extension_version" ]]; then
+  echo "Azure CLI containerapp extension $required_containerapp_extension_version is required; found $containerapp_extension_version." >&2
+  exit 1
+fi
 
 for argument in "$@"; do
   if [[ "$argument" == -target* || "$argument" == -replace* || "$argument" == -destroy ]]; then

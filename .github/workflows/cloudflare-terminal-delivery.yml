@@ -44,6 +44,7 @@ jobs:
       HAYASEND_CLOUDFLARE_API_KEY: ${{ secrets.HAYASEND_CLOUDFLARE_API_KEY }}
       DEPLOYMENT_NAME: ${{ inputs.deployment_name }}
       DEPLOYMENT_ID: terminal-${{ inputs.deployment_name }}
+      WRANGLER_VERSION: 4.115.0
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,11 +52,14 @@ jobs:
       - name: Validate retained-proof boundary
         id: guard
         shell: bash
+        env:
+          CONFIRM_ACCOUNT: ${{ inputs.confirm_account }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
+          test "${GITHUB_REF_PROTECTED:-false}" = "true"
           test "$CLOUDFLARE_TEST_ACCOUNT_KIND" = "general-purpose-test"
-          test "${{ inputs.confirm_account }}" = "$CLOUDFLARE_TEST_ACCOUNT_ID"
+          test "$CONFIRM_ACCOUNT" = "$CLOUDFLARE_TEST_ACCOUNT_ID"
           test "$CLOUDFLARE_TEST_ACCOUNT_ID" != ""
           test "$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN" != ""
           test "$CLOUDFLARE_TEST_EMAIL_DOMAIN" != ""
@@ -85,7 +89,7 @@ jobs:
           {
             node --version
             npm --version
-            npx --yes wrangler@4.114.0 --version
+            npx --yes "wrangler@$WRANGLER_VERSION" --version
           } | tee "$RUNNER_TEMP/cloudflare-terminal-tool-versions.txt"
 
       - name: Verify retained namespace is unused
@@ -94,23 +98,23 @@ jobs:
         run: |
           set -euo pipefail
           prefix="hayasend-$DEPLOYMENT_NAME"
-          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          d1_json="$(npx --yes "wrangler@$WRANGLER_VERSION" d1 list --json)"
           # shellcheck disable=SC2016
           if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
             echo "::error::The retained D1 name already exists."
             exit 1
           fi
-          if npx --yes wrangler@4.114.0 r2 bucket list | grep -F "$prefix-payloads"; then
+          if npx --yes "wrangler@$WRANGLER_VERSION" r2 bucket list | grep -F "$prefix-payloads"; then
             echo "::error::The retained R2 name already exists."
             exit 1
           fi
-          if npx --yes wrangler@4.114.0 queues list | grep -F "$prefix-"; then
+          if npx --yes "wrangler@$WRANGLER_VERSION" queues list | grep -F "$prefix-"; then
             echo "::error::A retained Queue name already exists."
             exit 1
           fi
           set +e
           worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$prefix" \
               --json 2>&1
           )"
@@ -200,7 +204,7 @@ jobs:
             echo "::error::The terminal proof returned an invalid HayaSend email ID."
             exit 1
           fi
-          npx --yes wrangler@4.114.0 d1 execute \
+          npx --yes "wrangler@$WRANGLER_VERSION" d1 execute \
             "hayasend-$DEPLOYMENT_NAME-d1" \
             --remote \
             --json \
@@ -245,23 +249,23 @@ jobs:
         run: |
           set -euo pipefail
           prefix="hayasend-$DEPLOYMENT_NAME"
-          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          d1_json="$(npx --yes "wrangler@$WRANGLER_VERSION" d1 list --json)"
           # shellcheck disable=SC2016
           if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
             echo "::error::D1 database remains after cleanup."
             exit 1
           fi
-          if npx --yes wrangler@4.114.0 r2 bucket list | grep -F "$prefix-payloads"; then
+          if npx --yes "wrangler@$WRANGLER_VERSION" r2 bucket list | grep -F "$prefix-payloads"; then
             echo "::error::R2 bucket remains after cleanup."
             exit 1
           fi
-          if npx --yes wrangler@4.114.0 queues list | grep -F "$prefix-"; then
+          if npx --yes "wrangler@$WRANGLER_VERSION" queues list | grep -F "$prefix-"; then
             echo "::error::Queue remains after cleanup."
             exit 1
           fi
           set +e
           worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$prefix" \
               --json 2>&1
           )"

@@ -528,6 +528,80 @@ resource "azurerm_container_app_job" "migration" {
   ]
 }
 
+resource "azurerm_container_app_job" "hosted_proof" {
+  count = var.enable_hosted_proof_job ? 1 : 0
+
+  name                         = local.hosted_proof_name
+  location                     = azurerm_resource_group.hayasend.location
+  resource_group_name          = azurerm_resource_group.hayasend.name
+  container_app_environment_id = azurerm_container_app_environment.hayasend.id
+  replica_timeout_in_seconds   = 600
+  replica_retry_limit          = 0
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.runtime.id]
+  }
+
+  dynamic "registry" {
+    for_each = local.uses_acr ? [1] : []
+    content {
+      server   = local.image_registry
+      identity = azurerm_user_assigned_identity.runtime.id
+    }
+  }
+
+  secret {
+    name                = "database-url"
+    identity            = azurerm_user_assigned_identity.runtime.id
+    key_vault_secret_id = azurerm_key_vault_secret.database_url.versionless_id
+  }
+
+  secret {
+    name                = "api-key"
+    identity            = azurerm_user_assigned_identity.runtime.id
+    key_vault_secret_id = azurerm_key_vault_secret.api_key.versionless_id
+  }
+
+  manual_trigger_config {
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  template {
+    container {
+      name    = "hosted-proof"
+      image   = var.image
+      command = ["node"]
+      args    = ["dist/portable/hosted-proof.js"]
+      cpu     = 0.5
+      memory  = "1Gi"
+
+      dynamic "env" {
+        for_each = local.hosted_proof_environment
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.shared_secret_environment
+        content {
+          name        = env.key
+          secret_name = env.value
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_container_app.api,
+    azurerm_role_assignment.runtime_key_vault_secrets,
+  ]
+}
+
 resource "azurerm_container_app" "api" {
   name                         = local.api_name
   resource_group_name          = azurerm_resource_group.hayasend.name

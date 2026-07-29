@@ -3,7 +3,9 @@
 Customer-owned safety and reliability infrastructure for transactional email.
 AWS works today. The provider-neutral core, local Cloudflare D1/R2/Queues
 substrate, Beta Email Sending provider, and deployable Workers proof runtime
-are implemented; hosted isolated test-account evidence remains.
+are implemented. Guarded hosted workflows for Cloud Run, Render, Railway,
+Fly.io, Azure Container Apps, and Vercel are locally validated but have not
+yet been run; isolated test-account evidence remains.
 
 > **Project status: early beta.** The AWS deployment is available for
 > non-critical evaluation. The API and data model can still change before v1;
@@ -77,10 +79,11 @@ proofs only and is not production-ready. HayaSend never logs message bodies.
   API, and horizontally scalable worker processes, durable delayed jobs,
   lease-loss recovery, readiness checks, graceful shutdown, GCS/Azure
   Blob/S3-compatible/Vercel Blob attachment storage, and mounted-file secret injection
-  (experimental Cloud Run, Render, Railway, and Fly.io packs are published;
-  the shared non-sending
-  [hosted semantic proof](docs/portable-hosted-proof.md) is executable, while
-  billable hosted lifecycle proofs are still pending)
+  (experimental Cloud Run, Render, Railway, Fly.io, Azure Container Apps, and
+  Vercel packs are published; guarded hosted workflows and the shared
+  non-sending
+  [hosted semantic proof](docs/portable-hosted-proof.md) are executable, while
+  billable hosted lifecycle execution is still pending)
 - an executable experimental Vercel serverless profile using Hono Functions,
   content-free Queue wakeups, authenticated Cron reconciliation, private Blob
   direct uploads, and external PostgreSQL scheduling authority

@@ -30,7 +30,9 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain(
       '$GITHUB_WORKSPACE/src/workers/cloudflare-backup-restore-probe.ts',
     );
-    expect(workflow).toContain("wrangler@4.114.0 d1 export");
+    expect(workflow).toContain(
+      '"wrangler@$WRANGLER_VERSION" d1 export',
+    );
     expect(workflow).toContain(
       '.status == "passed" and',
     );
@@ -53,7 +55,8 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
-    expect(workflow).toContain("wrangler@4.114.0");
+    expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
+    expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
     expect(workflow).toContain("npm@12.0.1");
 
@@ -80,6 +83,9 @@ describe("Cloudflare hosted lifecycle workflow", () => {
 
     expect(workflow).toContain("environment: cloudflare-integration");
     expect(workflow).toContain('test "$GITHUB_REF" = "refs/heads/main"');
+    expect(workflow).toContain(
+      'test "${GITHUB_REF_PROTECTED:-false}" = "true"',
+    );
     expect(workflow).toContain("Verify retained namespace is unused");
     expect(workflow).toContain(
       "npm run --silent cli -- doctor cloudflare-events",
@@ -96,7 +102,8 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
-    expect(workflow).toContain("wrangler@4.114.0");
+    expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
+    expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
     expect(workflow).toContain("npm@12.0.1");
 

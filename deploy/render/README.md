@@ -172,6 +172,34 @@ PITR/recovery copies, logical exports, external object storage, external
 transport resources, and billing. Provider retention behavior means the script
 alone is not zero-residue evidence.
 
+## GitHub-hosted console proof
+
+`.github/workflows/render-integration.yml` is a manual-only lifecycle proof on
+protected `main`. Create the reviewed Blueprint in an otherwise isolated
+general-purpose test workspace, leave autosync off, enter one independent
+`HAYASEND_API_KEY` in the API's unsynced value, and configure the
+`render-integration` GitHub environment with the exact:
+
+- `RENDER_TEST_OWNER_ID`, project, production environment, Blueprint, API,
+  worker, and PostgreSQL IDs;
+- `RENDER_TEST_API_URL`;
+- `RENDER_TEST_PROJECT_NAME=hayasend-render`;
+- `RENDER_TEST_ACCOUNT_KIND=general-purpose-test`;
+- `RENDER_TEST_SERVICE_PLAN=starter`;
+- `RENDER_TEST_POSTGRES_PLAN=basic-256mb`;
+- `RENDER_TEST_COST_CEILING_USD=30`;
+- `RENDER_TEST_DURATION_MINUTES=45`; and
+- workspace-scoped `RENDER_API_KEY` environment secret.
+
+Before mutation the workflow verifies the one-environment, two-service,
+one-database Blueprint graph, network isolation, no custom domains, exact
+plans, and disabled autosync. Dispatch must repeat the exact project ID and
+proposed USD 30 ceiling. It deploys the immutable HayaSend image, runs the
+30-day console proof as one exact Render one-off job, disconnects the
+Blueprint, and deletes the dedicated project. It does not configure external
+object storage or SendGrid and does not send mail. It is implemented and
+locally validated, but has not yet been run.
+
 ## Official references
 
 Checked on 2026-07-29:

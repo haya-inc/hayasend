@@ -165,15 +165,20 @@ hosted lifecycle deploy explicitly overrides the project transport to
 terminal-delivery phase.
 
 Vercel Queues is public Beta and now retains messages for at most seven days.
-Its idempotency window remains at most 24 hours. HayaSend's 30-day scheduling
-contract therefore remains entirely in PostgreSQL, with Cron recovering lost
-or expired wakeups. Signed direct Blob uploads avoid the Vercel Function
-4.5 MB body limit.
+A producer idempotency key deduplicates for the original message lifetime, up
+to that TTL. HayaSend's 30-day scheduling contract therefore remains entirely
+in PostgreSQL, with Cron recovering lost or expired wakeups. Signed direct Blob
+uploads avoid the Vercel Function 4.5 MB body limit.
 
-The profile remains experimental until duplicate delivery, visibility timeout,
-function interruption, deploy interruption, retry exhaustion, long-delay
-recovery, terminal provider events, and cleanup all have exact-version
-evidence.
+The manual hosted lifecycle workflow now provisions a disposable Vercel
+project, a production-only private Blob store, and an ephemeral PostgreSQL 18
+branch in a reviewed reusable Neon test project. It proves the 30-day ledger,
+private direct upload, worker consumption, exact-version rollback, and guarded
+cleanup without external mail. It is implemented and locally validated but
+has not yet been executed, so the profile remains experimental until duplicate
+delivery, visibility timeout, function interruption, deploy interruption,
+retry exhaustion, terminal provider events, and zero-residue cleanup all have
+exact-version hosted evidence.
 
 Every production-built console profile requires the exact
 `HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard. Deployment packs

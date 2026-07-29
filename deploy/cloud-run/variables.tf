@@ -175,6 +175,12 @@ variable "deletion_protection" {
   default     = true
 }
 
+variable "enable_hosted_proof_job" {
+  description = "Create the disposable console-only semantic proof job. Keep false outside an isolated hosted proof."
+  type        = bool
+  default     = false
+}
+
 variable "force_destroy_attachment_bucket" {
   description = "Allow Terraform to delete non-empty attachment storage. Keep false outside disposable test deployments."
   type        = bool

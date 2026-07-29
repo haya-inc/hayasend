@@ -31,11 +31,20 @@ jobs:
           terraform init -backend=false -input=false -lockfile=readonly
           terraform validate
           terraform test -no-color | tee "$RUNNER_TEMP/azure-terraform-test.txt"
-          shellcheck deploy.sh verify.sh rollback.sh cleanup.sh
+          shellcheck \
+            deploy.sh \
+            verify.sh \
+            verify-acs-prerequisites.sh \
+            rollback.sh \
+            cleanup.sh
+          test "$(< .containerapp-extension-version)" = "1.3.0b4"
+          test "$(< .communication-control-plane-api-version)" = \
+            "2026-03-18"
           node --check event-grid.mjs
           node --check event-grid-ensure.mjs
           node --check event-grid-verify.mjs
           node --check event-grid-delete.mjs
+          node --check ../../scripts/azure-terminal-delivery.mjs
           trivy config \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
@@ -170,7 +179,10 @@ jobs:
           shellcheck \
             deploy/render/deploy.sh \
             deploy/render/verify.sh \
-            deploy/render/cleanup.sh
+            deploy/render/proof.sh \
+            deploy/render/verify-project.sh \
+            deploy/render/cleanup.sh \
+            deploy/render/cleanup-project.sh
           ruby -ryaml -e \
             'YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], permitted_symbols: [], aliases: false)' \
             deploy/render/render.yaml
@@ -279,6 +291,9 @@ jobs:
             deploy/flyio/provision.sh \
             deploy/flyio/deploy.sh \
             deploy/flyio/verify.sh \
+            deploy/flyio/proof.sh \
+            deploy/flyio/verify-bucket-empty.sh \
+            deploy/flyio/cleanup-proof-machine.sh \
             deploy/flyio/rollback.sh \
             deploy/flyio/cleanup.sh
 
@@ -304,7 +319,25 @@ jobs:
             deploy/vercel/verify.sh \
             deploy/vercel/rollback.sh \
             deploy/vercel/cleanup.sh
-          node --check deploy/vercel/blob-count.mjs
+          for script in \
+            deploy/vercel/blob-count.mjs \
+            deploy/vercel/blob-store-assert-empty.mjs \
+            deploy/vercel/blob-store-create.mjs \
+            deploy/vercel/blob-store-delete.mjs \
+            deploy/vercel/blob-store-lifecycle.mjs \
+            deploy/vercel/blob-store-verify.mjs \
+            deploy/vercel/extract-production-blob-token.mjs \
+            deploy/vercel/neon-branch-create.mjs \
+            deploy/vercel/neon-branch-delete.mjs \
+            deploy/vercel/neon-branch-verify.mjs \
+            deploy/vercel/neon-branch.mjs \
+            deploy/vercel/project-create.mjs \
+            deploy/vercel/project-delete.mjs \
+            deploy/vercel/project-lifecycle.mjs \
+            deploy/vercel/project-verify.mjs \
+            scripts/vercel-blob-hosted-proof.mjs; do
+            node --check "$script"
+          done
           version="$(< deploy/vercel/.vercel-cli-version)"
           expected_integrity="$(< deploy/vercel/.vercel-cli-integrity)"
           metadata="$(npm view "vercel@$version" version dist.integrity --json)"
@@ -682,9 +715,9 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 552 and
-            .size < 720000 and
-            .unpackedSize < 3600000 and
+            .entryCount <= 580 and
+            .size < 740000 and
+            .unpackedSize < 3800000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
@@ -764,6 +797,12 @@ jobs:
             ([.files[].path] |
               index("deploy/azure-container-apps/.azure-cli-version") != null) and
             ([.files[].path] |
+              index("deploy/azure-container-apps/.containerapp-extension-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/.communication-control-plane-api-version") != null) and
+            ([.files[].path] |
+              index("deploy/azure-container-apps/verify-acs-prerequisites.sh") != null) and
+            ([.files[].path] |
               index("deploy/azure-container-apps/event-grid.mjs") != null) and
             ([.files[].path] |
               index("deploy/azure-container-apps/event-grid-ensure.mjs") != null) and
@@ -794,6 +833,12 @@ jobs:
             ([.files[].path] |
               index("conformance/readiness.v1.json") != null) and
             ([.files[].path] |
+              index("scripts/azure-terminal-delivery.mjs") != null) and
+            ([.files[].path] |
+              index("scripts/extract-portable-hosted-proof.mjs") != null) and
+            ([.files[].path] |
+              index("scripts/vercel-blob-hosted-proof.mjs") != null) and
+            ([.files[].path] |
               index("schemas/readiness-matrix.v1.schema.json") != null) and
             ([.files[].path] | index("template.yaml") != null) and
             ([.files[].path] |
@@ -801,7 +846,7 @@ jobs:
           ' "$RUNNER_TEMP/npm-pack-metadata.json" > /dev/null
           if tar --list --gzip --file "$RUNNER_TEMP/$archive" |
             grep --extended-regexp --invert-match --quiet \
-              '^package/(LICENSE|NOTICE|README\.md|package\.json|api/.*|app\.ts|conformance/.*|deploy/.*|dist/.*|migrations/.*|schemas/.*|scripts/(clean-dist|cloudflare-cost-model|npm-sam-compat|validate-vercel-config)\.mjs|src/.*|template\.yaml|vercel\.json)$'; then
+              '^package/(LICENSE|NOTICE|README\.md|package\.json|api/.*|app\.ts|conformance/.*|deploy/.*|dist/.*|migrations/.*|schemas/.*|scripts/(azure-terminal-delivery|clean-dist|cloudflare-cost-model|extract-portable-hosted-proof|npm-sam-compat|validate-vercel-config|vercel-blob-hosted-proof)\.mjs|src/.*|template\.yaml|vercel\.json)$'; then
             echo "The npm package contains an unexpected path."
             tar --list --gzip --file "$RUNNER_TEMP/$archive"
             exit 1
@@ -867,8 +912,14 @@ jobs:
             "$package_root/deploy/azure-container-apps/.terraform-version"
           test -f \
             "$package_root/deploy/azure-container-apps/.azure-cli-version"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.containerapp-extension-version"
+          test -f \
+            "$package_root/deploy/azure-container-apps/.communication-control-plane-api-version"
           test -x "$package_root/deploy/azure-container-apps/deploy.sh"
           test -x "$package_root/deploy/azure-container-apps/verify.sh"
+          test -x \
+            "$package_root/deploy/azure-container-apps/verify-acs-prerequisites.sh"
           test -x "$package_root/deploy/azure-container-apps/rollback.sh"
           test -x "$package_root/deploy/azure-container-apps/cleanup.sh"
           test -x "$package_root/deploy/azure-container-apps/event-grid.mjs"
@@ -883,7 +934,10 @@ jobs:
           test -f "$package_root/deploy/render/.render-schema-sha256"
           test -x "$package_root/deploy/render/deploy.sh"
           test -x "$package_root/deploy/render/verify.sh"
+          test -x "$package_root/deploy/render/proof.sh"
+          test -x "$package_root/deploy/render/verify-project.sh"
           test -x "$package_root/deploy/render/cleanup.sh"
+          test -x "$package_root/deploy/render/cleanup-project.sh"
           test -f \
             "$package_root/deploy/railway/.railway/railway.ts"
           test -f "$package_root/deploy/railway/.railway-cli-version"
@@ -901,8 +955,19 @@ jobs:
           test -x "$package_root/deploy/flyio/provision.sh"
           test -x "$package_root/deploy/flyio/deploy.sh"
           test -x "$package_root/deploy/flyio/verify.sh"
+          test -x "$package_root/deploy/flyio/proof.sh"
+          test -x \
+            "$package_root/deploy/flyio/verify-bucket-empty.sh"
+          test -x \
+            "$package_root/deploy/flyio/cleanup-proof-machine.sh"
           test -x "$package_root/deploy/flyio/rollback.sh"
           test -x "$package_root/deploy/flyio/cleanup.sh"
+          test -f \
+            "$package_root/scripts/azure-terminal-delivery.mjs"
+          test -f \
+            "$package_root/scripts/extract-portable-hosted-proof.mjs"
+          test -f \
+            "$package_root/scripts/vercel-blob-hosted-proof.mjs"
           test -x "$consumer/node_modules/.bin/railway-iac-ts"
           (
             cd "$consumer"

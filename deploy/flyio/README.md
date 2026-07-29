@@ -278,6 +278,34 @@ Keep the Fly.io composition experimental until an isolated hosted run proves:
 - an exact external transport with terminal recipient evidence; and
 - zero active and retained residue with a billing check.
 
+## GitHub-hosted console proof
+
+`.github/workflows/flyio-integration.yml` is a manual-only proof-and-delete
+workflow on protected `main`. Provision the exact isolated app, Managed
+Postgres cluster, and private Tigris bucket with the reviewed pack first, then
+configure the `flyio-integration` GitHub environment with:
+
+- exact `FLY_TEST_APP`, `FLY_TEST_ORG`, `FLY_TEST_MPG_CLUSTER_ID`, and
+  `FLY_TEST_BUCKET`;
+- `FLY_TEST_ACCOUNT_KIND=general-purpose-test`;
+- `FLY_TEST_REGION=nrt`;
+- `FLY_TEST_TOKEN_SCOPE=dedicated-test-org`;
+- `FLY_TEST_MPG_PLAN=basic`;
+- `FLY_TEST_MPG_STORAGE_GB=10`;
+- `FLY_TEST_COST_CEILING_USD=50`;
+- `FLY_TEST_DURATION_MINUTES=60`;
+- `FLY_TEST_ACCOUNT_EMAIL`; and
+- a dedicated-organization `FLY_API_TOKEN` environment secret.
+
+Dispatch must repeat the exact app name and proposed USD 50 ceiling. The
+workflow verifies the deployed two-Machine topology and immutable amd64 image,
+runs the PostgreSQL 17 semantic proof in a separately named disposable
+Machine, destroys that Machine even after failure, inventories the private
+bucket through the application's scoped Tigris credentials, and deletes the
+bucket, app, and attached Managed Postgres cluster only after zero-object
+evidence. It does not configure SendGrid or send mail. It is implemented and
+locally validated, but has not yet been executed.
+
 ## Official references
 
 - [Install flyctl](https://fly.io/docs/flyctl/install/)

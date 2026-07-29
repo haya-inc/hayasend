@@ -1,0 +1,473 @@
+name: Azure integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_subscription:
+        description: Exact approved dedicated Azure test subscription ID
+        type: string
+        required: true
+      confirm_runtime_resource_group:
+        description: Exact disposable HayaSend runtime resource group
+        type: string
+        required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum test cost in USD
+        type: string
+        required: true
+      confirm_terminal_delivery:
+        description: Send one controlled two-recipient ACS proof email
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hayasend-azure-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-prove-rollback-delete:
+    name: Deploy, prove, roll back, and delete
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    environment: azure-integration
+    env:
+      AZURE_CORE_ONLY_SHOW_ERRORS: "true"
+      AZURE_EXTENSION_USE_DYNAMIC_INSTALL: "no"
+      AZURE_TERMINAL_FROM: ${{ vars.AZURE_TEST_FROM }}
+      AZURE_TERMINAL_TO_JSON: ${{ secrets.AZURE_TEST_TO_JSON }}
+      HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_ROLLBACK_IMAGE: ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519
+      TF_VAR_acr_resource_id: "null"
+      TF_VAR_acs_communication_service_name: ${{ vars.AZURE_TEST_ACS_COMMUNICATION_SERVICE }}
+      TF_VAR_acs_email_domain_resource_name: ${{ vars.AZURE_TEST_ACS_DOMAIN_RESOURCE }}
+      TF_VAR_acs_email_endpoint: ${{ vars.AZURE_TEST_ACS_EMAIL_ENDPOINT }}
+      TF_VAR_acs_email_service_name: ${{ vars.AZURE_TEST_ACS_EMAIL_SERVICE }}
+      TF_VAR_acs_resource_group_name: ${{ vars.AZURE_TEST_ACS_RESOURCE_GROUP }}
+      TF_VAR_api_max_replicas: "1"
+      TF_VAR_api_min_replicas: "1"
+      TF_VAR_attachment_cors_origins: "[]"
+      TF_VAR_database_high_availability_enabled: "false"
+      TF_VAR_database_sku_name: B_Standard_B1ms
+      TF_VAR_deletion_protection: "false"
+      TF_VAR_deployer_object_id: ${{ vars.AZURE_TEST_DEPLOYER_OBJECT_ID }}
+      TF_VAR_enable_hosted_proof_job: "true"
+      TF_VAR_image: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      TF_VAR_key_vault_purge_protection_enabled: "false"
+      TF_VAR_location: ${{ vars.AZURE_TEST_LOCATION }}
+      TF_VAR_name_prefix: hayasend
+      TF_VAR_resource_group_name: ${{ vars.AZURE_TEST_RUNTIME_RESOURCE_GROUP }}
+      TF_VAR_storage_soft_delete_days: "0"
+      TF_VAR_subscription_id: ${{ vars.AZURE_TEST_SUBSCRIPTION_ID }}
+      TF_VAR_tenant_id: ${{ vars.AZURE_TEST_TENANT_ID }}
+      TF_VAR_terraform_runner_has_private_vnet_access: "false"
+      TF_VAR_worker_replicas: "1"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate isolated-account, cost, and delivery assertions
+        id: account_guard
+        shell: bash
+        env:
+          AZURE_TEST_ACCOUNT_KIND: ${{ vars.AZURE_TEST_ACCOUNT_KIND }}
+          AZURE_TEST_COST_CEILING_USD: ${{ vars.AZURE_TEST_COST_CEILING_USD }}
+          AZURE_TEST_DURATION_MINUTES: ${{ vars.AZURE_TEST_DURATION_MINUTES }}
+          AZURE_TEST_SUBSCRIPTION_PURPOSE: ${{ vars.AZURE_TEST_SUBSCRIPTION_PURPOSE }}
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          CONFIRM_RUNTIME_RESOURCE_GROUP: ${{ inputs.confirm_runtime_resource_group }}
+          CONFIRM_SUBSCRIPTION: ${{ inputs.confirm_subscription }}
+          CONFIRM_TERMINAL_DELIVERY: ${{ inputs.confirm_terminal_delivery }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Azure hosted proof must run from protected main."
+            exit 1
+          fi
+          if [[ ! "$TF_VAR_subscription_id" =~ ^[0-9a-fA-F-]{36}$ ]] ||
+            [[ "$CONFIRM_SUBSCRIPTION" != "$TF_VAR_subscription_id" ]] ||
+            [[ "$CONFIRM_RUNTIME_RESOURCE_GROUP" != "$TF_VAR_resource_group_name" ]]; then
+            echo "::error::Dispatch must identify the exact reviewed subscription and disposable runtime group."
+            exit 1
+          fi
+          if [[ "$TF_VAR_acs_resource_group_name" == "$TF_VAR_resource_group_name" ]] ||
+            [[ "$AZURE_TEST_ACCOUNT_KIND" != "general-purpose-test" ]] ||
+            [[ "$AZURE_TEST_SUBSCRIPTION_PURPOSE" != "hayasend-azure-integration" ]] ||
+            [[ "$TF_VAR_location" != "japaneast" ]]; then
+            echo "::error::The environment must identify the reviewed general-purpose test subscription and isolated Azure graph."
+            exit 1
+          fi
+          if [[ "$AZURE_TEST_COST_CEILING_USD" != "100" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "$AZURE_TEST_COST_CEILING_USD" ]] ||
+            [[ "$AZURE_TEST_DURATION_MINUTES" != "120" ]]; then
+            echo "::error::The proposed USD 100 boundary and 120-minute duration assertion are required."
+            exit 1
+          fi
+          if [[ "$CONFIRM_TERMINAL_DELIVERY" != "true" ]]; then
+            echo "::error::The controlled two-recipient terminal delivery must be explicitly confirmed."
+            exit 1
+          fi
+          jq --exit-status '
+            type == "array" and
+            length == 2 and
+            (unique | length) == 2 and
+            all(
+              .[];
+              type == "string" and
+              test("^[^[:space:]@]+@[^[:space:]@]+$")
+            )
+          ' <<<"$AZURE_TERMINAL_TO_JSON" >/dev/null
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - name: Install npm and project dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts npm@12.0.1
+          npm ci
+
+      - id: azure_login
+        name: Authenticate with keyless Azure workload identity
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_TEST_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TEST_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_TEST_SUBSCRIPTION_ID }}
+
+      - name: Install the exact current Azure CLI and Container Apps extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            https://packages.microsoft.com/keys/microsoft.asc \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+          sudo chmod go+r /etc/apt/keyrings/microsoft.gpg
+          . /etc/os-release
+          architecture="$(dpkg --print-architecture)"
+          printf '%s\n' \
+            "deb [arch=${architecture} signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${VERSION_CODENAME} main" \
+            | sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+          sudo apt-get update -qq
+          cli_package_version="$(
+            apt-cache madison azure-cli |
+              awk '$3 ~ /^2[.]88[.]0-1~/ {print $3; exit}'
+          )"
+          if [[ -z "$cli_package_version" ]]; then
+            echo "::error::Azure CLI 2.88.0 is unavailable from the official Microsoft repository."
+            exit 1
+          fi
+          sudo apt-get install --yes --no-install-recommends \
+            "azure-cli=$cli_package_version"
+          test "$(az version --output json | jq --raw-output '.["azure-cli"]')" = \
+            "$(< deploy/azure-container-apps/.azure-cli-version)"
+          az extension add \
+            --name containerapp \
+            --version "$(< deploy/azure-container-apps/.containerapp-extension-version)" \
+            --allow-preview true \
+            --yes
+          test "$(
+            az extension show \
+              --name containerapp \
+              --query version \
+              --output tsv
+          )" = "$(< deploy/azure-container-apps/.containerapp-extension-version)"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Verify exact test subscription and ACS prerequisites
+        id: inventory_guard
+        shell: bash
+        env:
+          HAYASEND_AZURE_ACS_EVIDENCE_FILE: ${{ runner.temp }}/azure-acs-prerequisites.json
+        run: |
+          set -euo pipefail
+          account="$(
+            az account show \
+              --subscription "$TF_VAR_subscription_id" \
+              --output json
+          )"
+          jq --exit-status \
+            --arg subscription "$TF_VAR_subscription_id" \
+            --arg tenant "$TF_VAR_tenant_id" '
+              .id == $subscription and
+              .tenantId == $tenant and
+              .state == "Enabled"
+            ' <<<"$account" >/dev/null
+          subscription_tags="$(
+            az tag list \
+              --resource-id "/subscriptions/$TF_VAR_subscription_id" \
+              --output json
+          )"
+          jq --exit-status '
+            .properties.tags.environment == "test" and
+            .properties.tags.purpose == "general-purpose-test"
+          ' <<<"$subscription_tags" >/dev/null
+          if [[ "$(
+            az group exists \
+              --subscription "$TF_VAR_subscription_id" \
+              --name "$TF_VAR_resource_group_name"
+          )" != "false" ]]; then
+            echo "::error::The disposable runtime resource group must be absent before deployment."
+            exit 1
+          fi
+          deploy/azure-container-apps/verify-acs-prerequisites.sh
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Permit only this runner's exact public address in Key Vault
+        shell: bash
+        run: |
+          set -euo pipefail
+          ip_one="$(
+            curl --ipv4 --fail --silent --show-error \
+              https://api.ipify.org
+          )"
+          ip_two="$(
+            curl --ipv4 --fail --silent --show-error \
+              https://checkip.amazonaws.com |
+              tr -d '[:space:]'
+          )"
+          node -e '
+            const {isIP} = require("node:net");
+            if (
+              isIP(process.argv[1]) !== 4 ||
+              process.argv[1] !== process.argv[2]
+            ) process.exit(1);
+          ' "$ip_one" "$ip_two"
+          echo "TF_VAR_key_vault_operator_ip_cidrs=[\"$ip_one/32\"]" \
+            >> "$GITHUB_ENV"
+
+      - name: Generate masked one-run secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_key="re_$(openssl rand -hex 32)"
+          database_password="$(openssl rand -base64 48 | tr -d '\n')"
+          event_grid_secret="$(openssl rand -base64 48 | tr -d '\n')"
+          echo "::add-mask::$api_key"
+          echo "::add-mask::$database_password"
+          echo "::add-mask::$event_grid_secret"
+          {
+            echo "TF_VAR_api_key=$api_key"
+            echo "TF_VAR_database_password=$database_password"
+            echo "TF_VAR_event_grid_secret=$event_grid_secret"
+          } >> "$GITHUB_ENV"
+
+      - name: Mark the destructive lifecycle as started
+        id: deployment_attempt
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy and verify the reviewed disposable Azure graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$HAYASEND_IMAGE" >/dev/null
+          docker buildx imagetools inspect "$HAYASEND_ROLLBACK_IMAGE" >/dev/null
+          deploy/azure-container-apps/deploy.sh \
+            | tee "$RUNNER_TEMP/azure-deploy.txt"
+
+      - name: Run the provider-private semantic proof job
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof_job="$(
+            terraform -chdir=deploy/azure-container-apps output \
+              -raw hosted_proof_job_name
+          )"
+          if [[ "$proof_job" != "hayasend-proof" ]]; then
+            echo "::error::The hosted proof job name is not the reviewed exact name."
+            exit 1
+          fi
+          execution="$(
+            az containerapp job start \
+              --subscription "$TF_VAR_subscription_id" \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$proof_job" \
+              --output json \
+              | jq --raw-output .name
+          )"
+          if [[ ! "$execution" =~ ^hayasend-proof-[a-z0-9]+$ ]]; then
+            echo "::error::Azure did not return the exact proof execution name."
+            exit 1
+          fi
+          status=""
+          for _ in {1..120}; do
+            status="$(
+              az containerapp job execution show \
+                --subscription "$TF_VAR_subscription_id" \
+                --resource-group "$TF_VAR_resource_group_name" \
+                --name "$proof_job" \
+                --job-execution-name "$execution" \
+                --query properties.status \
+                --output tsv
+            )"
+            case "$status" in
+              Succeeded)
+                break
+                ;;
+              Failed | Canceled | Degraded)
+                echo "::error::The Azure semantic proof ended with $status."
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          if [[ "$status" != "Succeeded" ]]; then
+            echo "::error::The Azure semantic proof did not succeed within ten minutes."
+            exit 1
+          fi
+          proof_log="$RUNNER_TEMP/azure-portable-proof.txt"
+          proof_file="$RUNNER_TEMP/azure-portable-proof.json"
+          proof_ready=false
+          for _ in {1..60}; do
+            az containerapp job logs show \
+              --subscription "$TF_VAR_subscription_id" \
+              --resource-group "$TF_VAR_resource_group_name" \
+              --name "$proof_job" \
+              --execution "$execution" \
+              --container hosted-proof \
+              --tail 300 \
+              --format text \
+              --output tsv \
+              > "$proof_log" || true
+            if node scripts/extract-portable-hosted-proof.mjs \
+              <"$proof_log" \
+              >"$proof_file" 2>/dev/null; then
+              proof_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$proof_ready" != "true" ]]; then
+            echo "::error::Privacy-safe proof JSON did not become readable from the exact Azure execution."
+            exit 1
+          fi
+          jq --exit-status '
+            .object == "portable_hosted_semantic_proof" and
+            .hayasend_version == "0.3.1" and
+            .database.major_version == 18 and
+            .checks.scheduled_horizon_seconds == 2592000 and
+            .checks.atomic_delivery_commit == true and
+            .checks.idempotency_replay == true and
+            .checks.periodic_sweeper_recovered == true and
+            .checks.provider_acceptance_only == true and
+            .checks.terminal_delivery_claimed == false and
+            .checks.external_send_performed == false and
+            .cleanup.complete == true and
+            .cleanup.fixture_rows_remaining == 0
+          ' "$proof_file" >/dev/null
+
+      - name: Prove controlled two-recipient ACS terminal delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          terminal_log="$RUNNER_TEMP/azure-terminal-delivery.jsonl"
+          terminal_proof="$RUNNER_TEMP/azure-terminal-delivery.json"
+          HAYASEND_BASE_URL="$(
+            terraform -chdir=deploy/azure-container-apps output -raw api_url
+          )" \
+          HAYASEND_BOOTSTRAP_KEY="$TF_VAR_api_key" \
+          HAYASEND_AZURE_EVENT_GRID_SECRET="$TF_VAR_event_grid_secret" \
+          HAYASEND_AZURE_EVENT_TOPIC="$(
+            terraform -chdir=deploy/azure-container-apps output \
+              -raw expected_event_topic
+          )" \
+          node scripts/azure-terminal-delivery.mjs \
+            | tee "$terminal_log"
+          node --input-type=module - "$terminal_log" "$terminal_proof" <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
+          const [input, output] = process.argv.slice(2);
+          const proofs = (await readFile(input, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+            .filter(
+              (entry) =>
+                entry.object === "azure_acs_terminal_delivery_proof",
+            );
+          if (proofs.length !== 1) process.exit(1);
+          await writeFile(output, `${JSON.stringify(proofs[0], null, 2)}\n`);
+          NODE
+          jq --exit-status '
+            .object == "azure_acs_terminal_delivery_proof" and
+            .email_status == "delivered" and
+            .aggregate_status == "delivered" and
+            .recipient_statuses == ["delivered", "delivered"] and
+            .recipient_count == 2 and
+            .duplicate_delivery_replay_converged == true and
+            .older_expanded_event_did_not_regress == true and
+            .unattributed_engagement_deduplicated == true and
+            .real_terminal_delivery_observed == true and
+            .scoped_api_key_revoked == true and
+            .terminal == true
+          ' "$terminal_proof" >/dev/null
+
+      - name: Roll back to the reviewed previous immutable release
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: azure-container-apps
+          TF_VAR_image: ${{ env.HAYASEND_ROLLBACK_IMAGE }}
+        run: |
+          set -euo pipefail
+          deploy/azure-container-apps/rollback.sh \
+            | tee "$RUNNER_TEMP/azure-rollback.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_IMAGE" \
+            --arg to "$HAYASEND_ROLLBACK_IMAGE" '
+              {
+                object: "azure_container_apps_rollback_proof",
+                migration_policy: "forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_rollback: true
+              }
+            ' > "$RUNNER_TEMP/azure-rollback.json"
+          echo "TF_VAR_image=$HAYASEND_ROLLBACK_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Delete the disposable graph and verify preserved ACS prerequisites
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.deployment_attempt.outputs.attempted == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: azure-container-apps
+          HAYASEND_ALLOW_PURGE_KEY_VAULT: azure-container-apps
+          HAYASEND_AZURE_ALLOW_PARTIAL: "true"
+          HAYASEND_AZURE_ACS_EVIDENCE_FILE: ${{ runner.temp }}/azure-acs-after-cleanup.json
+        run: |
+          set -euo pipefail
+          deploy/azure-container-apps/cleanup.sh \
+            | tee "$RUNNER_TEMP/azure-cleanup.txt"
+          test "$(
+            az group exists \
+              --subscription "$TF_VAR_subscription_id" \
+              --name "$TF_VAR_resource_group_name"
+          )" = "false"
+          deploy/azure-container-apps/verify-acs-prerequisites.sh
+
+      - name: Upload privacy-safe Azure proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azure-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/azure-acs-prerequisites.json
+            ${{ runner.temp }}/azure-portable-proof.json
+            ${{ runner.temp }}/azure-terminal-delivery.json
+            ${{ runner.temp }}/azure-rollback.json
+            ${{ runner.temp }}/azure-cleanup.txt
+            ${{ runner.temp }}/azure-acs-after-cleanup.json
+          if-no-files-found: warn
+          retention-days: 7

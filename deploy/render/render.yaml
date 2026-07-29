@@ -1,84 +1,92 @@
 previews:
   generation: off
 
-services:
-  - type: web
-    name: hayasend-api
-    runtime: image
-    plan: starter
-    region: singapore
-    numInstances: 1
-    autoDeployTrigger: off
-    healthCheckPath: /readyz
-    maxShutdownDelaySeconds: 120
-    image:
-      url: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
-    dockerCommand: node dist/server.js
-    preDeployCommand: node dist/portable/migrate.js
-    envVars:
-      - key: HAYASEND_MODE
-        value: portable
-      - key: HAYASEND_HOST
-        value: 0.0.0.0
-      - key: HAYASEND_PORT
-        value: "10000"
-      - key: HAYASEND_DATABASE_URL
-        fromDatabase:
-          name: hayasend-postgres
-          property: connectionString
-      - key: HAYASEND_API_KEY
-        sync: false
-      - key: HAYASEND_TRANSPORT
-        value: console
-      - key: HAYASEND_CONSOLE_PROOF_CONFIRM
-        value: isolated-non-sending
-      - key: HAYASEND_OBJECT_STORAGE
-        value: disabled
-      - key: HAYASEND_POSTGRES_POOL_MAX
-        value: "8"
+projects:
+  - name: hayasend-render
+    environments:
+      - name: production
+        networking:
+          isolation: enabled
+        permissions:
+          protection: disabled
+        services:
+          - type: web
+            name: hayasend-api
+            runtime: image
+            plan: starter
+            region: singapore
+            numInstances: 1
+            autoDeployTrigger: off
+            healthCheckPath: /readyz
+            maxShutdownDelaySeconds: 120
+            image:
+              url: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+            dockerCommand: node dist/server.js
+            preDeployCommand: node dist/portable/migrate.js
+            envVars:
+              - key: HAYASEND_MODE
+                value: portable
+              - key: HAYASEND_HOST
+                value: 0.0.0.0
+              - key: HAYASEND_PORT
+                value: "10000"
+              - key: HAYASEND_DATABASE_URL
+                fromDatabase:
+                  name: hayasend-postgres
+                  property: connectionString
+              - key: HAYASEND_API_KEY
+                sync: false
+              - key: HAYASEND_TRANSPORT
+                value: console
+              - key: HAYASEND_CONSOLE_PROOF_CONFIRM
+                value: isolated-non-sending
+              - key: HAYASEND_OBJECT_STORAGE
+                value: disabled
+              - key: HAYASEND_POSTGRES_POOL_MAX
+                value: "8"
 
-  - type: worker
-    name: hayasend-worker
-    runtime: image
-    plan: starter
-    region: singapore
-    numInstances: 1
-    autoDeployTrigger: off
-    maxShutdownDelaySeconds: 120
-    image:
-      url: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
-    dockerCommand: node dist/portable/worker.js
-    preDeployCommand: node dist/portable/migrate.js
-    envVars:
-      - key: HAYASEND_MODE
-        value: portable
-      - key: HAYASEND_DATABASE_URL
-        fromDatabase:
-          name: hayasend-postgres
-          property: connectionString
-      - key: HAYASEND_API_KEY
-        fromService:
-          name: hayasend-api
-          type: web
-          envVarKey: HAYASEND_API_KEY
-      - key: HAYASEND_TRANSPORT
-        value: console
-      - key: HAYASEND_CONSOLE_PROOF_CONFIRM
-        value: isolated-non-sending
-      - key: HAYASEND_OBJECT_STORAGE
-        value: disabled
-      - key: HAYASEND_POSTGRES_POOL_MAX
-        value: "8"
-      - key: HAYASEND_WORKER_CONCURRENCY
-        value: "4"
+          - type: worker
+            name: hayasend-worker
+            runtime: image
+            plan: starter
+            region: singapore
+            numInstances: 1
+            autoDeployTrigger: off
+            maxShutdownDelaySeconds: 120
+            image:
+              url: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+            dockerCommand: node dist/portable/worker.js
+            preDeployCommand: node dist/portable/migrate.js
+            envVars:
+              - key: HAYASEND_MODE
+                value: portable
+              - key: HAYASEND_DATABASE_URL
+                fromDatabase:
+                  name: hayasend-postgres
+                  property: connectionString
+              - key: HAYASEND_API_KEY
+                fromService:
+                  name: hayasend-api
+                  type: web
+                  envVarKey: HAYASEND_API_KEY
+              - key: HAYASEND_TRANSPORT
+                value: console
+              - key: HAYASEND_CONSOLE_PROOF_CONFIRM
+                value: isolated-non-sending
+              - key: HAYASEND_OBJECT_STORAGE
+                value: disabled
+              - key: HAYASEND_POSTGRES_POOL_MAX
+                value: "8"
+              - key: HAYASEND_WORKER_CONCURRENCY
+                value: "4"
 
-databases:
-  - name: hayasend-postgres
-    databaseName: hayasend
-    user: hayasend
-    postgresMajorVersion: "18"
-    plan: basic-256mb
-    region: singapore
-    ipAllowList: []
-    diskSizeGB: 1
-    storageAutoscalingEnabled: false
+        databases:
+          - name: hayasend-postgres
+            databaseName: hayasend
+            user: hayasend
+            postgresMajorVersion: "18"
+            plan: basic-256mb
+            region: singapore
+            ipAllowList: []
+            diskSizeGB: 1
+            storageAutoscalingEnabled: false

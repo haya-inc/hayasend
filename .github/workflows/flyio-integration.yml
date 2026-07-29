@@ -1,0 +1,165 @@
+name: Fly.io integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_app:
+        description: Exact approved dedicated Fly App name
+        type: string
+        required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum test cost in USD
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-flyio-integration
+  cancel-in-progress: false
+
+jobs:
+  prove-and-delete:
+    name: Prove and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: flyio-integration
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLYCTL_SHA256: 000edf4711de7b1a854a11f8148912dc63b30fba99ae52d3bbce98627015ec26
+      FLYCTL_VERSION: 0.4.75
+      HAYASEND_FLY_APP: ${{ vars.FLY_TEST_APP }}
+      HAYASEND_FLY_BUCKET: ${{ vars.FLY_TEST_BUCKET }}
+      HAYASEND_FLY_MACHINE_IMAGE_DIGEST: sha256:79a2e9221ad8e395490cf342be9247f5c92013cd5657cdb1dbe7910392567ec6
+      HAYASEND_FLY_MPG_CLUSTER_ID: ${{ vars.FLY_TEST_MPG_CLUSTER_ID }}
+      HAYASEND_FLY_ORG: ${{ vars.FLY_TEST_ORG }}
+      HAYASEND_FLY_PROOF_MACHINE_NAME: hayasend-proof-${{ github.run_id }}${{ github.run_attempt }}
+      HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_TRANSPORT: console
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate dedicated-app and cost assertions
+        id: account_guard
+        shell: bash
+        env:
+          CONFIRM_APP: ${{ inputs.confirm_app }}
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          FLY_TEST_ACCOUNT_KIND: ${{ vars.FLY_TEST_ACCOUNT_KIND }}
+          FLY_TEST_COST_CEILING_USD: ${{ vars.FLY_TEST_COST_CEILING_USD }}
+          FLY_TEST_DURATION_MINUTES: ${{ vars.FLY_TEST_DURATION_MINUTES }}
+          FLY_TEST_MPG_PLAN: ${{ vars.FLY_TEST_MPG_PLAN }}
+          FLY_TEST_MPG_STORAGE_GB: ${{ vars.FLY_TEST_MPG_STORAGE_GB }}
+          FLY_TEST_REGION: ${{ vars.FLY_TEST_REGION }}
+          FLY_TEST_TOKEN_SCOPE: ${{ vars.FLY_TEST_TOKEN_SCOPE }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Fly.io hosted proof must run from protected main."
+            exit 1
+          fi
+          if [[ "$CONFIRM_APP" != "$HAYASEND_FLY_APP" ]] ||
+            [[ "$FLY_TEST_ACCOUNT_KIND" != "general-purpose-test" ]] ||
+            [[ "$FLY_TEST_REGION" != "nrt" ]] ||
+            [[ "$FLY_TEST_TOKEN_SCOPE" != "dedicated-test-org" ]]; then
+            echo "::error::Dispatch must identify the exact reviewed Fly.io test app and organization."
+            exit 1
+          fi
+          if [[ "$FLY_TEST_MPG_PLAN" != "basic" ]] ||
+            [[ "$FLY_TEST_MPG_STORAGE_GB" != "10" ]] ||
+            [[ "$FLY_TEST_COST_CEILING_USD" != "50" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "$FLY_TEST_COST_CEILING_USD" ]] ||
+            [[ "$FLY_TEST_DURATION_MINUTES" != "60" ]]; then
+            echo "::error::The reviewed Basic/10-GB topology, proposed USD 50 boundary, and 60-minute duration are required."
+            exit 1
+          fi
+          if [[ -z "$FLY_API_TOKEN" ]]; then
+            echo "::error::A dedicated Fly.io organization token is required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the exact current flyctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_directory="$RUNNER_TEMP/flyctl"
+          mkdir -p "$cli_directory"
+          curl --fail --location --silent --show-error \
+            --output "$cli_directory/flyctl.tar.gz" \
+            "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_Linux_x86_64.tar.gz"
+          printf '%s  %s\n' \
+            "$FLYCTL_SHA256" \
+            "$cli_directory/flyctl.tar.gz" \
+            | sha256sum --check
+          tar -xzf "$cli_directory/flyctl.tar.gz" -C "$cli_directory"
+          test "$(
+            "$cli_directory/flyctl" version |
+              sed -n '1s/^flyctl v\([^ ]*\).*/\1/p'
+          )" = "$FLYCTL_VERSION"
+          echo "FLY_CLI=$cli_directory/flyctl" >> "$GITHUB_ENV"
+
+      - name: Verify the exact deployed isolated topology
+        id: inventory_guard
+        shell: bash
+        env:
+          FLY_TEST_ACCOUNT_EMAIL: ${{ vars.FLY_TEST_ACCOUNT_EMAIL }}
+        run: |
+          set -euo pipefail
+          test "$("$FLY_CLI" auth whoami)" = "$FLY_TEST_ACCOUNT_EMAIL"
+          deploy/flyio/verify.sh
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run the semantic proof in a disposable Machine
+        shell: bash
+        env:
+          HAYASEND_FLY_PROOF_FILE: ${{ runner.temp }}/flyio-portable-proof.json
+          HAYASEND_FLY_PROOF_MACHINE_ID_FILE: ${{ runner.temp }}/flyio-proof-machine-id.txt
+        run: deploy/flyio/proof.sh
+
+      - name: Ensure the disposable proof Machine is absent
+        id: proof_machine_cleanup
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: flyio-proof-machine
+          HAYASEND_FLY_DEDICATED_APP: "true"
+        run: deploy/flyio/cleanup-proof-machine.sh
+
+      - name: Prove the exact private Tigris bucket is empty
+        id: bucket_guard
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.proof_machine_cleanup.outcome == 'success' }}
+        shell: bash
+        env:
+          HAYASEND_FLY_BUCKET_EVIDENCE_FILE: ${{ runner.temp }}/flyio-bucket-inventory.json
+        run: |
+          set -euo pipefail
+          deploy/flyio/verify-bucket-empty.sh
+          echo "empty=true" >> "$GITHUB_OUTPUT"
+
+      - name: Delete the exact disposable Fly.io graph
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.bucket_guard.outputs.empty == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: flyio
+          HAYASEND_FLY_DEDICATED_APP: "true"
+          HAYASEND_FLY_TIGRIS_EMPTY: "true"
+        run: |
+          set -euo pipefail
+          deploy/flyio/cleanup.sh \
+            | tee "$RUNNER_TEMP/flyio-cleanup.txt"
+
+      - name: Upload privacy-safe proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flyio-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/flyio-portable-proof.json
+            ${{ runner.temp }}/flyio-bucket-inventory.json
+            ${{ runner.temp }}/flyio-cleanup.txt
+          if-no-files-found: warn
+          retention-days: 7

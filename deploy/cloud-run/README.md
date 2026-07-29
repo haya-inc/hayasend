@@ -220,6 +220,37 @@ subscriptions; and HayaSend IAM bindings in the exact project. It fails closed
 on query errors or residue and never prints secret values, addresses, message
 content, provider payloads, database dumps, or attachment data.
 
+## GitHub-hosted console proof
+
+`.github/workflows/cloud-run-integration.yml` is a manual-only, non-sending
+lifecycle proof on protected `main`. Configure the `cloud-run-integration`
+GitHub environment with:
+
+- `GCP_TEST_PROJECT_ID` for an otherwise empty dedicated project;
+- `GCP_TEST_REGION=asia-northeast1`;
+- `GCP_TEST_ACCOUNT_KIND=general-purpose-test`;
+- `GCP_TEST_PROJECT_PURPOSE=hayasend-cloud-run-integration`;
+- the exact `GCP_TEST_BILLING_ACCOUNT_ID`;
+- `GCP_TEST_COST_CEILING_USD=25`;
+- `GCP_TEST_DURATION_MINUTES=45`;
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`; and
+- `GCP_INTEGRATION_SERVICE_ACCOUNT`.
+
+The project must be active, billing-enabled through that exact account, and
+carry `hayasend_test=true` and `environment=test` labels. Authentication uses
+GitHub OIDC and Workload Identity Federation; no service-account JSON key is
+accepted. Dispatch must repeat the exact project ID and proposed USD 25
+ceiling.
+
+The workflow verifies zero HayaSend residue before mutation, creates the
+disposable low-cost graph, runs the 30-day semantic proof inside the private
+Cloud Run Job, and destroys partial or complete Terraform state on failure or
+success. It then inventories services, jobs, Worker Pools, Cloud SQL, buckets,
+secrets, service accounts, networking, Pub/Sub, and IAM for zero residue. It
+does not configure SendGrid or send an email. The workflow is implemented and
+locally validated, but has not yet been executed; it is not production
+evidence.
+
 ## Official references
 
 Checked on 2026-07-29:

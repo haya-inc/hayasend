@@ -7,6 +7,10 @@ on:
         description: Exact approved dedicated Railway project UUID
         type: string
         required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum test cost in USD
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -38,13 +42,16 @@ jobs:
         id: account_guard
         shell: bash
         env:
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          CONFIRM_PROJECT: ${{ inputs.confirm_project }}
           RAILWAY_TEST_ACCOUNT_KIND: ${{ vars.RAILWAY_TEST_ACCOUNT_KIND }}
           RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD: ${{ vars.RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD }}
           RAILWAY_TEST_PLAN: ${{ vars.RAILWAY_TEST_PLAN }}
           RAILWAY_TEST_PROJECT_NAME: ${{ vars.RAILWAY_TEST_PROJECT_NAME }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
             echo "::error::The Railway hosted proof must run from protected main."
             exit 1
           fi
@@ -55,7 +62,7 @@ jobs:
             echo "::error::Exact lowercase workspace, project, and environment UUIDs are required."
             exit 1
           fi
-          if [[ "${{ inputs.confirm_project }}" != "$HAYASEND_RAILWAY_PROJECT_ID" ]]; then
+          if [[ "$CONFIRM_PROJECT" != "$HAYASEND_RAILWAY_PROJECT_ID" ]]; then
             echo "::error::Dispatch confirmation does not match the dedicated project."
             exit 1
           fi
@@ -65,7 +72,8 @@ jobs:
             exit 1
           fi
           if [[ "$RAILWAY_TEST_PLAN" != "hobby" ]] ||
-            [[ "$RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD" != "10" ]]; then
+            [[ "$RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD" != "10" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "$RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD" ]]; then
             echo "::error::The reviewed Hobby plan and USD 10 Compute hard limit assertions are required."
             exit 1
           fi

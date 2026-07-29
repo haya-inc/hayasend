@@ -1,0 +1,250 @@
+name: Cloud Run integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_project:
+        description: Exact approved dedicated Google Cloud project ID
+        type: string
+        required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum test cost in USD
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hayasend-cloud-run-integration
+  cancel-in-progress: false
+
+jobs:
+  deploy-proof-delete:
+    name: Deploy, prove, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: cloud-run-integration
+    env:
+      GCLOUD_VERSION: 578.0.0
+      HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      TF_VAR_allow_public_api: "true"
+      TF_VAR_bucket_soft_delete_retention_seconds: "0"
+      TF_VAR_database_availability_type: ZONAL
+      TF_VAR_deletion_protection: "false"
+      TF_VAR_enable_hosted_proof_job: "true"
+      TF_VAR_force_destroy_attachment_bucket: "true"
+      TF_VAR_image: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      TF_VAR_name_prefix: hayasend
+      TF_VAR_project_id: ${{ vars.GCP_TEST_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_TEST_REGION }}
+      TF_VAR_transport: console
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate dedicated-project and cost assertions
+        id: account_guard
+        shell: bash
+        env:
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          CONFIRM_PROJECT: ${{ inputs.confirm_project }}
+          GCP_TEST_ACCOUNT_KIND: ${{ vars.GCP_TEST_ACCOUNT_KIND }}
+          GCP_TEST_BILLING_ACCOUNT_ID: ${{ vars.GCP_TEST_BILLING_ACCOUNT_ID }}
+          GCP_TEST_COST_CEILING_USD: ${{ vars.GCP_TEST_COST_CEILING_USD }}
+          GCP_TEST_DURATION_MINUTES: ${{ vars.GCP_TEST_DURATION_MINUTES }}
+          GCP_TEST_PROJECT_PURPOSE: ${{ vars.GCP_TEST_PROJECT_PURPOSE }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Cloud Run hosted proof must run from protected main."
+            exit 1
+          fi
+          if [[ ! "$TF_VAR_project_id" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] ||
+            [[ "$CONFIRM_PROJECT" != "$TF_VAR_project_id" ]]; then
+            echo "::error::Dispatch confirmation must match the exact dedicated project ID."
+            exit 1
+          fi
+          if [[ "$TF_VAR_region" != "asia-northeast1" ]] ||
+            [[ "$GCP_TEST_ACCOUNT_KIND" != "general-purpose-test" ]] ||
+            [[ "$GCP_TEST_PROJECT_PURPOSE" != "hayasend-cloud-run-integration" ]]; then
+            echo "::error::The environment must identify the reviewed general-purpose test account and dedicated HayaSend project."
+            exit 1
+          fi
+          if [[ "$GCP_TEST_COST_CEILING_USD" != "25" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "$GCP_TEST_COST_CEILING_USD" ]] ||
+            [[ "$GCP_TEST_DURATION_MINUTES" != "45" ]]; then
+            echo "::error::The proposed USD 25 cost boundary and 45-minute duration assertion are required."
+            exit 1
+          fi
+          if [[ ! "$GCP_TEST_BILLING_ACCOUNT_ID" =~ ^[0-9A-F]{6}-[0-9A-F]{6}-[0-9A-F]{6}$ ]]; then
+            echo "::error::An exact Google Cloud billing account ID is required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - id: auth
+        name: Authenticate with keyless Workload Identity Federation
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_INTEGRATION_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Install the exact current Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: ${{ env.GCLOUD_VERSION }}
+
+      - name: Install the pinned Terraform CLI
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Verify the exact empty isolated project
+        id: inventory_guard
+        shell: bash
+        env:
+          GCP_TEST_BILLING_ACCOUNT_ID: ${{ vars.GCP_TEST_BILLING_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test "$(gcloud version --format=json | jq --raw-output '.["Google Cloud SDK"]')" = "$GCLOUD_VERSION"
+          project="$(
+            gcloud projects describe "$TF_VAR_project_id" \
+              --format=json
+          )"
+          jq --exit-status \
+            --arg project "$TF_VAR_project_id" \
+            '.projectId == $project and
+              .lifecycleState == "ACTIVE" and
+              .labels.hayasend_test == "true" and
+              .labels.environment == "test"' \
+            <<<"$project" >/dev/null
+          billing="$(
+            gcloud billing projects describe "$TF_VAR_project_id" \
+              --format=json
+          )"
+          jq --exit-status \
+            --arg account "billingAccounts/$GCP_TEST_BILLING_ACCOUNT_ID" \
+            '.billingEnabled == true and
+              .billingAccountName == $account' \
+            <<<"$billing" >/dev/null
+          deploy/cloud-run/verify-zero-residue.sh
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate masked one-run secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_key="re_$(openssl rand -hex 32)"
+          database_password="$(openssl rand -base64 48 | tr -d '\n')"
+          echo "::add-mask::$api_key"
+          echo "::add-mask::$database_password"
+          echo "TF_VAR_api_key=$api_key" >> "$GITHUB_ENV"
+          echo "TF_VAR_database_password=$database_password" >> "$GITHUB_ENV"
+
+      - name: Mark the destructive lifecycle as started
+        id: deployment_attempt
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy the reviewed disposable graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy/cloud-run/deploy.sh \
+            | tee "$RUNNER_TEMP/cloud-run-deploy.txt"
+
+      - name: Execute and collect the provider-private semantic proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof_job="$(
+            terraform -chdir=deploy/cloud-run output \
+              -raw hosted_proof_job_name
+          )"
+          if [[ "$proof_job" != "hayasend-proof" ]]; then
+            echo "::error::The hosted proof job name is not the reviewed exact name."
+            exit 1
+          fi
+          gcloud run jobs execute "$proof_job" \
+            --project="$TF_VAR_project_id" \
+            --region="$TF_VAR_region" \
+            --task-timeout=600s \
+            --wait
+          execution="$(
+            gcloud run jobs describe "$proof_job" \
+              --project="$TF_VAR_project_id" \
+              --region="$TF_VAR_region" \
+              --format='value(status.latestCreatedExecution.name)'
+          )"
+          if [[ ! "$execution" =~ ^hayasend-proof-[a-z0-9]+$ ]]; then
+            echo "::error::Cloud Run did not return the exact proof execution name."
+            exit 1
+          fi
+          log_filter="resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"$proof_job\" AND labels.execution_name=\"$execution\" AND logName=\"projects/$TF_VAR_project_id/logs/run.googleapis.com%2Fstdout\""
+          proof_file="$RUNNER_TEMP/cloud-run-portable-proof.json"
+          proof_logs="$RUNNER_TEMP/cloud-run-portable-proof.txt"
+          proof_ready=false
+          for _ in {1..60}; do
+            entries="$(
+              gcloud logging read "$log_filter" \
+                --project="$TF_VAR_project_id" \
+                --order=asc \
+                --format=json
+            )"
+            jq --raw-output \
+              '[.[] | .textPayload // empty] | join("\n")' \
+              <<<"$entries" > "$proof_logs"
+            if node scripts/extract-portable-hosted-proof.mjs \
+              <"$proof_logs" \
+              >"$proof_file" 2>/dev/null; then
+              proof_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$proof_ready" != "true" ]]; then
+            echo "::error::Privacy-safe proof JSON did not become readable from the exact execution."
+            exit 1
+          fi
+          jq --exit-status \
+            '.object == "portable_hosted_semantic_proof" and
+              .hayasend_version == "0.3.1" and
+              .database.major_version == 18 and
+              .checks.scheduled_horizon_seconds == 2592000 and
+              .checks.atomic_delivery_commit == true and
+              .checks.idempotency_replay == true and
+              .checks.periodic_sweeper_recovered == true and
+              .checks.provider_acceptance_only == true and
+              .checks.terminal_delivery_claimed == false and
+              .checks.external_send_performed == false and
+              .cleanup.complete == true and
+              .cleanup.fixture_rows_remaining == 0' \
+            "$proof_file" >/dev/null
+
+      - name: Delete the disposable graph and verify zero residue
+        if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.deployment_attempt.outputs.attempted == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_ALLOW_DESTROY: cloud-run
+          HAYASEND_CLOUD_RUN_ALLOW_PARTIAL: "true"
+        run: |
+          set -euo pipefail
+          deploy/cloud-run/cleanup.sh \
+            | tee "$RUNNER_TEMP/cloud-run-cleanup.txt"
+
+      - name: Upload privacy-safe proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-run-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloud-run-portable-proof.json
+            ${{ runner.temp }}/cloud-run-cleanup.txt
+          if-no-files-found: warn
+          retention-days: 7

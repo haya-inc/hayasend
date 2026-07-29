@@ -224,6 +224,7 @@ assert_secret_names() {
 
 assert_machine_inventory() {
   local machines
+  require_transport
   machines="$(
     "$fly_cli" machine list \
       --app "$HAYASEND_FLY_APP" \
@@ -231,6 +232,7 @@ assert_machine_inventory() {
   )"
   if ! jq --exit-status \
     --arg digest "$HAYASEND_FLY_MACHINE_IMAGE_DIGEST" \
+    --arg transport "$HAYASEND_TRANSPORT" \
     '
       def process_group:
         (
@@ -246,6 +248,15 @@ assert_machine_inventory() {
         .[];
         .state == "started" and
         (.config.image // "") != "" and
+        .config.env.HAYASEND_TRANSPORT == $transport and
+        (
+          if $transport == "console" then
+            .config.env.HAYASEND_CONSOLE_PROOF_CONFIRM ==
+              "isolated-non-sending"
+          else
+            (.config.env.HAYASEND_CONSOLE_PROOF_CONFIRM // null) == null
+          end
+        ) and
         .image_ref.digest == $digest and
         .image_ref.labels["org.opencontainers.image.source"] ==
           "https://github.com/haya-inc/hayasend" and
@@ -260,4 +271,46 @@ assert_machine_inventory() {
     echo "Fly Machines are not the exact started API/worker pair on the expected image." >&2
     exit 1
   fi
+}
+
+require_proof_machine_name() {
+  : "${HAYASEND_FLY_PROOF_MACHINE_NAME:?Set the exact disposable proof Machine name.}"
+  if [[ ! "$HAYASEND_FLY_PROOF_MACHINE_NAME" =~ ^hayasend-proof-[a-z0-9]{6,32}$ ]]; then
+    echo "HAYASEND_FLY_PROOF_MACHINE_NAME must be an exact lowercase hayasend-proof-* name." >&2
+    exit 1
+  fi
+}
+
+proof_machine_inventory() {
+  local machines
+  machines="$(
+    "$fly_cli" machine list \
+      --app "$HAYASEND_FLY_APP" \
+      --json
+  )"
+  jq --compact-output \
+    --arg digest "$HAYASEND_FLY_MACHINE_IMAGE_DIGEST" \
+    --arg name "$HAYASEND_FLY_PROOF_MACHINE_NAME" \
+    '
+      [
+        .[] |
+        select(.name == $name) |
+        select(
+          .region == "nrt" and
+          .image_ref.digest == $digest and
+          .config.metadata.hayasend_proof ==
+            "portable-hosted-v1" and
+          .config.env.HAYASEND_MODE == "portable" and
+          .config.env.HAYASEND_TRANSPORT == "console" and
+          .config.env.HAYASEND_CONSOLE_PROOF_CONFIRM ==
+            "isolated-non-sending" and
+          .config.env.HAYASEND_OBJECT_STORAGE == "disabled" and
+          .config.env.HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS == "30" and
+          .config.env.HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS == "300" and
+          (.config.mounts // [] | length) == 0 and
+          (.config.services // [] | length) == 0
+        )
+      ]
+    ' \
+    <<<"$machines"
 }

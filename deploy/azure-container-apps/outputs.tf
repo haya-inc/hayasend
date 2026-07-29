@@ -18,6 +18,11 @@ output "migration_job_name" {
   value       = azurerm_container_app_job.migration.name
 }
 
+output "hosted_proof_job_name" {
+  description = "Disposable console-only semantic proof job, or null when disabled."
+  value       = var.enable_hosted_proof_job ? azurerm_container_app_job.hosted_proof[0].name : null
+}
+
 output "runtime_identity_id" {
   description = "User-assigned managed identity shared by the API, worker, and migration job."
   value       = azurerm_user_assigned_identity.runtime.id

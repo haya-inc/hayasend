@@ -1,0 +1,537 @@
+name: Vercel integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_team:
+        description: Exact approved Vercel test team ID
+        type: string
+        required: true
+      confirm_neon_project:
+        description: Exact approved reusable Neon test project ID
+        type: string
+        required: true
+      confirm_cost_ceiling_usd:
+        description: Exact approved maximum combined test cost in USD
+        type: string
+        required: true
+      confirm_hard_cleanup:
+        description: Hard-delete the ephemeral Neon branch and disposable Vercel graph
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hayasend-vercel-integration
+  cancel-in-progress: false
+
+jobs:
+  prove-rollback-delete:
+    name: Prove, roll back, and delete
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    environment: vercel-integration
+    defaults:
+      run:
+        working-directory: current
+    env:
+      HAYASEND_VERCEL_BLOB_STORE_NAME: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}-attachments
+      HAYASEND_VERCEL_ORG_ID: ${{ vars.VERCEL_TEST_ORG_ID }}
+      HAYASEND_VERCEL_PROJECT_NAME: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
+      HAYASEND_VERCEL_TEAM_PLAN: ${{ vars.VERCEL_TEST_TEAM_PLAN }}
+      HAYASEND_VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEST_TEAM_SLUG }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_BRANCH_NAME: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
+      NEON_DATABASE_NAME: ${{ vars.NEON_TEST_DATABASE_NAME }}
+      NEON_PARENT_BRANCH_ID: ${{ vars.NEON_TEST_PARENT_BRANCH_ID }}
+      NEON_PARENT_BRANCH_NAME: ${{ vars.NEON_TEST_PARENT_BRANCH_NAME }}
+      NEON_PROJECT_ID: ${{ vars.NEON_TEST_PROJECT_ID }}
+      NEON_ROLE_NAME: ${{ vars.NEON_TEST_ROLE_NAME }}
+      NEON_TEST_ORG_ID: ${{ vars.NEON_TEST_ORG_ID }}
+      NEON_TEST_PROJECT_NAME: ${{ vars.NEON_TEST_PROJECT_NAME }}
+      NEON_TEST_REGION_ID: ${{ vars.NEON_TEST_REGION_ID }}
+      VERCEL_CLI_INTEGRITY: sha512-IaveydZepbxIciXIskd032O31cVKjI+8YFD4Y9EuvNLNnIltsYL+0hE0AIhol5wEPDBGm3zKtYA8GKrQNAJ12w==
+      VERCEL_CLI_VERSION: 58.1.0
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Check out the exact protected main revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: current
+          persist-credentials: false
+
+      - name: Check out the exact signed v0.3.1 rollback source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: e6a4cdabe5e699bfd8fc509484e3ed14a00091da
+          path: rollback
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: current/package-lock.json
+
+      - name: Validate protected-main, identity, and proposed cost gates
+        id: account_guard
+        shell: bash
+        env:
+          CONFIRM_COST_CEILING_USD: ${{ inputs.confirm_cost_ceiling_usd }}
+          CONFIRM_HARD_CLEANUP: ${{ inputs.confirm_hard_cleanup }}
+          CONFIRM_NEON_PROJECT: ${{ inputs.confirm_neon_project }}
+          CONFIRM_TEAM: ${{ inputs.confirm_team }}
+          NEON_TEST_ACCOUNT_KIND: ${{ vars.NEON_TEST_ACCOUNT_KIND }}
+          VERCEL_TEST_ACCOUNT_KIND: ${{ vars.VERCEL_TEST_ACCOUNT_KIND }}
+          VERCEL_TEST_COST_CEILING_USD: ${{ vars.VERCEL_TEST_COST_CEILING_USD }}
+          VERCEL_TEST_DURATION_MINUTES: ${{ vars.VERCEL_TEST_DURATION_MINUTES }}
+          VERCEL_TEST_FUNCTION_REGION: ${{ vars.VERCEL_TEST_FUNCTION_REGION }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Vercel hosted proof must run from protected main."
+            exit 1
+          fi
+          if [[ "$CONFIRM_TEAM" != "$HAYASEND_VERCEL_ORG_ID" ]] ||
+            [[ "$CONFIRM_NEON_PROJECT" != "$NEON_PROJECT_ID" ]] ||
+            [[ "$CONFIRM_COST_CEILING_USD" != "50" ]] ||
+            [[ "$CONFIRM_HARD_CLEANUP" != "true" ]]; then
+            echo "::error::Dispatch must confirm the exact team, Neon project, proposed USD 50 ceiling, and hard cleanup."
+            exit 1
+          fi
+          if [[ "$VERCEL_TEST_ACCOUNT_KIND" != "general-purpose-test" ]] ||
+            [[ "$NEON_TEST_ACCOUNT_KIND" != "general-purpose-test" ]] ||
+            [[ "$HAYASEND_VERCEL_TEAM_PLAN" != "pro" ]] ||
+            [[ "$VERCEL_TEST_FUNCTION_REGION" != "hnd1" ]] ||
+            [[ "$VERCEL_TEST_COST_CEILING_USD" != "50" ]] ||
+            [[ "$VERCEL_TEST_DURATION_MINUTES" != "90" ]]; then
+            echo "::error::The reviewed Pro/hnd1 topology, proposed USD 50 boundary, and 90-minute duration are required."
+            exit 1
+          fi
+          if [[ -z "$VERCEL_TOKEN" ]] || [[ -z "$NEON_API_KEY" ]]; then
+            echo "::error::Dedicated Vercel and Neon API tokens are required."
+            exit 1
+          fi
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Initialize private one-run file paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$GITHUB_WORKSPACE/.hayasend-proof"
+          chmod 0700 "$GITHUB_WORKSPACE/.hayasend-proof"
+          {
+            echo "BLOB_READ_WRITE_TOKEN_FILE=$RUNNER_TEMP/vercel-blob-token"
+            echo "CRON_SECRET_FILE=$RUNNER_TEMP/vercel-cron-secret"
+            echo "HAYASEND_API_KEY_FILE=$RUNNER_TEMP/vercel-hayasend-api-key"
+            echo "HAYASEND_VERCEL_PROJECT_ID_OUTPUT=$RUNNER_TEMP/vercel-project-id"
+            echo "NEON_DATABASE_URL_FILE=$RUNNER_TEMP/neon-database-url"
+          } >> "$GITHUB_ENV"
+
+      - name: Install and verify exact current tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts npm@12.0.1
+          metadata="$(npm view "vercel@$VERCEL_CLI_VERSION" version dist.integrity --json)"
+          test "$(
+            jq --raw-output \
+              '(if type == "array" then .[0] else . end).version' \
+              <<<"$metadata"
+          )" = "$VERCEL_CLI_VERSION"
+          test "$(
+            jq --raw-output \
+              '(if type == "array" then .[0] else . end).["dist.integrity"]' \
+              <<<"$metadata"
+          )" = "$VERCEL_CLI_INTEGRITY"
+          npm install --global --ignore-scripts "vercel@$VERCEL_CLI_VERSION"
+          test "$(vercel --version 2>/dev/null | tail -n 1)" = \
+            "$VERCEL_CLI_VERSION"
+          npm ci
+          npm run check
+          npm run validate:vercel
+          npm run build
+
+      - name: Mark the external lifecycle as started
+        id: lifecycle_attempt
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create and verify one disposable Vercel project
+        id: project_created
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node deploy/vercel/project-create.mjs \
+            > "$HAYASEND_VERCEL_PROJECT_ID_OUTPUT" \
+            2> "$RUNNER_TEMP/vercel-project-created.json"
+          chmod 0600 "$HAYASEND_VERCEL_PROJECT_ID_OUTPUT"
+          project_id="$(<"$HAYASEND_VERCEL_PROJECT_ID_OUTPUT")"
+          echo "HAYASEND_VERCEL_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
+          vercel link \
+            --yes \
+            --team "$HAYASEND_VERCEL_ORG_ID" \
+            --project "$project_id" \
+            --non-interactive \
+            --no-color
+          node deploy/vercel/project-verify.mjs \
+            > "$RUNNER_TEMP/vercel-project-verified.json"
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark the Blob lifecycle as started
+        id: blob_attempt
+        if: ${{ always() && steps.project_created.outputs.validated == 'true' }}
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create and connect one production-only private Blob store
+        id: blob_created
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node deploy/vercel/blob-store-create.mjs \
+            > "$RUNNER_TEMP/vercel-blob-created.json"
+          production_env="$GITHUB_WORKSPACE/.hayasend-proof/vercel-production.env"
+          vercel env pull "$production_env" \
+            --environment production \
+            --project "$HAYASEND_VERCEL_PROJECT_ID" \
+            --yes \
+            --non-interactive \
+            --no-color
+          node deploy/vercel/extract-production-blob-token.mjs \
+            3> "$BLOB_READ_WRITE_TOKEN_FILE" \
+            > "$RUNNER_TEMP/vercel-blob-token-evidence.json"
+          chmod 0600 "$BLOB_READ_WRITE_TOKEN_FILE"
+          blob_token="$(<"$BLOB_READ_WRITE_TOKEN_FILE")"
+          echo "::add-mask::$blob_token"
+          node deploy/vercel/blob-store-verify.mjs \
+            > "$RUNNER_TEMP/vercel-blob-verified.json"
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark the Neon branch lifecycle as started
+        id: neon_attempt
+        shell: bash
+        run: echo "attempted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create and verify one ephemeral Neon PostgreSQL 18 branch
+        id: neon_created
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          node deploy/vercel/neon-branch-create.mjs \
+            > "$NEON_DATABASE_URL_FILE" \
+            2> "$RUNNER_TEMP/neon-branch-created.json"
+          chmod 0600 "$NEON_DATABASE_URL_FILE"
+          database_url="$(<"$NEON_DATABASE_URL_FILE")"
+          echo "::add-mask::$database_url"
+          node deploy/vercel/neon-branch-verify.mjs \
+            > "$RUNNER_TEMP/neon-branch-verified.json"
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate one-run application secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          api_key="re_$(openssl rand -hex 32)"
+          cron_secret="$(openssl rand -base64 48 | tr -d '\n')"
+          printf '%s\n' "$api_key" > "$HAYASEND_API_KEY_FILE"
+          printf '%s\n' "$cron_secret" > "$CRON_SECRET_FILE"
+          chmod 0600 "$HAYASEND_API_KEY_FILE" "$CRON_SECRET_FILE"
+          echo "::add-mask::$api_key"
+          echo "::add-mask::$cron_secret"
+
+      - name: Configure the exact production environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          add_plain() {
+            local name="$1"
+            local value="$2"
+            printf '%s' "$value" |
+              vercel env add "$name" production \
+                --project "$HAYASEND_VERCEL_PROJECT_ID" \
+                --force \
+                --no-sensitive \
+                --yes \
+                --non-interactive \
+                --no-color
+          }
+          add_secret() {
+            local name="$1"
+            local file="$2"
+            vercel env add "$name" production \
+              --project "$HAYASEND_VERCEL_PROJECT_ID" \
+              --force \
+              --sensitive \
+              --yes \
+              --non-interactive \
+              --no-color < "$file"
+          }
+          add_plain HAYASEND_MODE portable
+          add_plain HAYASEND_TRANSPORT console
+          add_plain HAYASEND_CONSOLE_PROOF_CONFIRM isolated-non-sending
+          add_plain HAYASEND_OBJECT_STORAGE vercel-blob
+          add_plain HAYASEND_POSTGRES_POOL_MAX 2
+          add_plain HAYASEND_WORKER_CONCURRENCY 1
+          add_plain HAYASEND_VERCEL_MAX_TICKS 8
+          add_secret HAYASEND_DATABASE_URL "$NEON_DATABASE_URL_FILE"
+          add_secret HAYASEND_API_KEY "$HAYASEND_API_KEY_FILE"
+          add_secret CRON_SECRET "$CRON_SECRET_FILE"
+
+      - name: Deploy the exact signed v0.3.1 rollback baseline
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$GITHUB_WORKSPACE/rollback"
+          vercel link \
+            --cwd "$baseline" \
+            --yes \
+            --team "$HAYASEND_VERCEL_ORG_ID" \
+            --project "$HAYASEND_VERCEL_PROJECT_ID" \
+            --non-interactive \
+            --no-color
+          (
+            cd "$baseline"
+            npm ci
+            npm run check
+            npm run validate:vercel
+            npm run build
+            HAYASEND_MODE=portable \
+              HAYASEND_TRANSPORT=console \
+              HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
+              HAYASEND_OBJECT_STORAGE=vercel-blob \
+              HAYASEND_DATABASE_URL="$(<"$NEON_DATABASE_URL_FILE")" \
+              HAYASEND_API_KEY="$(<"$HAYASEND_API_KEY_FILE")" \
+              BLOB_READ_WRITE_TOKEN="$(<"$BLOB_READ_WRITE_TOKEN_FILE")" \
+              npm run migrate:postgres
+          )
+          baseline_url="$(
+            vercel deploy "$baseline" \
+              --prod \
+              --yes \
+              --project "$HAYASEND_VERCEL_PROJECT_ID" \
+              --env HAYASEND_TRANSPORT=console \
+              --env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
+              --non-interactive \
+              --no-color
+          )"
+          if [[ ! "$baseline_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app$ ]]; then
+            echo "::error::Vercel returned an invalid baseline deployment URL."
+            exit 1
+          fi
+          echo "url=$baseline_url" >> "$GITHUB_OUTPUT"
+          health="$(curl --fail --silent --show-error "$baseline_url/healthz")"
+          jq --exit-status \
+            '.ok == true and .service == "hayasend" and .version == "0.3.1"' \
+            <<<"$health" >/dev/null
+          curl --fail --silent --show-error "$baseline_url/readyz" >/dev/null
+
+      - name: Deploy and verify the exact current protected-main source
+        id: current_deployment
+        shell: bash
+        env:
+          HAYASEND_CONSOLE_PROOF_CONFIRM: isolated-non-sending
+          HAYASEND_TRANSPORT: console
+        run: |
+          set -euo pipefail
+          export HAYASEND_DATABASE_URL
+          HAYASEND_DATABASE_URL="$(<"$NEON_DATABASE_URL_FILE")"
+          export HAYASEND_API_KEY
+          HAYASEND_API_KEY="$(<"$HAYASEND_API_KEY_FILE")"
+          export BLOB_READ_WRITE_TOKEN
+          BLOB_READ_WRITE_TOKEN="$(<"$BLOB_READ_WRITE_TOKEN_FILE")"
+          export CRON_SECRET
+          CRON_SECRET="$(<"$CRON_SECRET_FILE")"
+          export HAYASEND_VERCEL_API_URL="https://${HAYASEND_VERCEL_PROJECT_NAME}.vercel.app"
+          deploy/vercel/deploy.sh \
+            | tee "$RUNNER_TEMP/vercel-current-deployment.txt"
+          health="$(curl --fail --silent --show-error "$HAYASEND_VERCEL_API_URL/healthz")"
+          jq --exit-status \
+            '.ok == true and .service == "hayasend" and .version == "0.3.1"' \
+            <<<"$health" >/dev/null
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Prove PostgreSQL-authoritative 30-day recovery semantics
+        shell: bash
+        env:
+          HAYASEND_CONSOLE_PROOF_CONFIRM: isolated-non-sending
+          HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS: "30"
+          HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS: "300"
+          HAYASEND_TRANSPORT: console
+        run: |
+          set -euo pipefail
+          HAYASEND_DATABASE_URL="$(<"$NEON_DATABASE_URL_FILE")" \
+            HAYASEND_API_KEY="$(<"$HAYASEND_API_KEY_FILE")" \
+            HAYASEND_HOSTED_PROOF_API_URL="https://${HAYASEND_VERCEL_PROJECT_NAME}.vercel.app" \
+            npm run proof:portable-hosted \
+              > "$RUNNER_TEMP/vercel-portable-proof.json"
+          jq --exit-status '
+            .object == "portable_hosted_semantic_proof" and
+            .hayasend_version == "0.3.1" and
+            .database.major_version == 18 and
+            .checks.scheduled_horizon_seconds == 2592000 and
+            .checks.schedule_exceeds_seven_days == true and
+            .checks.atomic_delivery_commit == true and
+            .checks.idempotency_replay == true and
+            .checks.periodic_sweeper_recovered == true and
+            .checks.provider_acceptance_only == true and
+            .checks.terminal_delivery_claimed == false and
+            .checks.external_send_performed == false and
+            .cleanup.complete == true and
+            .cleanup.fixture_rows_remaining == 0
+          ' "$RUNNER_TEMP/vercel-portable-proof.json" >/dev/null
+
+      - name: Prove private signed Blob upload and worker consumption
+        shell: bash
+        env:
+          HAYASEND_VERCEL_BLOB_PROOF_FILE: ${{ runner.temp }}/vercel-private-blob-proof.json
+        run: |
+          set -euo pipefail
+          HAYASEND_DATABASE_URL="$(<"$NEON_DATABASE_URL_FILE")" \
+            HAYASEND_API_KEY="$(<"$HAYASEND_API_KEY_FILE")" \
+            BLOB_READ_WRITE_TOKEN="$(<"$BLOB_READ_WRITE_TOKEN_FILE")" \
+            HAYASEND_HOSTED_PROOF_API_URL="https://${HAYASEND_VERCEL_PROJECT_NAME}.vercel.app" \
+            node scripts/vercel-blob-hosted-proof.mjs
+          jq --exit-status '
+            .object == "vercel_private_blob_hosted_proof" and
+            .signed_put_bound_to_exact_object == true and
+            .overwrite_refused == true and
+            .public_read_refused == true and
+            .authenticated_private_read == true and
+            .sha256_verified == true and
+            .worker_consumed_attachment == true and
+            .external_send_performed == false and
+            .terminal_delivery_claimed == false and
+            .cleanup.complete == true and
+            .cleanup.database_fixture_rows_remaining == 0 and
+            .cleanup.blob_objects_remaining == 0
+          ' "$HAYASEND_VERCEL_BLOB_PROOF_FILE" >/dev/null
+
+      - name: Roll production back to the exact signed v0.3.1 deployment
+        shell: bash
+        env:
+          HAYASEND_VERCEL_ROLLBACK_DEPLOYMENT: ${{ steps.baseline.outputs.url }}
+          HAYASEND_VERCEL_ROLLBACK_VERSION: 0.3.1
+        run: |
+          set -euo pipefail
+          export CRON_SECRET
+          CRON_SECRET="$(<"$CRON_SECRET_FILE")"
+          export HAYASEND_VERCEL_API_URL="https://${HAYASEND_VERCEL_PROJECT_NAME}.vercel.app"
+          deploy/vercel/rollback.sh \
+            | tee "$RUNNER_TEMP/vercel-rollback.txt"
+
+      - name: Empty the exact dedicated Blob store after any proof attempt
+        id: blob_emptied
+        if: ${{ always() && steps.blob_attempt.outputs.attempted == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "$BLOB_READ_WRITE_TOKEN_FILE" ]]; then
+            blob_token="$(<"$BLOB_READ_WRITE_TOKEN_FILE")"
+            before="$(
+              BLOB_READ_WRITE_TOKEN="$blob_token" \
+                node deploy/vercel/blob-count.mjs
+            )"
+            if ! jq --exit-status '.count == 0' <<<"$before" >/dev/null; then
+              BLOB_READ_WRITE_TOKEN="$blob_token" \
+                vercel blob empty-store \
+                  --yes \
+                  --non-interactive \
+                  --no-color
+            fi
+            after="$(
+              BLOB_READ_WRITE_TOKEN="$blob_token" \
+                node deploy/vercel/blob-count.mjs
+            )"
+            jq --exit-status '.count == 0' <<<"$after" >/dev/null
+            printf '%s\n' "$after" \
+              > "$RUNNER_TEMP/vercel-blob-final-inventory.json"
+          fi
+          node deploy/vercel/blob-store-assert-empty.mjs \
+            > "$RUNNER_TEMP/vercel-blob-empty.json"
+          echo "empty=true" >> "$GITHUB_OUTPUT"
+
+      - name: Delete the exact private Blob store
+        id: blob_deleted
+        if: ${{ always() && steps.blob_emptied.outputs.empty == 'true' }}
+        shell: bash
+        env:
+          HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}-attachments
+          HAYASEND_VERCEL_BLOB_EMPTY: "true"
+        run: |
+          set -euo pipefail
+          node deploy/vercel/blob-store-delete.mjs \
+            > "$RUNNER_TEMP/vercel-blob-deleted.json"
+          echo "deleted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Hard-delete the exact ephemeral Neon branch
+        if: ${{ always() && steps.neon_attempt.outputs.attempted == 'true' }}
+        shell: bash
+        env:
+          NEON_ALLOW_HARD_DELETE: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          node deploy/vercel/neon-branch-delete.mjs \
+            > "$RUNNER_TEMP/neon-branch-deleted.json"
+
+      - name: Delete the exact disposable Vercel project
+        if: ${{ always() && steps.lifecycle_attempt.outputs.attempted == 'true' && (steps.blob_attempt.outputs.attempted != 'true' || steps.blob_deleted.outputs.deleted == 'true') }}
+        shell: bash
+        env:
+          HAYASEND_VERCEL_DELETE_CONFIRMATION: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          node deploy/vercel/project-delete.mjs \
+            > "$RUNNER_TEMP/vercel-project-deleted.json"
+
+      - name: Remove private one-run local state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for private_file in \
+            "${BLOB_READ_WRITE_TOKEN_FILE:-}" \
+            "${CRON_SECRET_FILE:-}" \
+            "${HAYASEND_API_KEY_FILE:-}" \
+            "${HAYASEND_VERCEL_PROJECT_ID_OUTPUT:-}" \
+            "${NEON_DATABASE_URL_FILE:-}" \
+            "$GITHUB_WORKSPACE/.hayasend-proof/vercel-production.env"; do
+            if [[ -f "$private_file" ]]; then
+              : > "$private_file"
+              rm -f -- "$private_file"
+            fi
+          done
+          rmdir "$GITHUB_WORKSPACE/.hayasend-proof" 2>/dev/null || true
+
+      - name: Upload privacy-safe proof evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vercel-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/vercel-project-created.json
+            ${{ runner.temp }}/vercel-project-verified.json
+            ${{ runner.temp }}/vercel-project-deleted.json
+            ${{ runner.temp }}/vercel-blob-created.json
+            ${{ runner.temp }}/vercel-blob-verified.json
+            ${{ runner.temp }}/vercel-blob-token-evidence.json
+            ${{ runner.temp }}/vercel-private-blob-proof.json
+            ${{ runner.temp }}/vercel-blob-final-inventory.json
+            ${{ runner.temp }}/vercel-blob-empty.json
+            ${{ runner.temp }}/vercel-blob-deleted.json
+            ${{ runner.temp }}/neon-branch-created.json
+            ${{ runner.temp }}/neon-branch-verified.json
+            ${{ runner.temp }}/neon-branch-deleted.json
+            ${{ runner.temp }}/vercel-portable-proof.json
+            ${{ runner.temp }}/vercel-rollback.txt
+          if-no-files-found: warn
+          retention-days: 7

@@ -205,7 +205,8 @@ create the empty dedicated project and configure these environment values:
 - `RAILWAY_TEST_COMPUTE_HARD_LIMIT_USD=10`; and
 - an account- or workspace-scoped secret `RAILWAY_API_TOKEN`.
 
-The workflow requires the exact project UUID as a dispatch confirmation,
+The workflow runs only on protected `main` and requires the exact project UUID
+and proposed USD 10 ceiling as dispatch confirmations,
 refuses non-empty or multi-environment projects, downloads and verifies the
 pinned CLI, creates a masked one-run HayaSend API key, applies the reviewed
 console-only graph, runs the semantic proof inside the API container, checks

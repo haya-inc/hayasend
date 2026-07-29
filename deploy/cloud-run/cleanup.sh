@@ -45,6 +45,19 @@ for argument in "$@"; do
   fi
 done
 
-terraform apply -input=false -lock-timeout=5m "$@"
+allow_partial="${HAYASEND_CLOUD_RUN_ALLOW_PARTIAL:-false}"
+if [[ "$allow_partial" != "true" && "$allow_partial" != "false" ]]; then
+  echo "HAYASEND_CLOUD_RUN_ALLOW_PARTIAL must be true or false." >&2
+  exit 1
+fi
+
+if [[ "$allow_partial" == "true" ]]; then
+  if [[ -z "$(terraform state list)" ]]; then
+    "$deployment_directory/verify-zero-residue.sh"
+    exit 0
+  fi
+else
+  terraform apply -input=false -lock-timeout=5m "$@"
+fi
 terraform destroy -input=false -lock-timeout=5m "$@"
 "$deployment_directory/verify-zero-residue.sh"

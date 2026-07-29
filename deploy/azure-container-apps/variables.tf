@@ -445,3 +445,9 @@ variable "deletion_protection" {
   type        = bool
   default     = true
 }
+
+variable "enable_hosted_proof_job" {
+  description = "Create a disposable console-only semantic proof job. Keep false outside an isolated hosted proof."
+  type        = bool
+  default     = false
+}

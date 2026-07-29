@@ -35,6 +35,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The AWS hosted proof must run from protected main."
+            exit 1
+          fi
           if [[ ! "$AWS_TEST_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]; then
             echo "::error::AWS_TEST_ACCOUNT_ID must be a 12-digit environment variable."
             exit 1

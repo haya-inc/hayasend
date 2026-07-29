@@ -49,7 +49,7 @@ function validateUuid(value, label) {
   }
 }
 
-function inputs(requiresSecret) {
+function inputs(requiresSecret, requiresApiUrl = true) {
   const subscriptionId = requiredEnvironment(
     "HAYASEND_AZURE_SUBSCRIPTION_ID",
   );
@@ -58,18 +58,25 @@ function inputs(requiresSecret) {
   const subscriptionName = requiredEnvironment(
     "HAYASEND_AZURE_EVENT_SUBSCRIPTION_NAME",
   );
-  const apiUrl = new URL(requiredEnvironment("HAYASEND_AZURE_API_URL"));
+  const apiUrlValue = process.env.HAYASEND_AZURE_API_URL;
+  if (requiresApiUrl && !apiUrlValue) {
+    fail("HAYASEND_AZURE_API_URL is required.");
+  }
+  const apiUrl = apiUrlValue ? new URL(apiUrlValue) : undefined;
   const deploymentId = requiredEnvironment("HAYASEND_AZURE_DEPLOYMENT_ID");
 
   validateUuid(subscriptionId, "HAYASEND_AZURE_SUBSCRIPTION_ID");
   validateUuid(tenantId, "HAYASEND_AZURE_TENANT_ID");
   if (
-    apiUrl.protocol !== "https:" ||
-    apiUrl.username ||
-    apiUrl.password ||
-    apiUrl.search ||
-    apiUrl.hash ||
-    apiUrl.pathname !== "/"
+    apiUrl &&
+    (
+      apiUrl.protocol !== "https:" ||
+      apiUrl.username ||
+      apiUrl.password ||
+      apiUrl.search ||
+      apiUrl.hash ||
+      apiUrl.pathname !== "/"
+    )
   ) {
     fail("HAYASEND_AZURE_API_URL must be a credential-free HTTPS origin.");
   }
@@ -383,6 +390,8 @@ export async function verifyFromEnvironment() {
 }
 
 export async function deleteFromEnvironment() {
-  const { config, token } = authenticatedConfig(false);
+  const config = inputs(false, false);
+  assertAzureAccount(config);
+  const token = managementToken();
   await remove(config, token);
 }

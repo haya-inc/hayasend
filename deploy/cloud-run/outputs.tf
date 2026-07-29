@@ -13,6 +13,11 @@ output "migration_job_name" {
   value       = google_cloud_run_v2_job.migration.name
 }
 
+output "hosted_proof_job_name" {
+  description = "Disposable console-only semantic proof job, or null when disabled."
+  value       = var.enable_hosted_proof_job ? google_cloud_run_v2_job.hosted_proof[0].name : null
+}
+
 output "worker_pool_name" {
   description = "Cloud Run Worker Pool name."
   value       = google_cloud_run_v2_worker_pool.worker.name
