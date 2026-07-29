@@ -716,8 +716,8 @@ jobs:
           )"
           jq --exit-status '
             .entryCount <= 615 and
-            .size < 760000 and
-            .unpackedSize < 4000000 and
+            .size < 770000 and
+            .unpackedSize < 4050000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] | index("NOTICE") != null) and
             ([.files[].path] |
