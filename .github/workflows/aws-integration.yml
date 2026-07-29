@@ -532,7 +532,10 @@ jobs:
                   ( -z "${BACKUP_VAULT_ARN:-}" ||
                     "$BACKUP_VAULT_ARN" = "None" ) ]]; then
               backup_vault_name="$(resource_id BackupVault)"
-              BACKUP_VAULT_ARN="arn:aws:backup:${AWS_REGION}:${AWS_TEST_ACCOUNT_ID}:backup-vault:${backup_vault_name}"
+              if [[ -n "$backup_vault_name" &&
+                    "$backup_vault_name" != "None" ]]; then
+                BACKUP_VAULT_ARN="arn:aws:backup:${AWS_REGION}:${AWS_TEST_ACCOUNT_ID}:backup-vault:${backup_vault_name}"
+              fi
             fi
             if [[ -z "${SCHEDULE_GROUP:-}" || "$SCHEDULE_GROUP" = "None" ]]; then
               SCHEDULE_GROUP="$(resource_id EmailScheduleGroup)"
@@ -615,44 +618,57 @@ jobs:
                 -n "${BACKUP_VAULT_ARN:-}" &&
                 "$BACKUP_VAULT_ARN" != "None" ]]; then
             backup_vault_name="${BACKUP_VAULT_ARN##*:}"
-            for attempt in {1..20}; do
+            if ! backup_vault_error="$(
+              aws backup describe-backup-vault \
+                --backup-vault-name "$backup_vault_name" \
+                --region "$AWS_REGION" 2>&1 >/dev/null
+            )"; then
+              if [[ "$backup_vault_error" = *"ResourceNotFoundException"* ]]; then
+                echo "Backup vault $backup_vault_name was not created or was already removed."
+              else
+                echo "::error::Unable to inspect backup vault $backup_vault_name: $backup_vault_error"
+                exit 1
+              fi
+            else
+              for attempt in {1..20}; do
+                recovery_points="$(
+                  aws backup list-recovery-points-by-backup-vault \
+                    --backup-vault-name "$backup_vault_name" \
+                    --region "$AWS_REGION" \
+                    --query "RecoveryPoints[].RecoveryPointArn" \
+                    --output text
+                )"
+                if [[ -z "$recovery_points" ]]; then
+                  break
+                fi
+                for recovery_point in $recovery_points; do
+                  aws backup delete-recovery-point \
+                    --backup-vault-name "$backup_vault_name" \
+                    --recovery-point-arn "$recovery_point" \
+                    --region "$AWS_REGION" || true
+                done
+                sleep 15
+              done
               recovery_points="$(
                 aws backup list-recovery-points-by-backup-vault \
                   --backup-vault-name "$backup_vault_name" \
                   --region "$AWS_REGION" \
                   --query "RecoveryPoints[].RecoveryPointArn" \
-                  --output text 2>/dev/null || true
+                  --output text
               )"
-              if [[ -z "$recovery_points" ]]; then
-                break
+              if [[ -n "$recovery_points" ]]; then
+                echo "::error::Recovery points remain in $backup_vault_name."
+                exit 1
               fi
-              for recovery_point in $recovery_points; do
-                aws backup delete-recovery-point \
-                  --backup-vault-name "$backup_vault_name" \
-                  --recovery-point-arn "$recovery_point" \
-                  --region "$AWS_REGION" || true
-              done
-              sleep 15
-            done
-            recovery_points="$(
-              aws backup list-recovery-points-by-backup-vault \
+              aws backup delete-backup-vault \
                 --backup-vault-name "$backup_vault_name" \
-                --region "$AWS_REGION" \
-                --query "RecoveryPoints[].RecoveryPointArn" \
-                --output text
-            )"
-            if [[ -n "$recovery_points" ]]; then
-              echo "::error::Recovery points remain in $backup_vault_name."
-              exit 1
-            fi
-            aws backup delete-backup-vault \
-              --backup-vault-name "$backup_vault_name" \
-              --region "$AWS_REGION"
-            if aws backup describe-backup-vault \
-              --backup-vault-name "$backup_vault_name" \
-              --region "$AWS_REGION" >/dev/null 2>&1; then
-              echo "::error::Retained backup vault still exists after cleanup."
-              exit 1
+                --region "$AWS_REGION"
+              if aws backup describe-backup-vault \
+                --backup-vault-name "$backup_vault_name" \
+                --region "$AWS_REGION" >/dev/null 2>&1; then
+                echo "::error::Retained backup vault still exists after cleanup."
+                exit 1
+              fi
             fi
           fi
 
