@@ -69,16 +69,13 @@ export async function readBoundedFile(
     ? requestedRoot
     : `${requestedRoot}${sep}`;
   const candidatePath = resolve(requestedRoot, configuredPath);
-  if (
-    candidatePath !== requestedRoot &&
-    !candidatePath.startsWith(requestedRootPrefix)
-  ) {
+  if (!candidatePath.startsWith(requestedRootPrefix)) {
     throw new Error("File inputs must resolve inside the current directory.");
   }
   const root = await realpath(requestedRoot);
   const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
   const path = await realpath(candidatePath);
-  if (path !== root && !path.startsWith(rootPrefix)) {
+  if (!path.startsWith(rootPrefix)) {
     throw new Error("File inputs must resolve inside the current directory.");
   }
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
