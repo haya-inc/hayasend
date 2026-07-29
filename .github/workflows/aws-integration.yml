@@ -457,32 +457,49 @@ jobs:
 
           triggering_deployment_id=""
           triggering_application=""
+          triggering_deployment_group=""
           for _ in {1..120}; do
             for application_name in $application_names; do
-              deployment_ids="$(
-                aws deploy list-deployments \
+              deployment_group_names="$(
+                aws deploy list-deployment-groups \
                   --application-name "$application_name" \
-                  --create-time-range "start=$proof_started_at" \
                   --region "$AWS_REGION" \
-                  --query deploymentIds \
+                  --query deploymentGroups \
                   --output text
               )"
-              if [[ -z "$deployment_ids" || "$deployment_ids" = "None" ]]; then
+              if [[ -z "$deployment_group_names" ||
+                    "$deployment_group_names" = "None" ]]; then
                 continue
               fi
-              for deployment_id in $deployment_ids; do
-                creator="$(
-                  aws deploy get-deployment \
-                    --deployment-id "$deployment_id" \
+              for deployment_group_name in $deployment_group_names; do
+                deployment_ids="$(
+                  aws deploy list-deployments \
+                    --application-name "$application_name" \
+                    --deployment-group-name "$deployment_group_name" \
+                    --create-time-range "start=$proof_started_at" \
                     --region "$AWS_REGION" \
-                    --query deploymentInfo.creator \
+                    --query deployments \
                     --output text
                 )"
-                if [[ "$creator" != "codeDeployRollback" ]]; then
-                  triggering_deployment_id="$deployment_id"
-                  triggering_application="$application_name"
-                  break 3
+                if [[ -z "$deployment_ids" ||
+                      "$deployment_ids" = "None" ]]; then
+                  continue
                 fi
+                for deployment_id in $deployment_ids; do
+                  creator="$(
+                    aws deploy get-deployment \
+                      --deployment-id "$deployment_id" \
+                      --region "$AWS_REGION" \
+                      --query deploymentInfo.creator \
+                      --output text
+                  )"
+                  if [[ "$creator" != "codeDeployRollback" ]]; then
+                    triggering_deployment_id="$deployment_id"
+                    triggering_application="$application_name"
+                    triggering_deployment_group="$deployment_group_name"
+                    break 4
+                  fi
+                done
               done
             done
             if ! kill -0 "$upgrade_pid" >/dev/null 2>&1; then
@@ -533,9 +550,10 @@ jobs:
             deployment_ids="$(
               aws deploy list-deployments \
                 --application-name "$triggering_application" \
+                --deployment-group-name "$triggering_deployment_group" \
                 --create-time-range "start=$proof_started_at" \
                 --region "$AWS_REGION" \
-                --query deploymentIds \
+                --query deployments \
                 --output text
             )"
             if [[ -z "$deployment_ids" || "$deployment_ids" = "None" ]]; then
