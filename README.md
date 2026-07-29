@@ -177,6 +177,27 @@ guide](docs/domain-onboarding.md) to register an isolated subdomain, apply the
 returned DKIM records through its authoritative DNS owner, and refresh SES
 state before a controlled canary. HayaSend never changes DNS.
 
+For a production Resend workload, first validate a versioned feature
+inventory. Then plan a synthetic dual-provider comparison to a controlled
+mailbox and generate a fail-closed evidence report:
+
+```bash
+hayasend migration resend inventory --file ./hayasend.resend-inventory.json
+hayasend migration resend canary \
+  --comparison-id stream-001 \
+  --from 'Canary <canary@verified.example.com>' \
+  --to-file /secure/path/controlled-recipient.txt \
+  --hayasend-endpoint https://api.hayasend.example.com
+hayasend migration resend report \
+  --inventory ./hayasend.resend-inventory.json \
+  --evidence ./hayasend.resend-evidence.json
+```
+
+The report cannot return `GO` without SES production access, the 14-day/1000
+notification dogfood gate, exact state reconciliation, terminal-event and
+mailbox evidence for every stream, and a rehearsed rollback to Resend. See
+[Migrating from Resend](docs/migration-from-resend.md).
+
 ## Run locally
 
 For a released version, use the exact CLI version shown on its GitHub release.

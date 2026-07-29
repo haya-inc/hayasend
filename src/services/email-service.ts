@@ -422,6 +422,13 @@ export class EmailService {
     const stableAttachments = idempotencyAttachments(
       resolvedAttachments,
     );
+    const stableRequest =
+      contentInput.scheduled_at !== undefined
+        ? {
+            ...normalized,
+            scheduled_at: contentInput.scheduled_at,
+          }
+        : normalized;
     const hash = requestHash(
       templateRequest
         ? {
@@ -431,7 +438,7 @@ export class EmailService {
               : {}),
           }
         : {
-            ...normalized,
+            ...stableRequest,
             ...(stableAttachments
               ? { attachments: stableAttachments }
               : {}),

@@ -31,6 +31,7 @@ import {
 import { domainCommand } from "./cli-domains.js";
 import { emailCommand } from "./cli-emails.js";
 import { parseAttachmentUploadOrigins } from "./cli-send-attachments.js";
+import { resendMigrationCommand } from "./cli-resend-migration.js";
 import { readStandardInput, sendEmail } from "./cli-send.js";
 import {
   loadTemplateManifest,
@@ -1933,6 +1934,21 @@ Commands:
       Applying requires --apply and the exact --confirm-stack value. Protected
       stacks also require --disable-termination-protection.
 
+  migration resend inventory --file FILE
+      Validate a versioned, workload-specific inventory and report unsupported
+      send fields, webhooks, scheduling, marketing, and proof requirements.
+
+  migration resend canary --comparison-id ID --from ADDRESS --to-file FILE
+      Plan a synthetic dual-provider comparison without sending. Add --apply
+      plus both printed origin/recipient confirmations to send once through
+      HayaSend and once through Resend, then compare terminal lifecycle events.
+      Keys are read only from HAYASEND_API_KEY and RESEND_API_KEY.
+
+  migration resend report --inventory FILE --evidence FILE
+      Produce a fail-closed GO or NO_GO decision. GO requires feature parity,
+      reconciled state, per-stream canary and mailbox evidence, rehearsed Resend
+      rollback, SES production access, and the 14-day/1000-message dogfood gate.
+
   deploy cloudflare --account ACCOUNT_ID --name NAME --email-domain DOMAIN
       Print a pinned, plan-first disposable Cloudflare deployment. Add --apply
       and the exact --confirm-account value to create D1, R2, Queues, apply
@@ -2056,6 +2072,7 @@ Commands:
 Environment:
   HAYASEND_BASE_URL    Defaults to http://localhost:8787
   HAYASEND_API_KEY     Defaults to re_hayasend_dev for local mode
+  RESEND_API_KEY       Required only by migration resend canary --apply
   HAYASEND_ATTACHMENT_UPLOAD_ORIGINS
                        Comma-separated HTTPS origins for custom S3-compatible
                        direct attachment uploads
@@ -2115,6 +2132,15 @@ export async function runCli(
       break;
     case "cleanup":
       await cleanupCommand(args.slice(1), dependencies);
+      break;
+    case "migration":
+      await resendMigrationCommand(args.slice(1), {
+        cwd: dependencies.cwd,
+        env: dependencies.env,
+        fetch: dependencies.fetch,
+        log: dependencies.io.log,
+        sleep: dependencies.sleep,
+      });
       break;
     case "doctor":
       if (args[1] === "cloudflare") {

@@ -649,6 +649,25 @@ describe("EmailService", () => {
     expect(queue.jobs[0]?.delaySeconds).toBe(600);
   });
 
+  it("replays a relative schedule with the same idempotency key", async () => {
+    const { service } = fixture();
+    const request = { ...input, scheduled_at: "in 10 minutes" };
+    const first = await service.create(
+      request,
+      "relative-schedule-replay",
+      new Date("2026-07-26T00:00:00.000Z"),
+    );
+    const replay = await service.create(
+      request,
+      "relative-schedule-replay",
+      new Date("2026-07-26T00:00:05.000Z"),
+    );
+
+    expect(replay.replayed).toBe(true);
+    expect(replay.record.id).toBe(first.record.id);
+    expect(replay.record.scheduled_at).toBe("2026-07-26T00:10:00.000Z");
+  });
+
   it("applies the 30-day scheduling limit to relative values", async () => {
     const { service } = fixture();
     const now = new Date("2026-07-26T00:00:00.000Z");

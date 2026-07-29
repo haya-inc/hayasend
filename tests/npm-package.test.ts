@@ -60,9 +60,15 @@ describe("npm CLI distribution", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(workflow).toContain(".entryCount <= 620");
-    expect(workflow).toContain(".size < 800000");
-    expect(workflow).toContain(".unpackedSize < 4150000");
+    expect(workflow).toContain(".entryCount <= 624");
+    expect(workflow).toContain(".size < 815000");
+    expect(workflow).toContain(".unpackedSize < 4225000");
+    expect(workflow).toContain(
+      'index("dist/cli-resend-migration.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("src/cli-resend-migration.ts") != null',
+    );
     expect(workflow).toContain('index("dist/cli-aws-bootstrap.js") != null');
     expect(workflow).toContain(
       'index("deploy/aws-cloudformation-bootstrap.yaml") != null',
