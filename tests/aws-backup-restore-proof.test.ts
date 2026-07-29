@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertRestoreTestingPlanIdentity,
+  matchRestoreJobsToBackups,
   restoredResourceTarget,
   stableCanonicalJson,
   summarizeDynamoProbe,
@@ -71,6 +72,86 @@ describe("AWS Backup semantic restore proof", () => {
         options,
       ),
     ).toThrow("name and ARN do not match exactly");
+  });
+
+  it("correlates hosted restore jobs without relying on SourceResourceArn", () => {
+    const dynamoRecoveryPoint =
+      "arn:aws:backup:ap-northeast-1:123456789012:recovery-point:dynamo";
+    const s3RecoveryPoint =
+      "arn:aws:backup:ap-northeast-1:123456789012:recovery-point:s3";
+    const state = {
+      backup_jobs: [
+        {
+          resource_type: "DynamoDB" as const,
+          resource_arn: options.tableArn,
+          recovery_point_arn: dynamoRecoveryPoint,
+        },
+        {
+          resource_type: "S3" as const,
+          resource_arn: options.bucketArn,
+          recovery_point_arn: s3RecoveryPoint,
+        },
+      ],
+    };
+    const jobs = matchRestoreJobsToBackups(
+      {
+        RestoreJobs: [
+          {
+            RestoreJobId: "restore-s3",
+            RecoveryPointArn: s3RecoveryPoint,
+            ResourceType: "S3",
+            CreatedBy: {
+              RestoreTestingPlanArn: options.restorePlanArn,
+            },
+          },
+          {
+            RestoreJobId: "restore-dynamo",
+            RecoveryPointArn: dynamoRecoveryPoint,
+            ResourceType: "DynamoDB",
+            CreatedBy: {
+              RestoreTestingPlanArn: options.restorePlanArn,
+            },
+          },
+          {
+            RestoreJobId: "wrong-resource-type",
+            RecoveryPointArn: s3RecoveryPoint,
+            ResourceType: "DynamoDB",
+            CreatedBy: {
+              RestoreTestingPlanArn: options.restorePlanArn,
+            },
+          },
+          {
+            RestoreJobId: "wrong-plan",
+            RecoveryPointArn: dynamoRecoveryPoint,
+            ResourceType: "DynamoDB",
+            CreatedBy: {
+              RestoreTestingPlanArn: `${options.restorePlanArn}-other`,
+            },
+          },
+          {
+            RestoreJobId: "conflicting-source",
+            RecoveryPointArn: dynamoRecoveryPoint,
+            ResourceType: "DynamoDB",
+            SourceResourceArn: options.bucketArn,
+            CreatedBy: {
+              RestoreTestingPlanArn: options.restorePlanArn,
+            },
+          },
+        ],
+      },
+      options,
+      state,
+    );
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        RestoreJobId: "restore-s3",
+        SourceResourceArn: options.bucketArn,
+      }),
+      expect.objectContaining({
+        RestoreJobId: "restore-dynamo",
+        SourceResourceArn: options.tableArn,
+      }),
+    ]);
   });
 
   it("canonicalizes object keys and DynamoDB sets without reordering lists", () => {
