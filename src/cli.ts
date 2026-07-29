@@ -29,9 +29,7 @@ import {
 } from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
 import { emailCommand } from "./cli-emails.js";
-import {
-  parseAttachmentUploadOrigins,
-} from "./cli-send-attachments.js";
+import { parseAttachmentUploadOrigins } from "./cli-send-attachments.js";
 import { readStandardInput, sendEmail } from "./cli-send.js";
 import {
   loadTemplateManifest,
@@ -47,9 +45,7 @@ import {
   deploymentCapabilityDocument,
   deploymentCapabilityDocumentDigest,
 } from "./deployment-capability-registry.js";
-import {
-  providerCapabilityDocumentDigest,
-} from "./provider-capability-registry.js";
+import { providerCapabilityDocumentDigest } from "./provider-capability-registry.js";
 import {
   runtimeCapabilityDocument,
   runtimeCapabilityDocumentDigest,
@@ -72,6 +68,7 @@ interface CliDependencies {
   io: CliIo;
   readStdin(maximumBytes: number): Promise<Uint8Array>;
   runCommand: CommandRunner;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 const defaultDependencies: CliDependencies = {
@@ -81,6 +78,10 @@ const defaultDependencies: CliDependencies = {
   io: console,
   readStdin: readStandardInput,
   runCommand: defaultCommandRunner,
+  sleep: (milliseconds) =>
+    new Promise((resolvePromise) => {
+      setTimeout(resolvePromise, milliseconds);
+    }),
 };
 
 function flags(args: string[], name: string): string[] {
@@ -970,13 +971,10 @@ const recoveryDiagnosticsSchema = z.object({
     document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
   runtime_capability: runtimeCapabilityDiagnosticsSchema.optional(),
-  deployment_capability:
-    deploymentCapabilityDiagnosticsSchema.optional(),
+  deployment_capability: deploymentCapabilityDiagnosticsSchema.optional(),
 });
 
-type ParsedRecoveryDiagnostics = z.infer<
-  typeof recoveryDiagnosticsSchema
->;
+type ParsedRecoveryDiagnostics = z.infer<typeof recoveryDiagnosticsSchema>;
 
 type DoctorRecoveryDiagnostics = Omit<
   ParsedRecoveryDiagnostics,
@@ -1046,21 +1044,16 @@ async function doctor(args: string[], dependencies: CliDependencies) {
       parsed.data.capability.provider,
     );
     const expectedRuntimeDigest = parsed.data.runtime_capability
-      ? runtimeCapabilityDocumentDigest(
-          parsed.data.runtime_capability.runtime,
-        )
+      ? runtimeCapabilityDocumentDigest(parsed.data.runtime_capability.runtime)
       : undefined;
     const expectedRuntime = parsed.data.runtime_capability
-      ? runtimeCapabilityDocument(
-          parsed.data.runtime_capability.runtime,
+      ? runtimeCapabilityDocument(parsed.data.runtime_capability.runtime)
+      : undefined;
+    const expectedDeploymentDigest = parsed.data.deployment_capability
+      ? deploymentCapabilityDocumentDigest(
+          parsed.data.deployment_capability.deployment,
         )
       : undefined;
-    const expectedDeploymentDigest =
-      parsed.data.deployment_capability
-        ? deploymentCapabilityDocumentDigest(
-            parsed.data.deployment_capability.deployment,
-          )
-        : undefined;
     const expectedDeployment = parsed.data.deployment_capability
       ? deploymentCapabilityDocument(
           parsed.data.deployment_capability.deployment,
@@ -1093,8 +1086,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
                       expectedRuntime.adapter_version ||
                     runtimeCapability.capability_version !==
                       expectedRuntime.schema_version ||
-                    runtimeCapability.checked_at !==
-                      expectedRuntime.checked_at
+                    runtimeCapability.checked_at !== expectedRuntime.checked_at
                   : null,
             },
           }
@@ -1123,8 +1115,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
                       expectedDeployment.production_ready ||
                     deploymentCapability.runtime !==
                       runtimeCapability?.runtime ||
-                    deploymentCapability.provider !==
-                      capability.provider
+                    deploymentCapability.provider !== capability.provider
                   : null,
             },
           }
@@ -1519,10 +1510,7 @@ async function deployCommand(
   );
 }
 
-async function statusAwsCommand(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function statusAwsCommand(args: string[], dependencies: CliDependencies) {
   if (args[0] !== "aws") {
     throw new Error(
       `Unknown status target: ${args[0] || "(missing)"}. Run hayasend help.`,
@@ -1530,6 +1518,7 @@ async function statusAwsCommand(
   }
   validateOptions(args, {
     values: ["account", "region", "stack", "profile"],
+    booleans: ["detect-drift"],
   });
   const account = flag(args, "account");
   const region = flag(args, "region");
@@ -1541,6 +1530,7 @@ async function statusAwsCommand(
       ...(region ? { region } : {}),
       ...(stack ? { stack } : {}),
       ...(profile ? { profile } : {}),
+      detectDrift: hasFlag(args, "detect-drift"),
     },
     {
       cwd: dependencies.cwd,
@@ -1548,14 +1538,12 @@ async function statusAwsCommand(
       fetch: dependencies.fetch,
       log: dependencies.io.log,
       runCommand: dependencies.runCommand,
+      sleep: dependencies.sleep,
     },
   );
 }
 
-async function upgradeCommand(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function upgradeCommand(args: string[], dependencies: CliDependencies) {
   if (args[0] === "aws") {
     await deployCommand(args, dependencies, "upgrade");
     return;
@@ -1563,17 +1551,14 @@ async function upgradeCommand(
   await upgradeCloudflareCommand(args, dependencies);
 }
 
-async function cleanupCommand(
-  args: string[],
-  dependencies: CliDependencies,
-) {
+async function cleanupCommand(args: string[], dependencies: CliDependencies) {
   if (args[0] !== "aws") {
     await cleanupCloudflareCommand(args, dependencies);
     return;
   }
   validateOptions(args, {
     values: ["account", "region", "stack", "profile", "confirm-stack"],
-    booleans: ["apply"],
+    booleans: ["apply", "disable-termination-protection"],
   });
   const account = flag(args, "account");
   const region = flag(args, "region");
@@ -1588,6 +1573,10 @@ async function cleanupCommand(
       ...(profile ? { profile } : {}),
       apply: hasFlag(args, "apply"),
       ...(confirmStack ? { confirmStack } : {}),
+      disableTerminationProtection: hasFlag(
+        args,
+        "disable-termination-protection",
+      ),
     },
     {
       cwd: dependencies.cwd,
@@ -1813,6 +1802,7 @@ Commands:
   status aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Show the stack, SES readiness, CloudFormation resources, CloudWatch
       alarms, public health, dashboard link, and exact next commands.
+      Add --detect-drift to run and await a fresh CloudFormation drift check.
 
   upgrade aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Plan or safely apply an update to an existing HayaSend stack. The same
@@ -1820,7 +1810,8 @@ Commands:
 
   cleanup aws [--account ACCOUNT_ID] [--region REGION] [--stack NAME]
       Plan deletion and list data resources retained by CloudFormation.
-      Applying requires --apply and the exact --confirm-stack value.
+      Applying requires --apply and the exact --confirm-stack value. Protected
+      stacks also require --disable-termination-protection.
 
   deploy cloudflare --account ACCOUNT_ID --name NAME --email-domain DOMAIN
       Print a pinned, plan-first disposable Cloudflare deployment. Add --apply

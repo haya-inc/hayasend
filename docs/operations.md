@@ -17,9 +17,13 @@ The plan-first CLI needs read access for:
 - `ses:GetAccount`;
 - `cloudformation:DescribeStacks`.
 
-`status aws` additionally uses `cloudformation:ListStackResources` and
-`cloudwatch:DescribeAlarms`, then calls the public HayaSend `/healthz`
-endpoint. It does not read log events, message data, or secret values.
+`status aws` additionally uses `cloudformation:GetStackPolicy`,
+`cloudformation:ListStackResources`, and `cloudwatch:DescribeAlarms`, then
+calls the public HayaSend `/healthz` endpoint. `status aws --detect-drift`
+also uses `cloudformation:DetectStackDrift`,
+`cloudformation:DescribeStackDriftDetectionStatus`, and
+`cloudformation:DescribeStackResourceDrifts`. It does not read log events,
+message data, secret values, or drift property values.
 
 `--apply` additionally reads CloudFormation change sets and failure events
 through `cloudformation:ListChangeSets`,
@@ -28,16 +32,21 @@ through `cloudformation:ListChangeSets`,
 operations, including artifact-bucket access and CloudFormation change-set
 creation/execution. The deployment principal must be authorized for every
 resource type in `template.yaml`; `CAPABILITY_IAM` is always explicit.
+After execution it uses `cloudformation:SetStackPolicy`,
+`cloudformation:GetStackPolicy`, and
+`cloudformation:UpdateTerminationProtection` to enforce and verify the
+retained-resource and stack-deletion controls.
 HayaSend does not ship a broad administrator policy disguised as a
 least-privilege policy. Derive the deployment role from the checked-in
 template, organizational permission boundaries, Region, and enabled inbound
 features, then review it through the same infrastructure process as other
 production roles.
 
-`cleanup aws --apply` needs `cloudformation:DeleteStack` in addition to the
-read operations. CloudFormation still needs its normal service-role or caller
-permissions to delete stack-owned resources. Cleanup never empties or deletes
-resources protected by `DeletionPolicy: Retain`.
+`cleanup aws --apply` needs `cloudformation:DeleteStack` and, for the normal
+protected stack, `cloudformation:UpdateTerminationProtection` in addition to
+the read operations. CloudFormation still needs its normal service-role or
+caller permissions to delete stack-owned resources. Cleanup never empties or
+deletes resources protected by `DeletionPolicy: Retain`.
 
 The CLI never reads the bootstrap secret value, edits DNS, or passes
 credentials as command-line arguments. Its JSON output contains account IDs,
@@ -53,20 +62,20 @@ every operation stays short while retaining the live STS safety gate:
 export HAYASEND_AWS_ACCOUNT_ID=123456789012
 export AWS_REGION=ap-northeast-1
 
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 ```
 
-Run `status aws` after every deploy or upgrade, at the start of an incident,
-and before a production canary. Do not treat `operational: true` as proof of
-mail delivery: require `send_ready: true`, then complete a controlled send and
-confirm the terminal recipient event and mailbox receipt.
+Run `status aws --detect-drift` after every deploy or upgrade, at the start of
+an incident, and before a production canary. Do not treat `operational: true`
+as proof of mail delivery: require `send_ready: true`, then complete a
+controlled send and confirm the terminal recipient event and mailbox receipt.
 
 For an update, review the plan before apply:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 ```
 
 For decommissioning, first record a disposition for retained customer data:
@@ -74,12 +83,13 @@ For decommissioning, first record a disposition for retained customer data:
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
-  --apply --confirm-stack hayasend
+  --apply --confirm-stack hayasend --disable-termination-protection
 ```
 
-The cleanup result repeats retained resource physical IDs after verified stack
-deletion. Do not improvise a bulk purge; handle those resources under the
-applicable recovery, compliance, and privacy policy.
+The cleanup plan shows termination protection and prints the exact explicit
+command required to disable it. The result repeats retained resource physical
+IDs after verified stack deletion. Do not improvise a bulk purge; handle those
+resources under the applicable recovery, compliance, and privacy policy.
 
 ## After deployment
 
@@ -225,20 +235,20 @@ Scheduler or worker DLQ envelope as a substitute for these operations.
 
 ## Alarms
 
-| Alarm | Immediate response |
-|---|---|
-| Dead-letter queue contains a job | Use the allowlisted job type, opaque message ID, and error category to inspect the source service before redrive |
-| Scheduler dead-letter queue contains an invocation | Inspect Scheduler target permissions and the original email ID; do not redrive the envelope directly into the job queue |
-| Scheduler invocation dropped | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions |
-| Inbound dead-letter queue contains an event | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event |
-| Queue age exceeds five minutes | Check Lambda concurrency, throttles, SES quota, and downstream webhooks |
-| Oldest outbox item exceeds five minutes | Check the dispatcher Lambda, its DynamoDB GSI query and transaction permissions, and SQS availability; do not delete the row |
-| Outbox lease expires | Inspect dispatcher timeout or process loss, then allow the next conditional sweep to reclaim it |
-| Outbox dispatch failure | Check SQS availability and the dispatcher role; the item has already been released for retry |
-| API internal error | Use the response's server-generated `x-request-id` to correlate API logs |
+| Alarm                                                     | Immediate response                                                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Dead-letter queue contains a job                          | Use the allowlisted job type, opaque message ID, and error category to inspect the source service before redrive                      |
+| Scheduler dead-letter queue contains an invocation        | Inspect Scheduler target permissions and the original email ID; do not redrive the envelope directly into the job queue               |
+| Scheduler invocation dropped                              | Check `AWS/Scheduler` target errors, throttling, execution-role trust, and SQS permissions                                            |
+| Inbound dead-letter queue contains an event               | Preserve the raw object, inspect parser/storage permissions without logging message content, then retry the original event            |
+| Queue age exceeds five minutes                            | Check Lambda concurrency, throttles, SES quota, and downstream webhooks                                                               |
+| Oldest outbox item exceeds five minutes                   | Check the dispatcher Lambda, its DynamoDB GSI query and transaction permissions, and SQS availability; do not delete the row          |
+| Outbox lease expires                                      | Inspect dispatcher timeout or process loss, then allow the next conditional sweep to reclaim it                                       |
+| Outbox dispatch failure                                   | Check SQS availability and the dispatcher role; the item has already been released for retry                                          |
+| API internal error                                        | Use the response's server-generated `x-request-id` to correlate API logs                                                              |
 | Email fails with `provider_rejected` on its first attempt | Inspect SES identity, account status, configuration set, and request validity; fix the permanent condition before creating a new send |
-| Send retries exhausted | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics |
-| Complaint received | Confirm suppression creation and review the originating traffic |
+| Send retries exhausted                                    | Use the email ID and error category to inspect SES account state, identity, configuration set, and controlled provider diagnostics    |
+| Complaint received                                        | Confirm suppression creation and review the originating traffic                                                                       |
 
 ## Attachment uploads
 

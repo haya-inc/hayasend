@@ -9,11 +9,7 @@ import {
 } from "../src/cli-aws-deploy.js";
 import { runCli } from "../src/cli.js";
 
-function result(
-  stdout = "",
-  exitCode = 0,
-  stderr = "",
-): CommandResult {
+function result(stdout = "", exitCode = 0, stderr = ""): CommandResult {
   return { exitCode, stdout, stderr };
 }
 
@@ -27,6 +23,32 @@ function missingStack() {
     254,
     "An error occurred (ValidationError): Stack with id hayasend does not exist",
   );
+}
+
+function stackPolicy() {
+  return json({
+    StackPolicyBody: JSON.stringify({
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: "Update:*",
+          Principal: "*",
+          Resource: "*",
+        },
+        {
+          Effect: "Deny",
+          Action: ["Update:Replace", "Update:Delete"],
+          Principal: "*",
+          Resource: [
+            "LogicalResourceId/DataTable",
+            "LogicalResourceId/InboundBucket",
+            "LogicalResourceId/InboundKey",
+            "LogicalResourceId/PayloadBucket",
+          ],
+        },
+      ],
+    }),
+  });
 }
 
 function capturingIo() {
@@ -60,11 +82,7 @@ function baseRunner(
     if (command === "npm" && args[0] === "--version") {
       return result("12.0.1");
     }
-    if (
-      command === "npm" &&
-      args[0] === "root" &&
-      args[1] === "--global"
-    ) {
+    if (command === "npm" && args[0] === "root" && args[1] === "--global") {
       return result(join(tmpdir(), "hayasend-test-npm-root"));
     }
     if (command === "aws" && args[0] === "sts") {
@@ -84,6 +102,22 @@ function baseRunner(
           SentLast24Hours: 25,
         },
       });
+    }
+    if (
+      command === "aws" &&
+      args[0] === "cloudformation" &&
+      ["set-stack-policy", "update-termination-protection"].includes(
+        args[1] ?? "",
+      )
+    ) {
+      return result();
+    }
+    if (
+      command === "aws" &&
+      args[0] === "cloudformation" &&
+      args[1] === "get-stack-policy"
+    ) {
+      return stackPolicy();
     }
     if (
       command === "aws" &&
@@ -179,9 +213,7 @@ describe("plan-first AWS deployment CLI", () => {
     expect(plan.template.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(plan.apply_command).toContain("--apply");
     expect(plan.apply_command.slice(0, 2)).toEqual(["npx", "--yes"]);
-    expect(plan.apply_command[2]).toMatch(
-      /^@haya-inc\/hayasend@\d+\.\d+\.\d+/,
-    );
+    expect(plan.apply_command[2]).toMatch(/^@haya-inc\/hayasend@\d+\.\d+\.\d+/);
     expect(plan.apply_command.slice(3, 5)).toEqual(["deploy", "aws"]);
     expect(plan.apply_command).toEqual(
       expect.arrayContaining([
@@ -324,8 +356,7 @@ describe("plan-first AWS deployment CLI", () => {
     ).toBe(false);
     expect(
       runner.mock.calls.some(
-        ([command, args]) =>
-          command === "aws" && args[0] === "cloudformation",
+        ([command, args]) => command === "aws" && args[0] === "cloudformation",
       ),
     ).toBe(false);
   });
@@ -397,6 +428,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "CREATE_COMPLETE",
+              EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [
                 {
@@ -411,8 +443,7 @@ describe("plan-first AWS deployment CLI", () => {
                 },
                 {
                   OutputKey: "AlarmTopicArn",
-                  OutputValue:
-                    "arn:aws:sns:ap-northeast-1:123456789012:alarms",
+                  OutputValue: "arn:aws:sns:ap-northeast-1:123456789012:alarms",
                 },
                 {
                   OutputKey: "OperationsDashboardName",
@@ -518,10 +549,13 @@ describe("plan-first AWS deployment CLI", () => {
       ok: true,
       applied: true,
       status: "CREATE_COMPLETE",
+      protections: {
+        termination_protection: true,
+        retained_resource_stack_policy: true,
+      },
       outputs: {
         ApiBaseUrl: "https://api.example.test",
-        AlarmTopicArn:
-          "arn:aws:sns:ap-northeast-1:123456789012:alarms",
+        AlarmTopicArn: "arn:aws:sns:ap-northeast-1:123456789012:alarms",
         OperationsDashboardName: "hayasend-operations",
       },
       next: {
@@ -562,20 +596,39 @@ describe("plan-first AWS deployment CLI", () => {
         args[1] === "execute-change-set",
     );
     expect(executeCall?.[1]).toContain(changeSetArn);
+    const policyCall = runner.mock.calls.find(
+      ([command, args]) =>
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "set-stack-policy",
+    );
+    const policyBody =
+      policyCall?.[1][
+        (policyCall?.[1].indexOf("--stack-policy-body") ?? -2) + 1
+      ];
+    expect(policyBody).toContain("LogicalResourceId/DataTable");
+    expect(policyBody).toContain("LogicalResourceId/PayloadBucket");
     expect(
-      runner.mock.calls.some(([, args]) => args.includes("route53")),
-    ).toBe(false);
+      runner.mock.calls.some(
+        ([command, args]) =>
+          command === "aws" &&
+          args[0] === "cloudformation" &&
+          args[1] === "update-termination-protection" &&
+          args.includes("--enable-termination-protection"),
+      ),
+    ).toBe(true);
+    expect(runner.mock.calls.some(([, args]) => args.includes("route53"))).toBe(
+      false,
+    );
   });
 
   it("leaves a destructive change set unexecuted without a second acknowledgement", async () => {
     const capture = capturingIo();
     let changeSetReads = 0;
     const oldChangeSet =
-      "arn:aws:cloudformation:ap-northeast-1:123456789012:" +
-      "changeSet/old/1";
+      "arn:aws:cloudformation:ap-northeast-1:123456789012:" + "changeSet/old/1";
     const newChangeSet =
-      "arn:aws:cloudformation:ap-northeast-1:123456789012:" +
-      "changeSet/new/2";
+      "arn:aws:cloudformation:ap-northeast-1:123456789012:" + "changeSet/new/2";
     const runner = baseRunner((command, args) => {
       if (
         command === "aws" &&
@@ -713,9 +766,7 @@ describe("plan-first AWS deployment CLI", () => {
     const deployCall = runner.mock.calls.find(
       ([command, args]) => command === "sam" && args[0] === "deploy",
     );
-    expect(deployCall?.[1]).toContain(
-      "WebhookDeliveryRetentionDays=14",
-    );
+    expect(deployCall?.[1]).toContain("WebhookDeliveryRetentionDays=14");
     expect(deployCall?.[1]).toContain("ApiThrottlingRateLimit=7.5");
     expect(deployCall?.[1]).toContain("ApiThrottlingBurstLimit=11");
     expect(deployCall?.[1]).toContain("LogRetentionDays=90");
@@ -737,6 +788,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "UPDATE_COMPLETE",
+              EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [],
             },
@@ -783,6 +835,7 @@ describe("plan-first AWS deployment CLI", () => {
           Stacks: [
             {
               StackStatus: "UPDATE_COMPLETE",
+              EnableTerminationProtection: true,
               Parameters: [],
               Outputs: [
                 {
@@ -835,8 +888,12 @@ describe("plan-first AWS deployment CLI", () => {
     expect(JSON.parse(capture.logs[1] ?? "{}")).toMatchObject({
       object: "aws_deployment_result",
       ok: true,
-      applied: false,
+      applied: true,
       no_changes: true,
+      protections: {
+        termination_protection: true,
+        retained_resource_stack_policy: true,
+      },
       outputs: { ApiBaseUrl: "https://existing.example.test" },
     });
     expect(

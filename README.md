@@ -420,7 +420,9 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" deploy aws \
 Apply creates but does not immediately execute a CloudFormation change set.
 HayaSend retrieves the exact new change-set ARN, prints its resource changes,
 and refuses removals, indeterminate actions, or possible replacements unless
-`--allow-destructive-changes` is also present. It never changes DNS. See the
+`--allow-destructive-changes` is also present. It then verifies a
+retained-resource stack policy and termination protection. It never changes
+DNS. See the
 [CLI guide](docs/cli.md#plan-and-deploy-to-aws) for inbound options, parameter
 preservation, finite Lambda log retention, failure recovery, and output
 privacy.
@@ -428,19 +430,21 @@ privacy.
 The same CLI covers the complete stack lifecycle:
 
 ```bash
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" status aws --detect-drift
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
-  --apply --confirm-stack hayasend
+  --apply --confirm-stack hayasend --disable-termination-protection
 ```
 
-`status aws` combines CloudFormation state and drift, SES sending readiness,
-stack-resource failures, CloudWatch alarms, public API health, and the
-dashboard link. `cleanup aws` is plan-first and deliberately retains the
-DynamoDB table, payload bucket, and enabled inbound data resources; it prints
-their physical IDs for a separate retention or destruction decision. See the
+`status aws --detect-drift` runs a fresh bounded CloudFormation drift check and
+combines its metadata-only result with protection state, SES sending
+readiness, stack-resource failures, CloudWatch alarms, public API health, and
+the dashboard link. `cleanup aws` is plan-first, requires a separate explicit
+protection-disable acknowledgement, and deliberately retains the DynamoDB
+table, payload bucket, and enabled inbound data resources; it prints their
+physical IDs for a separate retention or destruction decision. See the
 copy-paste [AWS quickstart](docs/aws-quickstart.md) and the
 [operations runbook](docs/operations.md).
 
