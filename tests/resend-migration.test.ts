@@ -242,10 +242,10 @@ describe("Resend migration canary", () => {
       .digest("hex");
     const output: string[] = [];
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input);
+      const requestUrl = new URL(String(input));
       if (init?.method === "POST") {
         return Response.json({
-          id: url.startsWith("https://mail.example.com")
+          id: requestUrl.hostname === "mail.example.com"
             ? "email_0123456789abcdef0123456789abcdef"
             : "49a3999c-0ce1-4ea6-ab68-afcd6dc2e794",
         });

@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { z } from "zod";
+import { readBoundedFile } from "./cli-send-attachments.js";
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -552,13 +551,10 @@ async function jsonFile<T>(
   schema: z.ZodType<T>,
   label: string,
 ) {
-  const bytes = await readFile(resolve(cwd, path));
-  if (bytes.byteLength > MAX_INPUT_BYTES) {
-    throw new Error(`${label} must not exceed 1 MiB.`);
-  }
+  const bytes = await readBoundedFile(cwd, path, MAX_INPUT_BYTES);
   let value: unknown;
   try {
-    value = JSON.parse(bytes.toString("utf8"));
+    value = JSON.parse(Buffer.from(bytes).toString("utf8"));
   } catch {
     throw new Error(`${label} must contain valid JSON.`);
   }
@@ -711,13 +707,12 @@ async function canaryCommand(
       "--comparison-id must be 1-128 URL-safe, human-auditable characters.",
     );
   }
-  const recipientBytes = await readFile(
-    resolve(dependencies.cwd, required(options, "to-file")),
+  const recipientBytes = await readBoundedFile(
+    dependencies.cwd,
+    required(options, "to-file"),
+    512,
   );
-  if (recipientBytes.byteLength > 512) {
-    throw new Error("--to-file must not exceed 512 bytes.");
-  }
-  const recipient = recipientBytes.toString("utf8").trim();
+  const recipient = Buffer.from(recipientBytes).toString("utf8").trim();
   if (!z.email().safeParse(recipient).success) {
     throw new Error("--to-file must contain exactly one valid email address.");
   }
