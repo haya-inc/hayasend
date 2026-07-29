@@ -14,6 +14,9 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain('--account "$AWS_TEST_ACCOUNT_ID"');
     expect(workflow).toContain('--bucket "$PAYLOAD_BUCKET"');
     expect(workflow).toContain('--confirm-bucket "$PAYLOAD_BUCKET"');
+    expect(workflow).toContain('artifact_prefix="hayasend/$STACK_NAME/"');
+    expect(workflow).toContain('--prefix "$artifact_prefix"');
+    expect(workflow).toContain('--confirm-prefix "$artifact_prefix"');
     expect(workflow).not.toContain('aws s3 rm "s3://$PAYLOAD_BUCKET"');
   });
 

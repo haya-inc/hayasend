@@ -2,6 +2,7 @@ export interface VersionedBucketOptions {
   account: string;
   region: string;
   bucket: string;
+  prefix?: string;
 }
 
 export type AwsJsonRunner = (

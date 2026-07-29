@@ -33,11 +33,15 @@ export function parseVersionedBucketArgs(argv) {
   const region = requiredOption(options, "--region");
   const bucket = requiredOption(options, "--bucket");
   const confirmedBucket = requiredOption(options, "--confirm-bucket");
+  const prefix = options.get("--prefix");
+  const confirmedPrefix = options.get("--confirm-prefix");
   const allowed = new Set([
     "--account",
     "--region",
     "--bucket",
     "--confirm-bucket",
+    "--prefix",
+    "--confirm-prefix",
   ]);
   for (const name of options.keys()) {
     if (!allowed.has(name)) {
@@ -56,7 +60,27 @@ export function parseVersionedBucketArgs(argv) {
   if (bucket !== confirmedBucket) {
     throw new Error("--confirm-bucket must exactly match --bucket.");
   }
-  return { account, region, bucket };
+  if ((prefix === undefined) !== (confirmedPrefix === undefined)) {
+    throw new Error("--prefix and --confirm-prefix must be provided together.");
+  }
+  if (prefix !== undefined) {
+    if (
+      prefix !== confirmedPrefix ||
+      prefix.length > 1_024 ||
+      prefix.startsWith("/") ||
+      !prefix.endsWith("/") ||
+      /[\u0000-\u001f\u007f]/.test(prefix) ||
+      prefix
+        .split("/")
+        .slice(0, -1)
+        .some((part) => part === "" || part === "." || part === "..")
+    ) {
+      throw new Error(
+        "--confirm-prefix must exactly match a safe, relative --prefix ending in /.",
+      );
+    }
+  }
+  return { account, region, bucket, prefix };
 }
 
 export async function defaultAwsJsonRunner(args) {
@@ -75,11 +99,16 @@ export async function defaultAwsJsonRunner(args) {
   return JSON.parse(stdout);
 }
 
-function versionEntries(page) {
+function versionEntries(page, prefix) {
   return [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])].map(
     ({ Key, VersionId }) => {
       if (typeof Key !== "string" || typeof VersionId !== "string") {
         throw new Error("S3 returned an invalid object-version entry.");
+      }
+      if (prefix !== undefined && !Key.startsWith(prefix)) {
+        throw new Error(
+          "S3 returned an object version outside the exact prefix.",
+        );
       }
       return { Key, VersionId };
     },
@@ -87,7 +116,7 @@ function versionEntries(page) {
 }
 
 export async function purgeVersionedBucket(
-  { account, region, bucket },
+  { account, region, bucket, prefix },
   runAwsJson = defaultAwsJsonRunner,
 ) {
   const identity = await runAwsJson(["sts", "get-caller-identity"]);
@@ -99,7 +128,7 @@ export async function purgeVersionedBucket(
 
   let deletedVersions = 0;
   for (let pass = 0; pass < MAX_PURGE_PASSES; pass += 1) {
-    const page = await runAwsJson([
+    const listArgs = [
       "s3api",
       "list-object-versions",
       "--bucket",
@@ -108,8 +137,12 @@ export async function purgeVersionedBucket(
       region,
       "--max-keys",
       "1000",
-    ]);
-    const entries = versionEntries(page);
+    ];
+    if (prefix !== undefined) {
+      listArgs.push("--prefix", prefix);
+    }
+    const page = await runAwsJson(listArgs);
+    const entries = versionEntries(page, prefix);
     if (entries.length === 0) {
       return { ok: true, bucket, deleted_versions: deletedVersions };
     }

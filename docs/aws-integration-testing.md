@@ -214,7 +214,8 @@ After every run, confirm:
 5. for a restore proof, no `awsbackup-restore-test-*` table or bucket, recovery
    point, or ephemeral backup vault remains;
 6. no `/hayasend/<integration-stack>/...` or synthetic legacy log group remains;
-7. the SAM-managed artifact bucket contains no unexpected old artifacts.
+7. the exact `hayasend/<integration-stack>/` prefix and all of its versions are
+   absent from the reusable SAM-managed artifact bucket.
 
 Official references:
 
