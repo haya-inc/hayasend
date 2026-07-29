@@ -54,7 +54,11 @@ New stacks protect the DynamoDB ledger and versioned payload bucket with a
 daily AWS Backup plan and 35-day retention. The production example explicitly
 adds weekly isolated restore testing. Restore jobs are billable, so omit
 `--enable-restore-testing` for a short-lived proof. Review the retention and
-backup resource names in the plan before applying.
+backup resource names in the plan before applying. Before migrating
+production traffic, run the protected-main semantic restore drill documented
+in the [AWS integration guide](aws-integration-testing.md); configuration
+readiness alone does not prove that application records and attachment bytes
+survive a restore.
 
 ## 3. Enable safe updates
 

@@ -27,12 +27,14 @@ async function api(
   token,
   body,
   expectedStatus = 200,
+  extraHeaders = {},
 ) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: {
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(body === undefined ? {} : { "content-type": "application/json" }),
+      ...extraHeaders,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(30_000),
@@ -62,10 +64,7 @@ function assertQueueDepth(value) {
       `${name} must be a non-negative safe integer.`,
     );
   }
-  assert.equal(
-    value.total,
-    value.visible + value.in_flight + value.delayed,
-  );
+  assert.equal(value.total, value.visible + value.in_flight + value.delayed);
 }
 
 function assertPrivateValuesAbsent(value, privateValues) {
@@ -153,20 +152,12 @@ try {
   });
   created.apiKeyIds.push(sendOnlyKey.id);
   await api("GET", "/emails", sendOnlyKey.token, undefined, 403);
-  await api(
-    "GET",
-    "/diagnostics/recovery",
-    sendOnlyKey.token,
-    undefined,
-    403,
-  );
+  await api("GET", "/diagnostics/recovery", sendOnlyKey.token, undefined, 403);
 
   const attachmentContent = Buffer.from(
     `HayaSend AWS integration attachment ${runId}`,
   );
-  const checksum = createHash("sha256")
-    .update(attachmentContent)
-    .digest("hex");
+  const checksum = createHash("sha256").update(attachmentContent).digest("hex");
   const upload = await api("POST", "/attachments", applicationKey, {
     filename: "integration.txt",
     content_type: "text/plain",
@@ -195,14 +186,32 @@ try {
   const privateSubject = `AWS integration ${runId}`;
   const privateBody =
     "This private integration message is canceled before delivery.";
-  const scheduled = await api("POST", "/emails", applicationKey, {
+  const scheduledInput = {
     from: "HayaSend Integration <sender@example.com>",
     to: privateRecipients,
     subject: privateSubject,
     html: `<p>${privateBody}</p>`,
     scheduled_at: "in 20 minutes",
     attachments: [{ attachment_id: upload.id }],
-  });
+  };
+  const idempotencyKey = `hayasend-aws-restore-${runId}`;
+  const scheduled = await api(
+    "POST",
+    "/emails",
+    applicationKey,
+    scheduledInput,
+    200,
+    { "idempotency-key": idempotencyKey },
+  );
+  const replayedScheduled = await api(
+    "POST",
+    "/emails",
+    applicationKey,
+    scheduledInput,
+    200,
+    { "idempotency-key": idempotencyKey },
+  );
+  assert.equal(replayedScheduled.id, scheduled.id);
   created.emailId = scheduled.id;
   recoveryEmailId = scheduled.id;
 
@@ -274,10 +283,7 @@ try {
     privateBody,
     "sender@example.com",
   ]);
-  assertForbiddenFieldsAbsent(
-    firstRecipientPage,
-    PRIVATE_DIAGNOSTIC_FIELDS,
-  );
+  assertForbiddenFieldsAbsent(firstRecipientPage, PRIVATE_DIAGNOSTIC_FIELDS);
   const secondRecipientPage = await api(
     "GET",
     `/emails/${created.emailId}/recipients?limit=1&after=${encodeURIComponent(
@@ -290,10 +296,7 @@ try {
   assert.equal(secondRecipientPage.has_more, false);
   assert.equal("next_cursor" in secondRecipientPage, false);
   assert.equal(secondRecipientPage.data.length, 1);
-  assert.match(
-    secondRecipientPage.data[0].id,
-    /^rcpt_[A-Za-z0-9_-]{22,128}$/,
-  );
+  assert.match(secondRecipientPage.data[0].id, /^rcpt_[A-Za-z0-9_-]{22,128}$/);
   assert.notEqual(
     secondRecipientPage.data[0].id,
     firstRecipientPage.data[0].id,
@@ -323,10 +326,7 @@ try {
     privateBody,
     "sender@example.com",
   ]);
-  assertForbiddenFieldsAbsent(
-    secondRecipientPage,
-    PRIVATE_DIAGNOSTIC_FIELDS,
-  );
+  assertForbiddenFieldsAbsent(secondRecipientPage, PRIVATE_DIAGNOSTIC_FIELDS);
 
   const recoveryDiagnostics = await api(
     "GET",
@@ -358,10 +358,7 @@ try {
   assert.equal(recoveryDiagnostics.provider_events.latest_received_at, null);
   assert.equal(recoveryDiagnostics.provider_events.lag_seconds, null);
   assert.equal(recoveryDiagnostics.capability.provider, "aws-ses");
-  assert.equal(
-    recoveryDiagnostics.capability.adapter_version,
-    health.version,
-  );
+  assert.equal(recoveryDiagnostics.capability.adapter_version, health.version);
   assert.equal(recoveryDiagnostics.capability.capability_version, "1.0.0");
   assert.match(
     recoveryDiagnostics.capability.document_sha256,
@@ -373,22 +370,12 @@ try {
     privateBody,
     "sender@example.com",
   ]);
-  assertForbiddenFieldsAbsent(
-    recoveryDiagnostics,
-    PRIVATE_DIAGNOSTIC_FIELDS,
-  );
+  assertForbiddenFieldsAbsent(recoveryDiagnostics, PRIVATE_DIAGNOSTIC_FIELDS);
 
-  await api(
-    "PATCH",
-    `/emails/${created.emailId}`,
-    applicationKey,
-    { scheduled_at: "in 25 minutes" },
-  );
-  await api(
-    "POST",
-    `/emails/${created.emailId}/cancel`,
-    applicationKey,
-  );
+  await api("PATCH", `/emails/${created.emailId}`, applicationKey, {
+    scheduled_at: "in 25 minutes",
+  });
+  await api("POST", `/emails/${created.emailId}/cancel`, applicationKey);
   const canceled = await api(
     "GET",
     `/emails/${created.emailId}`,
@@ -434,11 +421,7 @@ try {
     name: "validation_error",
     message: `The \`${domainName}\` domain has been registered already.`,
   });
-  await api(
-    "POST",
-    `/domains/${created.domainId}/verify`,
-    applicationKey,
-  );
+  await api("POST", `/domains/${created.domainId}/verify`, applicationKey);
 
   const webhook = await api("POST", "/webhooks", applicationKey, {
     endpoint: `${baseUrl}/healthz`,
@@ -473,12 +456,18 @@ try {
       ok: true,
       service: "hayasend",
       recovery_email_id: recoveryEmailId,
+      backup_probe: {
+        email_id: recoveryEmailId,
+        attachment_id: upload.id,
+        attachment_sha256: checksum,
+      },
       checks: [
         "health",
         "scoped_api_keys",
         "direct_attachment_upload",
         "api_plain_text_fallback",
         "schedule_reschedule_cancel",
+        "idempotency_replay",
         "public_attachment_privacy",
         "recipient_summary_scope",
         "recipient_summary_pagination",
@@ -522,29 +511,17 @@ try {
 } finally {
   if (applicationKey && created.emailId) {
     await bestEffort("scheduled email", () =>
-      api(
-        "POST",
-        `/emails/${created.emailId}/cancel`,
-        applicationKey,
-      ),
+      api("POST", `/emails/${created.emailId}/cancel`, applicationKey),
     );
   }
   if (applicationKey && created.webhookId) {
     await bestEffort("webhook", () =>
-      api(
-        "DELETE",
-        `/webhooks/${created.webhookId}`,
-        applicationKey,
-      ),
+      api("DELETE", `/webhooks/${created.webhookId}`, applicationKey),
     );
   }
   if (applicationKey && created.domainId) {
     await bestEffort("SES domain identity", () =>
-      api(
-        "DELETE",
-        `/domains/${created.domainId}`,
-        applicationKey,
-      ),
+      api("DELETE", `/domains/${created.domainId}`, applicationKey),
     );
   }
   if (applicationKey && created.suppressionEmail) {

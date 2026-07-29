@@ -16,4 +16,31 @@ describe("AWS integration workflow cleanup", () => {
     expect(workflow).toContain('--confirm-bucket "$PAYLOAD_BUCKET"');
     expect(workflow).not.toContain('aws s3 rm "s3://$PAYLOAD_BUCKET"');
   });
+
+  it("gates the semantic restore proof and validates cleanup", () => {
+    const workflow = readFileSync(
+      fileURLToPath(
+        new URL("../.github/workflows/aws-integration.yml", import.meta.url),
+      ),
+      "utf8",
+    );
+    const proof = readFileSync(
+      fileURLToPath(
+        new URL("../scripts/aws-backup-restore-proof.mjs", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(workflow).toContain("prove_backup_restore:");
+    expect(workflow).toContain(
+      "node scripts/aws-backup-restore-proof.mjs prove",
+    );
+    expect(workflow).toContain(
+      "node scripts/aws-backup-restore-proof.mjs cleanup",
+    );
+    expect(proof).toContain("put-restore-validation-result");
+    expect(workflow).toContain("delete-backup-vault");
+    expect(workflow).toContain(
+      "role-duration-seconds: ${{ inputs.prove_backup_restore && 21600 || 3600 }}",
+    );
+  });
 });
