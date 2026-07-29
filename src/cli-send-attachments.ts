@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 20;
@@ -64,10 +64,12 @@ export async function readBoundedFile(
   configuredPath: string,
   maximumBytes: number,
 ) {
-  // This is an intentional local-CLI file selector: the operator supplies the
-  // path, and the descriptor is restricted to a resolved, no-follow, regular
-  // file with a caller-defined byte limit.
-  const path = await realpath(resolve(cwd, configuredPath)); // lgtm[js/path-injection]
+  const root = await realpath(resolve(cwd));
+  const path = await realpath(resolve(root, configuredPath));
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (path !== root && !path.startsWith(rootPrefix)) {
+    throw new Error("File inputs must resolve inside the current directory.");
+  }
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const metadata = await file.stat();

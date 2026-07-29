@@ -450,6 +450,36 @@ describe("production email send CLI", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("refuses a symlink that resolves outside the current directory", async () => {
+    const cwd = await temporaryDirectory();
+    const outside = await temporaryDirectory();
+    await writeFile(join(outside, "private.txt"), "outside body");
+    await symlink(
+      join(outside, "private.txt"),
+      join(cwd, "outside-link.txt"),
+    );
+    const fetchMock = vi.fn<typeof fetch>();
+
+    await expect(
+      runCli(
+        [
+          "emails",
+          "send",
+          "--from",
+          "sender@example.com",
+          "--to",
+          "recipient@example.net",
+          "--subject",
+          "symlink",
+          "--text-file",
+          "outside-link.txt",
+        ],
+        { cwd, fetch: fetchMock, io: capturingIo().io },
+      ),
+    ).rejects.toThrow("inside the current directory");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("refuses unsafe or inconsistent upload contracts before uploading bytes", async () => {
     const cwd = await temporaryDirectory();
     const content = Buffer.from("private attachment");
