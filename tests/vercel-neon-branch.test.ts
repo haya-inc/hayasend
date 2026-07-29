@@ -1,15 +1,7 @@
-import { spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  mkdtemp,
-  readFile,
-  stat,
-  writeFile,
-} from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runNeonBranch } from "../deploy/vercel/neon-branch.mjs";
 
 const PROJECT_ID = "test-project-123";
 const PROJECT_NAME = "hayasend-general-purpose-test";
@@ -25,9 +17,7 @@ const DATABASE_URI =
   "ep-hayasend-pooler.ap-southeast-1.aws.neon.tech/" +
   "hayasend?sslmode=require&channel_binding=require";
 
-const requestJson = async (
-  request: IncomingMessage,
-): Promise<unknown> => {
+const requestJson = async (request: IncomingMessage): Promise<unknown> => {
   const chunks: Buffer[] = [];
   request.on("data", (chunk: Buffer) => chunks.push(chunk));
   await once(request, "end");
@@ -44,6 +34,7 @@ type ServerState = {
 const servers: ReturnType<typeof createServer>[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     servers.splice(0).map(
       (server) =>
@@ -94,8 +85,7 @@ function createApi(state: ServerState) {
     }
     if (
       request.method === "GET" &&
-      url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/branches/${PARENT_ID}`
+      url.pathname === `/api/v2/projects/${PROJECT_ID}/branches/${PARENT_ID}`
     ) {
       response.end(
         JSON.stringify({
@@ -168,13 +158,10 @@ function createApi(state: ServerState) {
     }
     if (
       request.method === "GET" &&
-      url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/branches/${BRANCH_ID}`
+      url.pathname === `/api/v2/projects/${PROJECT_ID}/branches/${BRANCH_ID}`
     ) {
       if (!state.branchExists) {
-        response.writeHead(404).end(
-          JSON.stringify({ error: "not found" }),
-        );
+        response.writeHead(404).end(JSON.stringify({ error: "not found" }));
       } else {
         response.end(JSON.stringify({ branch: branch() }));
       }
@@ -182,8 +169,7 @@ function createApi(state: ServerState) {
     }
     if (
       request.method === "GET" &&
-      url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/endpoints/${ENDPOINT_ID}`
+      url.pathname === `/api/v2/projects/${PROJECT_ID}/endpoints/${ENDPOINT_ID}`
     ) {
       response.end(
         JSON.stringify({
@@ -203,8 +189,7 @@ function createApi(state: ServerState) {
     }
     if (
       request.method === "GET" &&
-      url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/connection_uri`
+      url.pathname === `/api/v2/projects/${PROJECT_ID}/connection_uri`
     ) {
       expect(url.searchParams.get("branch_id")).toBe(BRANCH_ID);
       expect(url.searchParams.get("endpoint_id")).toBe(ENDPOINT_ID);
@@ -216,8 +201,7 @@ function createApi(state: ServerState) {
     }
     if (
       request.method === "DELETE" &&
-      url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/branches/${BRANCH_ID}`
+      url.pathname === `/api/v2/projects/${PROJECT_ID}/branches/${BRANCH_ID}`
     ) {
       expect(url.searchParams.get("hard_delete")).toBe("true");
       state.hardDeletes += 1;
@@ -237,68 +221,58 @@ function createApi(state: ServerState) {
   return server;
 }
 
-async function run(
-  script: "create" | "verify" | "delete",
-  origin: string,
-  directory: string,
-) {
-  const child = spawn(
-    process.execPath,
-    [
-      resolve(
-        `deploy/vercel/neon-branch-${script}.mjs`,
-      ),
-    ],
-    {
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        NEON_API_ORIGIN: origin,
-        NEON_API_KEY:
-          "neon_test_api_key_12345678901234567890",
-        NEON_PROJECT_ID: PROJECT_ID,
-        NEON_TEST_PROJECT_NAME: PROJECT_NAME,
-        NEON_TEST_ORG_ID: ORGANIZATION_ID,
-        NEON_TEST_REGION_ID: REGION_ID,
-        NEON_PARENT_BRANCH_ID: PARENT_ID,
-        NEON_PARENT_BRANCH_NAME: "main",
-        NEON_BRANCH_NAME: BRANCH_NAME,
-        NEON_DATABASE_NAME: "hayasend",
-        NEON_ROLE_NAME: "hayasend",
-        NEON_BRANCH_ID_FILE: resolve(directory, "branch-id"),
-        NEON_DATABASE_URL_FILE: resolve(
-          directory,
-          "database-url",
-        ),
-        NEON_EVIDENCE_FILE: resolve(
-          directory,
-          `${script}-evidence.json`,
-        ),
-        NEON_ALLOW_HARD_DELETE:
-          script === "delete" ? BRANCH_NAME : undefined,
-        NEON_POLL_INTERVAL_MS: "1",
-        NEON_MAX_WAIT_MS: "500",
+async function run(script: "create" | "verify" | "delete", origin: string) {
+  vi.stubEnv("NEON_API_KEY", "neon_test_api_key_12345678901234567890");
+  vi.stubEnv("NEON_PROJECT_ID", PROJECT_ID);
+  vi.stubEnv("NEON_TEST_PROJECT_NAME", PROJECT_NAME);
+  vi.stubEnv("NEON_TEST_ORG_ID", ORGANIZATION_ID);
+  vi.stubEnv("NEON_TEST_REGION_ID", REGION_ID);
+  vi.stubEnv("NEON_PARENT_BRANCH_ID", PARENT_ID);
+  vi.stubEnv("NEON_PARENT_BRANCH_NAME", "main");
+  vi.stubEnv("NEON_BRANCH_NAME", BRANCH_NAME);
+  vi.stubEnv("NEON_DATABASE_NAME", "hayasend");
+  vi.stubEnv("NEON_ROLE_NAME", "hayasend");
+  if (script === "delete") {
+    vi.stubEnv("NEON_ALLOW_HARD_DELETE", BRANCH_NAME);
+  }
+  let stdout = "";
+  let credential;
+  let error;
+  try {
+    credential = await runNeonBranch(script, {
+      fetch: (input: URL | RequestInfo, init?: RequestInit) => {
+        const target = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+        );
+        expect(target.origin).toBe("https://console.neon.tech");
+        const rewritten = new URL(origin);
+        rewritten.pathname = target.pathname;
+        rewritten.search = target.search;
+        return fetch(rewritten, init);
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  const [code] = (await once(child, "exit")) as [number];
+      maxWaitMs: 500,
+      pollIntervalMs: 1,
+      writeEvidence: (serialized: string) => {
+        stdout += serialized;
+      },
+    });
+  } catch (caught) {
+    error = caught;
+  }
   return {
-    code,
-    stdout: Buffer.concat(stdout).toString("utf8"),
-    stderr: Buffer.concat(stderr).toString("utf8"),
+    code: error ? 1 : 0,
+    credential,
+    stdout,
+    stderr: error instanceof Error ? error.message : "",
   };
 }
 
 describe("Vercel Neon ephemeral branch lifecycle", () => {
   it("creates, verifies, and hard-deletes one exact PostgreSQL 18 branch", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-neon-test-"),
-    );
     const state: ServerState = {
       branchExists: false,
       createBodies: [],
@@ -314,8 +288,9 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
     }
     const origin = `http://127.0.0.1:${address.port}`;
 
-    const created = await run("create", origin, directory);
+    const created = await run("create", origin);
     expect(created).toMatchObject({ code: 0, stderr: "" });
+    expect(created.credential).toBe(DATABASE_URI);
     expect(state.createBodies).toEqual([
       {
         branch: {
@@ -333,15 +308,6 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
         ],
       },
     ]);
-    expect(await readFile(resolve(directory, "branch-id"), "utf8")).toBe(
-      `${BRANCH_ID}\n`,
-    );
-    expect(
-      await readFile(resolve(directory, "database-url"), "utf8"),
-    ).toBe(`${DATABASE_URI}\n`);
-    expect((await stat(resolve(directory, "database-url"))).mode & 0o777).toBe(
-      0o600,
-    );
     expect(created.stdout).not.toContain(DATABASE_URI);
     expect(created.stdout).not.toContain(PROJECT_ID);
     expect(created.stdout).not.toContain(BRANCH_ID);
@@ -355,7 +321,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
       parent_protected: true,
     });
 
-    const verified = await run("verify", origin, directory);
+    const verified = await run("verify", origin);
     expect(verified).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(verified.stdout)).toMatchObject({
       object: "neon_ephemeral_branch",
@@ -363,7 +329,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
       branch_name: BRANCH_NAME,
     });
 
-    const deleted = await run("delete", origin, directory);
+    const deleted = await run("delete", origin);
     expect(deleted).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(deleted.stdout)).toMatchObject({
       object: "neon_ephemeral_branch",
@@ -374,18 +340,9 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
     });
     expect(state.hardDeletes).toBe(1);
     expect(state.includeDeletedReads).toBeGreaterThanOrEqual(3);
-    await expect(
-      readFile(resolve(directory, "branch-id"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      readFile(resolve(directory, "database-url"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("fails closed before mutation when the parent branch is not protected", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-neon-test-"),
-    );
     const state: ServerState = {
       branchExists: false,
       createBodies: [],
@@ -409,8 +366,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
           }),
         );
       } else if (
-        url.pathname ===
-        `/api/v2/projects/${PROJECT_ID}/branches/${PARENT_ID}`
+        url.pathname === `/api/v2/projects/${PROJECT_ID}/branches/${PARENT_ID}`
       ) {
         response.end(
           JSON.stringify({
@@ -437,11 +393,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
       throw new Error("Expected local test server address.");
     }
 
-    const result = await run(
-      "create",
-      `http://127.0.0.1:${address.port}`,
-      directory,
-    );
+    const result = await run("create", `http://127.0.0.1:${address.port}`);
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain(
       "not the exact protected, ready default branch",
@@ -449,20 +401,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
     expect(state.createBodies).toEqual([]);
   });
 
-  it("converges when the remote branch is already absent but private files remain", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-neon-test-"),
-    );
-    await writeFile(
-      resolve(directory, "branch-id"),
-      `${BRANCH_ID}\n`,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      resolve(directory, "database-url"),
-      `${DATABASE_URI}\n`,
-      { mode: 0o600 },
-    );
+  it("converges when the remote branch is already absent", async () => {
     const state: ServerState = {
       branchExists: false,
       createBodies: [],
@@ -477,11 +416,7 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
       throw new Error("Expected local test server address.");
     }
 
-    const result = await run(
-      "delete",
-      `http://127.0.0.1:${address.port}`,
-      directory,
-    );
+    const result = await run("delete", `http://127.0.0.1:${address.port}`);
     expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(result.stdout)).toMatchObject({
       object: "neon_ephemeral_branch",
@@ -491,10 +426,5 @@ describe("Vercel Neon ephemeral branch lifecycle", () => {
       include_deleted_inventory_absent: true,
     });
     expect(state.hardDeletes).toBe(0);
-    for (const filename of ["branch-id", "database-url"]) {
-      await expect(
-        readFile(resolve(directory, filename), "utf8"),
-      ).rejects.toMatchObject({ code: "ENOENT" });
-    }
   });
 });

@@ -123,14 +123,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
+          mkdir -p "$GITHUB_WORKSPACE/.hayasend-proof"
+          chmod 0700 "$GITHUB_WORKSPACE/.hayasend-proof"
           {
             echo "BLOB_READ_WRITE_TOKEN_FILE=$RUNNER_TEMP/vercel-blob-token"
             echo "CRON_SECRET_FILE=$RUNNER_TEMP/vercel-cron-secret"
             echo "HAYASEND_API_KEY_FILE=$RUNNER_TEMP/vercel-hayasend-api-key"
-            echo "HAYASEND_VERCEL_BLOB_STORE_ID_FILE=$RUNNER_TEMP/vercel-blob-store-id"
-            echo "HAYASEND_VERCEL_BLOB_TOKEN_FILE=$RUNNER_TEMP/vercel-blob-token"
-            echo "HAYASEND_VERCEL_PROJECT_ID_FILE=$RUNNER_TEMP/vercel-project-id"
-            echo "NEON_BRANCH_ID_FILE=$RUNNER_TEMP/neon-branch-id"
+            echo "HAYASEND_VERCEL_PROJECT_ID_OUTPUT=$RUNNER_TEMP/vercel-project-id"
             echo "NEON_DATABASE_URL_FILE=$RUNNER_TEMP/neon-database-url"
           } >> "$GITHUB_ENV"
 
@@ -166,12 +166,14 @@ jobs:
       - name: Create and verify one disposable Vercel project
         id: project_created
         shell: bash
-        env:
-          HAYASEND_VERCEL_PROJECT_EVIDENCE_FILE: ${{ runner.temp }}/vercel-project-created.json
         run: |
           set -euo pipefail
-          node deploy/vercel/project-create.mjs
-          project_id="$(<"$HAYASEND_VERCEL_PROJECT_ID_FILE")"
+          umask 077
+          node deploy/vercel/project-create.mjs \
+            > "$HAYASEND_VERCEL_PROJECT_ID_OUTPUT" \
+            2> "$RUNNER_TEMP/vercel-project-created.json"
+          chmod 0600 "$HAYASEND_VERCEL_PROJECT_ID_OUTPUT"
+          project_id="$(<"$HAYASEND_VERCEL_PROJECT_ID_OUTPUT")"
           echo "HAYASEND_VERCEL_PROJECT_ID=$project_id" >> "$GITHUB_ENV"
           vercel link \
             --yes \
@@ -179,8 +181,8 @@ jobs:
             --project "$project_id" \
             --non-interactive \
             --no-color
-          HAYASEND_VERCEL_PROJECT_EVIDENCE_FILE="$RUNNER_TEMP/vercel-project-verified.json" \
-            node deploy/vercel/project-verify.mjs
+          node deploy/vercel/project-verify.mjs \
+            > "$RUNNER_TEMP/vercel-project-verified.json"
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
       - name: Mark the Blob lifecycle as started
@@ -192,13 +194,12 @@ jobs:
       - name: Create and connect one production-only private Blob store
         id: blob_created
         shell: bash
-        env:
-          HAYASEND_VERCEL_BLOB_EVIDENCE_FILE: ${{ runner.temp }}/vercel-blob-created.json
         run: |
           set -euo pipefail
-          node deploy/vercel/blob-store-create.mjs
-          production_env="$RUNNER_TEMP/vercel-production.env"
           umask 077
+          node deploy/vercel/blob-store-create.mjs \
+            > "$RUNNER_TEMP/vercel-blob-created.json"
+          production_env="$GITHUB_WORKSPACE/.hayasend-proof/vercel-production.env"
           vercel env pull "$production_env" \
             --environment production \
             --project "$HAYASEND_VERCEL_PROJECT_ID" \
@@ -206,13 +207,13 @@ jobs:
             --non-interactive \
             --no-color
           node deploy/vercel/extract-production-blob-token.mjs \
-            "$production_env" \
-            "$BLOB_READ_WRITE_TOKEN_FILE" \
+            3> "$BLOB_READ_WRITE_TOKEN_FILE" \
             > "$RUNNER_TEMP/vercel-blob-token-evidence.json"
+          chmod 0600 "$BLOB_READ_WRITE_TOKEN_FILE"
           blob_token="$(<"$BLOB_READ_WRITE_TOKEN_FILE")"
           echo "::add-mask::$blob_token"
-          HAYASEND_VERCEL_BLOB_EVIDENCE_FILE="$RUNNER_TEMP/vercel-blob-verified.json" \
-            node deploy/vercel/blob-store-verify.mjs
+          node deploy/vercel/blob-store-verify.mjs \
+            > "$RUNNER_TEMP/vercel-blob-verified.json"
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
       - name: Mark the Neon branch lifecycle as started
@@ -223,15 +224,17 @@ jobs:
       - name: Create and verify one ephemeral Neon PostgreSQL 18 branch
         id: neon_created
         shell: bash
-        env:
-          NEON_EVIDENCE_FILE: ${{ runner.temp }}/neon-branch-created.json
         run: |
           set -euo pipefail
-          node deploy/vercel/neon-branch-create.mjs
+          umask 077
+          node deploy/vercel/neon-branch-create.mjs \
+            > "$NEON_DATABASE_URL_FILE" \
+            2> "$RUNNER_TEMP/neon-branch-created.json"
+          chmod 0600 "$NEON_DATABASE_URL_FILE"
           database_url="$(<"$NEON_DATABASE_URL_FILE")"
           echo "::add-mask::$database_url"
-          NEON_EVIDENCE_FILE="$RUNNER_TEMP/neon-branch-verified.json" \
-            node deploy/vercel/neon-branch-verify.mjs
+          node deploy/vercel/neon-branch-verify.mjs \
+            > "$RUNNER_TEMP/neon-branch-verified.json"
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
       - name: Generate one-run application secrets
@@ -432,8 +435,6 @@ jobs:
         id: blob_emptied
         if: ${{ always() && steps.blob_attempt.outputs.attempted == 'true' }}
         shell: bash
-        env:
-          HAYASEND_VERCEL_BLOB_EVIDENCE_FILE: ${{ runner.temp }}/vercel-blob-empty.json
         run: |
           set -euo pipefail
           if [[ -f "$BLOB_READ_WRITE_TOKEN_FILE" ]]; then
@@ -457,7 +458,8 @@ jobs:
             printf '%s\n' "$after" \
               > "$RUNNER_TEMP/vercel-blob-final-inventory.json"
           fi
-          node deploy/vercel/blob-store-assert-empty.mjs
+          node deploy/vercel/blob-store-assert-empty.mjs \
+            > "$RUNNER_TEMP/vercel-blob-empty.json"
           echo "empty=true" >> "$GITHUB_OUTPUT"
 
       - name: Delete the exact private Blob store
@@ -467,10 +469,10 @@ jobs:
         env:
           HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}-attachments
           HAYASEND_VERCEL_BLOB_EMPTY: "true"
-          HAYASEND_VERCEL_BLOB_EVIDENCE_FILE: ${{ runner.temp }}/vercel-blob-deleted.json
         run: |
           set -euo pipefail
-          node deploy/vercel/blob-store-delete.mjs
+          node deploy/vercel/blob-store-delete.mjs \
+            > "$RUNNER_TEMP/vercel-blob-deleted.json"
           echo "deleted=true" >> "$GITHUB_OUTPUT"
 
       - name: Hard-delete the exact ephemeral Neon branch
@@ -478,16 +480,37 @@ jobs:
         shell: bash
         env:
           NEON_ALLOW_HARD_DELETE: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
-          NEON_EVIDENCE_FILE: ${{ runner.temp }}/neon-branch-deleted.json
-        run: node deploy/vercel/neon-branch-delete.mjs
+        run: |
+          node deploy/vercel/neon-branch-delete.mjs \
+            > "$RUNNER_TEMP/neon-branch-deleted.json"
 
       - name: Delete the exact disposable Vercel project
         if: ${{ always() && steps.lifecycle_attempt.outputs.attempted == 'true' && (steps.blob_attempt.outputs.attempted != 'true' || steps.blob_deleted.outputs.deleted == 'true') }}
         shell: bash
         env:
           HAYASEND_VERCEL_DELETE_CONFIRMATION: hayasend-vercel-${{ github.run_id }}-${{ github.run_attempt }}
-          HAYASEND_VERCEL_PROJECT_EVIDENCE_FILE: ${{ runner.temp }}/vercel-project-deleted.json
-        run: node deploy/vercel/project-delete.mjs
+        run: |
+          node deploy/vercel/project-delete.mjs \
+            > "$RUNNER_TEMP/vercel-project-deleted.json"
+
+      - name: Remove private one-run local state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for private_file in \
+            "${BLOB_READ_WRITE_TOKEN_FILE:-}" \
+            "${CRON_SECRET_FILE:-}" \
+            "${HAYASEND_API_KEY_FILE:-}" \
+            "${HAYASEND_VERCEL_PROJECT_ID_OUTPUT:-}" \
+            "${NEON_DATABASE_URL_FILE:-}" \
+            "$GITHUB_WORKSPACE/.hayasend-proof/vercel-production.env"; do
+            if [[ -f "$private_file" ]]; then
+              : > "$private_file"
+              rm -f -- "$private_file"
+            fi
+          done
+          rmdir "$GITHUB_WORKSPACE/.hayasend-proof" 2>/dev/null || true
 
       - name: Upload privacy-safe proof evidence
         if: ${{ always() }}

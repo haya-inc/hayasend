@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
-import {
-  chmod,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { pathToFileURL } from "node:url";
 
 const PRODUCTION_API_ORIGIN = "https://api.vercel.com";
+const PRODUCTION_POLL_INTERVAL_MS = 2_000;
+const PRODUCTION_MAX_WAIT_MS = 120_000;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 function required(name) {
@@ -23,21 +18,12 @@ function inputs() {
     token: required("VERCEL_TOKEN"),
     organizationId: required("HAYASEND_VERCEL_ORG_ID"),
     projectName: required("HAYASEND_VERCEL_PROJECT_NAME"),
-    projectIdFile: required("HAYASEND_VERCEL_PROJECT_ID_FILE"),
     storeName: required("HAYASEND_VERCEL_BLOB_STORE_NAME"),
-    storeIdFile: required("HAYASEND_VERCEL_BLOB_STORE_ID_FILE"),
-    tokenFile: process.env.HAYASEND_VERCEL_BLOB_TOKEN_FILE,
-    evidenceFile:
-      process.env.HAYASEND_VERCEL_BLOB_EVIDENCE_FILE,
   };
   if (!/^team_[A-Za-z0-9]{8,64}$/.test(result.organizationId)) {
     throw new Error("HAYASEND_VERCEL_ORG_ID has an invalid format.");
   }
-  if (
-    !/^hayasend-vercel-[a-z0-9][a-z0-9-]{0,62}$/.test(
-      result.projectName,
-    )
-  ) {
+  if (!/^hayasend-vercel-[a-z0-9][a-z0-9-]{0,62}$/.test(result.projectName)) {
     throw new Error("HAYASEND_VERCEL_PROJECT_NAME is invalid.");
   }
   if (result.storeName !== `${result.projectName}-attachments`) {
@@ -45,48 +31,48 @@ function inputs() {
       "HAYASEND_VERCEL_BLOB_STORE_NAME must be the exact project-scoped attachment store name.",
     );
   }
-  if (result.token.length < 24 || result.token.length > 4_096) {
+  if (
+    result.token.length < 24 ||
+    result.token.length > 4_096 ||
+    /[\u0000-\u001f\u007f]/.test(result.token)
+  ) {
     throw new Error("VERCEL_TOKEN must contain 24 to 4096 characters.");
   }
   return result;
 }
 
-function apiOrigin() {
-  const configured = process.env.VERCEL_API_ORIGIN;
-  if (!configured) {
-    return PRODUCTION_API_ORIGIN;
+function runtime(options = {}) {
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  const pollIntervalMs = options.pollIntervalMs ?? PRODUCTION_POLL_INTERVAL_MS;
+  const maxWaitMs = options.maxWaitMs ?? PRODUCTION_MAX_WAIT_MS;
+  const writeEvidence =
+    options.writeEvidence ?? ((serialized) => process.stdout.write(serialized));
+  if (typeof fetchImplementation !== "function") {
+    throw new Error("A Fetch-compatible implementation is required.");
   }
   if (
-    process.env.NODE_ENV !== "test" ||
-    !/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(configured)
+    !Number.isInteger(pollIntervalMs) ||
+    pollIntervalMs < 1 ||
+    pollIntervalMs > PRODUCTION_POLL_INTERVAL_MS
   ) {
-    throw new Error(
-      "VERCEL_API_ORIGIN may only select loopback HTTP under NODE_ENV=test.",
-    );
+    throw new Error("The Vercel Blob poll interval is invalid.");
   }
-  return configured;
-}
-
-function pollInterval() {
-  if (process.env.NODE_ENV !== "test") {
-    return 2_000;
+  if (
+    !Number.isInteger(maxWaitMs) ||
+    maxWaitMs < 100 ||
+    maxWaitMs > PRODUCTION_MAX_WAIT_MS
+  ) {
+    throw new Error("The Vercel Blob maximum wait is invalid.");
   }
-  const value = Number(process.env.VERCEL_POLL_INTERVAL_MS ?? 5);
-  if (!Number.isInteger(value) || value < 1 || value > 1_000) {
-    throw new Error("VERCEL_POLL_INTERVAL_MS is invalid.");
+  if (typeof writeEvidence !== "function") {
+    throw new Error("A Vercel Blob evidence writer is required.");
   }
-  return value;
-}
-
-function maxWait() {
-  if (process.env.NODE_ENV !== "test") {
-    return 120_000;
-  }
-  const value = Number(process.env.VERCEL_MAX_WAIT_MS ?? 5_000);
-  if (!Number.isInteger(value) || value < 100 || value > 10_000) {
-    throw new Error("VERCEL_MAX_WAIT_MS is invalid.");
-  }
-  return value;
+  return {
+    fetch: fetchImplementation,
+    maxWaitMs,
+    pollIntervalMs,
+    writeEvidence,
+  };
 }
 
 function sleep(milliseconds) {
@@ -94,13 +80,14 @@ function sleep(milliseconds) {
 }
 
 function apiUrl(pathname, organizationId) {
-  const url = new URL(pathname, apiOrigin());
+  const url = new URL(pathname, PRODUCTION_API_ORIGIN);
   url.searchParams.set("teamId", organizationId);
   return url;
 }
 
 async function request(
   config,
+  execution,
   method,
   pathname,
   {
@@ -113,7 +100,7 @@ async function request(
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let response;
     try {
-      response = await fetch(
+      response = await execution.fetch(
         apiUrl(pathname, config.organizationId),
         {
           method,
@@ -135,7 +122,7 @@ async function request(
           { cause: error },
         );
       }
-      await sleep(pollInterval() * attempt);
+      await sleep(execution.pollIntervalMs * attempt);
       continue;
     }
     if (allowNotFound && response.status === 404) {
@@ -153,7 +140,7 @@ async function request(
       attempt < attempts
     ) {
       await response.arrayBuffer();
-      await sleep(pollInterval() * attempt);
+      await sleep(execution.pollIntervalMs * attempt);
       continue;
     }
     await response.arrayBuffer();
@@ -168,46 +155,15 @@ async function request(
   throw new Error("Vercel Blob request exhausted its retry policy.");
 }
 
-async function readId(path, type) {
-  try {
-    const value = (await readFile(path, "utf8")).trim();
-    const pattern =
-      type === "project"
-        ? /^prj_[A-Za-z0-9]{8,64}$/
-        : /^store_[A-Za-z0-9]{16}$/;
-    if (!pattern.test(value)) {
-      throw new Error(`The recorded Vercel ${type} ID is invalid.`);
-    }
-    return value;
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      throw error;
-    }
-    return undefined;
-  }
-}
-
-async function writePrivate(path, value) {
-  await writeFile(path, value, {
-    encoding: "utf8",
-    flag: "wx",
-    mode: 0o600,
-  });
-  await chmod(path, 0o600);
-}
-
-async function project(config) {
-  const projectId = await readId(config.projectIdFile, "project");
-  if (!projectId) {
-    throw new Error("The recorded Vercel project ID is absent.");
-  }
+async function project(config, execution) {
   const value = await request(
     config,
+    execution,
     "GET",
-    `/v9/projects/${encodeURIComponent(projectId)}`,
+    `/v9/projects/${encodeURIComponent(config.projectName)}`,
   );
   if (
-    value?.id !== projectId ||
+    !/^prj_[A-Za-z0-9]{8,64}$/.test(value?.id ?? "") ||
     value?.name !== config.projectName ||
     value?.accountId !== config.organizationId
   ) {
@@ -216,9 +172,10 @@ async function project(config) {
   return value;
 }
 
-async function stores(config) {
+async function stores(config, execution) {
   const response = await request(
     config,
+    execution,
     "GET",
     "/v1/storage/stores",
   );
@@ -241,8 +198,7 @@ function assertStore(config, store, expectedId) {
     store.region !== "hnd1" ||
     store.access !== "private" ||
     (store.type !== undefined && store.type !== "blob") ||
-    (store.billingState !== undefined &&
-      store.billingState !== "active")
+    (store.billingState !== undefined && store.billingState !== "active")
   ) {
     throw new Error(
       "The Vercel Blob store does not match the exact private hnd1 proof store.",
@@ -250,9 +206,10 @@ function assertStore(config, store, expectedId) {
   }
 }
 
-async function storeById(config, id, allowNotFound = false) {
+async function storeById(config, execution, id, allowNotFound = false) {
   const response = await request(
     config,
+    execution,
     "GET",
     `/v1/storage/stores/${encodeURIComponent(id)}`,
     { allowNotFound },
@@ -260,9 +217,10 @@ async function storeById(config, id, allowNotFound = false) {
   return response?.store;
 }
 
-async function connections(config, id) {
+async function connections(config, execution, id) {
   const response = await request(
     config,
+    execution,
     "GET",
     `/v1/storage/stores/${encodeURIComponent(id)}/connections`,
   );
@@ -292,21 +250,14 @@ function hash(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function evidence(config, value) {
+async function evidence(execution, value) {
   const serialized = `${JSON.stringify(value)}\n`;
-  if (config.evidenceFile) {
-    await writeFile(config.evidenceFile, serialized, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    await chmod(config.evidenceFile, 0o600);
-  }
-  process.stdout.write(serialized);
+  await execution.writeEvidence(serialized);
 }
 
-async function createStore(config) {
-  const exactProject = await project(config);
-  if ((await stores(config)).length !== 0) {
+async function createStore(config, execution) {
+  const exactProject = await project(config, execution);
+  if ((await stores(config, execution)).length !== 0) {
     throw new Error("The exact Vercel Blob proof store already exists.");
   }
 
@@ -314,6 +265,7 @@ async function createStore(config) {
   try {
     created = await request(
       config,
+      execution,
       "POST",
       "/v1/storage/stores/blob",
       {
@@ -326,21 +278,18 @@ async function createStore(config) {
       },
     );
   } catch (error) {
-    const resolved = await stores(config);
+    const resolved = await stores(config, execution);
     if (resolved.length === 1 && resolved[0]?.id) {
-      await writePrivate(
-        config.storeIdFile,
-        `${resolved[0].id}\n`,
-      );
+      assertStore(config, resolved[0]);
     }
     throw error;
   }
   const store = created?.store;
   assertStore(config, store);
-  await writePrivate(config.storeIdFile, `${store.id}\n`);
 
   await request(
     config,
+    execution,
     "POST",
     `/v1/storage/stores/${encodeURIComponent(store.id)}/connections`,
     {
@@ -353,12 +302,12 @@ async function createStore(config) {
     },
   );
   const [inspected, connectionList] = await Promise.all([
-    storeById(config, store.id),
-    connections(config, store.id),
+    storeById(config, execution, store.id),
+    connections(config, execution, store.id),
   ]);
   assertStore(config, inspected, store.id);
   assertConnection(connectionList, exactProject.id);
-  await evidence(config, {
+  await evidence(execution, {
     object: "vercel_private_blob_store",
     action: "created",
     project_id_sha256: hash(exactProject.id),
@@ -370,23 +319,20 @@ async function createStore(config) {
   });
 }
 
-async function verifyStore(config) {
-  const exactProject = await project(config);
-  const storeId = await readId(config.storeIdFile, "store");
-  if (!storeId) {
-    throw new Error("The recorded Vercel Blob store ID is absent.");
-  }
-  const [named, inspected, connectionList] = await Promise.all([
-    stores(config),
-    storeById(config, storeId),
-    connections(config, storeId),
-  ]);
-  if (named.length !== 1 || named[0]?.id !== storeId) {
+async function verifyStore(config, execution) {
+  const exactProject = await project(config, execution);
+  const named = await stores(config, execution);
+  if (named.length !== 1) {
     throw new Error("The exact Vercel Blob store name is not unique.");
   }
+  const storeId = named[0].id;
+  const [inspected, connectionList] = await Promise.all([
+    storeById(config, execution, storeId),
+    connections(config, execution, storeId),
+  ]);
   assertStore(config, inspected, storeId);
   assertConnection(connectionList, exactProject.id);
-  await evidence(config, {
+  await evidence(execution, {
     object: "vercel_private_blob_store",
     action: "verified",
     project_id_sha256: hash(exactProject.id),
@@ -398,15 +344,11 @@ async function verifyStore(config) {
   });
 }
 
-async function assertEmptyStore(config) {
-  const exactProject = await project(config);
-  const recordedId = await readId(config.storeIdFile, "store");
-  const named = await stores(config);
-  const inspected = recordedId
-    ? await storeById(config, recordedId, true)
-    : undefined;
-  if (!inspected && named.length === 0) {
-    await evidence(config, {
+async function assertEmptyStore(config, execution) {
+  const exactProject = await project(config, execution);
+  const named = await stores(config, execution);
+  if (named.length === 0) {
+    await evidence(execution, {
       object: "vercel_private_blob_store",
       action: "empty_absent",
       project_id_sha256: hash(exactProject.id),
@@ -419,22 +361,23 @@ async function assertEmptyStore(config) {
   }
   if (
     named.length !== 1 ||
-    !recordedId ||
-    named[0]?.id !== recordedId
+    !/^store_[A-Za-z0-9]{16}$/.test(named[0]?.id ?? "")
   ) {
     throw new Error("The exact Vercel Blob store is not unique.");
   }
-  assertStore(config, inspected, recordedId);
+  const storeId = named[0].id;
+  const inspected = await storeById(config, execution, storeId, true);
+  assertStore(config, inspected, storeId);
   if (inspected.count !== 0 || inspected.size !== 0) {
     throw new Error(
       "The exact Vercel Blob store API does not report zero objects and bytes.",
     );
   }
-  await evidence(config, {
+  await evidence(execution, {
     object: "vercel_private_blob_store",
     action: "empty_verified",
     project_id_sha256: hash(exactProject.id),
-    store_id_sha256: hash(recordedId),
+    store_id_sha256: hash(storeId),
     store_name: config.storeName,
     objects: 0,
     bytes: 0,
@@ -442,23 +385,9 @@ async function assertEmptyStore(config) {
   });
 }
 
-async function removeIfPresent(path) {
-  if (!path) {
-    return;
-  }
-  try {
-    await unlink(path);
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      throw error;
-    }
-  }
-}
-
-async function deleteStore(config) {
+async function deleteStore(config, execution) {
   if (
-    process.env.HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION !==
-    config.storeName
+    process.env.HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION !== config.storeName
   ) {
     throw new Error(
       "HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION must equal the exact store name.",
@@ -469,26 +398,14 @@ async function deleteStore(config) {
       "HAYASEND_VERCEL_BLOB_EMPTY=true is required after an independent object inventory.",
     );
   }
-  const exactProject = await project(config);
-  const recordedId = await readId(config.storeIdFile, "store");
-  const named = await stores(config);
+  const exactProject = await project(config, execution);
+  const named = await stores(config, execution);
   if (named.length > 1) {
     throw new Error("The exact Vercel Blob store name is ambiguous.");
   }
-  if (
-    recordedId &&
-    named.length === 1 &&
-    named[0]?.id !== recordedId
-  ) {
-    throw new Error(
-      "The recorded Vercel Blob store ID does not match its exact name.",
-    );
-  }
-  const storeId = recordedId ?? named[0]?.id;
+  const storeId = named[0]?.id;
   if (!storeId) {
-    await removeIfPresent(config.storeIdFile);
-    await removeIfPresent(config.tokenFile);
-    await evidence(config, {
+    await evidence(execution, {
       object: "vercel_private_blob_store",
       action: "absent",
       project_id_sha256: hash(exactProject.id),
@@ -497,23 +414,8 @@ async function deleteStore(config) {
     });
     return;
   }
-  const store = await storeById(config, storeId, true);
-  if (!store && named.length === 0) {
-    await removeIfPresent(config.storeIdFile);
-    await removeIfPresent(config.tokenFile);
-    await evidence(config, {
-      object: "vercel_private_blob_store",
-      action: "absent",
-      project_id_sha256: hash(exactProject.id),
-      store_id_sha256: hash(storeId),
-      store_name: config.storeName,
-      deleted: true,
-      id_inventory_absent: true,
-      name_inventory_absent: true,
-    });
-    return;
-  }
-  const connectionList = await connections(config, storeId);
+  const store = await storeById(config, execution, storeId, true);
+  const connectionList = await connections(config, execution, storeId);
   assertStore(config, store, storeId);
   if (store.count !== 0 || store.size !== 0) {
     throw new Error(
@@ -524,26 +426,26 @@ async function deleteStore(config) {
     assertConnection(connectionList, exactProject.id);
     await request(
       config,
+      execution,
       "DELETE",
       `/v1/storage/stores/${encodeURIComponent(storeId)}/connections`,
     );
   }
   await request(
     config,
+    execution,
     "DELETE",
     `/v1/storage/stores/blob/${encodeURIComponent(storeId)}`,
   );
 
-  const deadline = Date.now() + maxWait();
+  const deadline = Date.now() + execution.maxWaitMs;
   while (Date.now() < deadline) {
     const [remainingId, remainingNames] = await Promise.all([
-      storeById(config, storeId, true),
-      stores(config),
+      storeById(config, execution, storeId, true),
+      stores(config, execution),
     ]);
     if (!remainingId && remainingNames.length === 0) {
-      await removeIfPresent(config.storeIdFile);
-      await removeIfPresent(config.tokenFile);
-      await evidence(config, {
+      await evidence(execution, {
         object: "vercel_private_blob_store",
         action: "deleted",
         project_id_sha256: hash(exactProject.id),
@@ -557,33 +459,27 @@ async function deleteStore(config) {
       });
       return;
     }
-    await sleep(pollInterval());
+    await sleep(execution.pollIntervalMs);
   }
   throw new Error(
     "The exact Vercel Blob store remains visible after deletion.",
   );
 }
 
-export async function runBlobStoreLifecycle(action) {
+export async function runBlobStoreLifecycle(action, options) {
   const config = inputs();
+  const execution = runtime(options);
   if (action === "create") {
-    await createStore(config);
+    await createStore(config, execution);
   } else if (action === "verify") {
-    await verifyStore(config);
+    await verifyStore(config, execution);
   } else if (action === "assert-empty") {
-    await assertEmptyStore(config);
+    await assertEmptyStore(config, execution);
   } else if (action === "delete") {
-    await deleteStore(config);
+    await deleteStore(config, execution);
   } else {
     throw new Error(
       "Expected Vercel Blob action: create, verify, assert-empty, or delete.",
     );
   }
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  await runBlobStoreLifecycle(process.argv[2]);
 }

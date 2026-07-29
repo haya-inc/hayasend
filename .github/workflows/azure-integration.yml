@@ -345,8 +345,8 @@ jobs:
               --output tsv \
               > "$proof_log" || true
             if node scripts/extract-portable-hosted-proof.mjs \
-              "$proof_log" \
-              "$proof_file" >/dev/null 2>&1; then
+              <"$proof_log" \
+              >"$proof_file" 2>/dev/null; then
               proof_ready=true
               break
             fi

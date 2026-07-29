@@ -104,8 +104,8 @@ for _ in {1..60}; do
     '[.[] | .message // empty] | join("\n")' \
     "$raw_logs" >"$combined_logs"
   if node "$deployment_directory/../../scripts/extract-portable-hosted-proof.mjs" \
-    "$combined_logs" \
-    "$HAYASEND_RENDER_PROOF_FILE" >/dev/null 2>&1; then
+    <"$combined_logs" \
+    >"$HAYASEND_RENDER_PROOF_FILE" 2>/dev/null; then
     proof_ready=true
     break
   fi

@@ -100,10 +100,14 @@ claim that GitHub can enforce the final cloud invoice. The workflow:
 
 Only privacy-safe JSON evidence is uploaded. Database URLs, Blob tokens,
 application keys, Cron secrets, message bodies, addresses, and signed URLs are
-held in mode-0600 runner files and are never artifacts. Do not run this
-workflow until the two API tokens, account labels, cost/duration bounds, and
-reusable empty Neon test project have been reviewed. Its current status is
-**implemented and locally validated, but not executed**.
+transferred through redirected non-log channels, held only in mode-0600 runner
+files, and never uploaded as artifacts. The lifecycle helpers resolve remote
+resources from deterministic names and verified inventories instead of
+trusting local ID files. After remote cleanup, the workflow overwrites and
+removes every local credential and one-run state file. Do not run this workflow
+until the two API tokens, account labels, cost/duration bounds, and reusable
+empty Neon test project have been reviewed. Its current status is **implemented
+and locally validated, but not executed**.
 
 ## Manual isolated project
 

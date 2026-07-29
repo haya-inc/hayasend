@@ -127,8 +127,8 @@ for _ in {1..60}; do
     "$private_directory/logs.json" \
     >"$private_directory/logs.txt"
   if node "$pack_directory/../../scripts/extract-portable-hosted-proof.mjs" \
-    "$private_directory/logs.txt" \
-    "$HAYASEND_FLY_PROOF_FILE" >/dev/null 2>&1; then
+    <"$private_directory/logs.txt" \
+    >"$HAYASEND_FLY_PROOF_FILE" 2>/dev/null; then
     proof_ready=true
     break
   fi

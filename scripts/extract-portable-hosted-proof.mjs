@@ -1,13 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
-
-const [inputPath, outputPath] = process.argv.slice(2);
-if (!inputPath || !outputPath) {
-  throw new Error(
-    "Usage: node scripts/extract-portable-hosted-proof.mjs <log-text> <proof-json>",
-  );
+const chunks = [];
+for await (const chunk of process.stdin) {
+  chunks.push(chunk);
 }
+const source = Buffer.concat(chunks).toString("utf8");
 
-const source = await readFile(inputPath, "utf8");
 const proofs = [];
 
 function objectEnd(start) {
@@ -70,11 +66,4 @@ if (proofs.length !== 1) {
   );
 }
 
-await writeFile(
-  outputPath,
-  `${JSON.stringify(proofs[0], null, 2)}\n`,
-  {
-    encoding: "utf8",
-    mode: 0o600,
-  },
-);
+process.stdout.write(`${JSON.stringify(proofs[0], null, 2)}\n`);

@@ -1,15 +1,7 @@
-import { spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  mkdtemp,
-  readFile,
-  stat,
-  writeFile,
-} from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runProjectLifecycle } from "../deploy/vercel/project-lifecycle.mjs";
 
 const TEAM_ID = "team_1234567890abcdef";
 const TEAM_SLUG = "haya-company";
@@ -20,6 +12,7 @@ const TOKEN = "vercel_test_token_12345678901234567890";
 const servers: ReturnType<typeof createServer>[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     servers.splice(0).map(
       (server) =>
@@ -65,10 +58,7 @@ function createApi(state: State) {
     const url = new URL(request.url ?? "/", "http://localhost");
     response.setHeader("content-type", "application/json");
 
-    if (
-      request.method === "GET" &&
-      url.pathname === `/v2/teams/${TEAM_ID}`
-    ) {
+    if (request.method === "GET" && url.pathname === `/v2/teams/${TEAM_ID}`) {
       expect(url.searchParams.get("teamId")).toBeNull();
       response.end(
         JSON.stringify({
@@ -90,18 +80,15 @@ function createApi(state: State) {
         url.pathname === `/v9/projects/${PROJECT_NAME}`)
     ) {
       if (!state.exists) {
-        response.writeHead(404).end(
-          JSON.stringify({ error: { code: "not_found" } }),
-        );
+        response
+          .writeHead(404)
+          .end(JSON.stringify({ error: { code: "not_found" } }));
       } else {
         response.end(JSON.stringify(project()));
       }
       return;
     }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/v11/projects"
-    ) {
+    if (request.method === "POST" && url.pathname === "/v11/projects") {
       state.createBodies.push(await requestJson(request));
       state.exists = true;
       response.end(JSON.stringify(project()));
@@ -116,65 +103,62 @@ function createApi(state: State) {
       response.end(JSON.stringify({ id: PROJECT_ID }));
       return;
     }
-    response.writeHead(404).end(
-      JSON.stringify({ error: { code: "not_found" } }),
-    );
+    response
+      .writeHead(404)
+      .end(JSON.stringify({ error: { code: "not_found" } }));
   });
   servers.push(server);
   return server;
 }
 
-async function run(
-  action: "create" | "verify" | "delete",
-  origin: string,
-  directory: string,
-) {
-  const child = spawn(
-    process.execPath,
-    [resolve(`deploy/vercel/project-${action}.mjs`)],
-    {
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        VERCEL_API_ORIGIN: origin,
-        VERCEL_TOKEN: TOKEN,
-        HAYASEND_VERCEL_ORG_ID: TEAM_ID,
-        HAYASEND_VERCEL_TEAM_SLUG: TEAM_SLUG,
-        HAYASEND_VERCEL_TEAM_PLAN: "pro",
-        HAYASEND_VERCEL_PROJECT_NAME: PROJECT_NAME,
-        HAYASEND_VERCEL_PROJECT_ID_FILE: resolve(
-          directory,
-          "project-id",
-        ),
-        HAYASEND_VERCEL_PROJECT_EVIDENCE_FILE: resolve(
-          directory,
-          `${action}-evidence.json`,
-        ),
-        HAYASEND_VERCEL_DELETE_CONFIRMATION:
-          action === "delete" ? PROJECT_NAME : undefined,
-        VERCEL_POLL_INTERVAL_MS: "1",
-        VERCEL_MAX_WAIT_MS: "500",
+async function run(action: "create" | "verify" | "delete", origin: string) {
+  vi.stubEnv("VERCEL_TOKEN", TOKEN);
+  vi.stubEnv("HAYASEND_VERCEL_ORG_ID", TEAM_ID);
+  vi.stubEnv("HAYASEND_VERCEL_TEAM_SLUG", TEAM_SLUG);
+  vi.stubEnv("HAYASEND_VERCEL_TEAM_PLAN", "pro");
+  vi.stubEnv("HAYASEND_VERCEL_PROJECT_NAME", PROJECT_NAME);
+  if (action === "delete") {
+    vi.stubEnv("HAYASEND_VERCEL_DELETE_CONFIRMATION", PROJECT_NAME);
+  }
+  let stdout = "";
+  let result;
+  let error;
+  try {
+    result = await runProjectLifecycle(action, {
+      fetch: (input: URL | RequestInfo, init?: RequestInit) => {
+        const target = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+        );
+        expect(target.origin).toBe("https://api.vercel.com");
+        const rewritten = new URL(origin);
+        rewritten.pathname = target.pathname;
+        rewritten.search = target.search;
+        return fetch(rewritten, init);
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  const [code] = (await once(child, "exit")) as [number];
+      maxWaitMs: 500,
+      pollIntervalMs: 1,
+      writeEvidence: (serialized: string) => {
+        stdout += serialized;
+      },
+    });
+  } catch (caught) {
+    error = caught;
+  }
   return {
-    code,
-    stdout: Buffer.concat(stdout).toString("utf8"),
-    stderr: Buffer.concat(stderr).toString("utf8"),
+    code: error ? 1 : 0,
+    error,
+    result,
+    stdout,
+    stderr: error instanceof Error ? error.message : "",
   };
 }
 
 describe("Vercel disposable project lifecycle", () => {
   it("creates, verifies, and removes one exact isolated Pro project", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-vercel-project-test-"),
-    );
     const state: State = {
       exists: false,
       createBodies: [],
@@ -189,8 +173,9 @@ describe("Vercel disposable project lifecycle", () => {
     }
     const origin = `http://127.0.0.1:${address.port}`;
 
-    const created = await run("create", origin, directory);
+    const created = await run("create", origin);
     expect(created).toMatchObject({ code: 0, stderr: "" });
+    expect(created.result).toBe(PROJECT_ID);
     expect(state.createBodies).toEqual([
       {
         name: PROJECT_NAME,
@@ -205,12 +190,6 @@ describe("Vercel disposable project lifecycle", () => {
         },
       },
     ]);
-    expect(
-      await readFile(resolve(directory, "project-id"), "utf8"),
-    ).toBe(`${PROJECT_ID}\n`);
-    expect((await stat(resolve(directory, "project-id"))).mode & 0o777).toBe(
-      0o600,
-    );
     expect(created.stdout).not.toContain(TEAM_ID);
     expect(created.stdout).not.toContain(PROJECT_ID);
     expect(JSON.parse(created.stdout)).toMatchObject({
@@ -225,7 +204,7 @@ describe("Vercel disposable project lifecycle", () => {
       git_repository_connected: false,
     });
 
-    const verified = await run("verify", origin, directory);
+    const verified = await run("verify", origin);
     expect(verified).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(verified.stdout)).toMatchObject({
       object: "vercel_disposable_project",
@@ -233,7 +212,7 @@ describe("Vercel disposable project lifecycle", () => {
       project_name: PROJECT_NAME,
     });
 
-    const deleted = await run("delete", origin, directory);
+    const deleted = await run("delete", origin);
     expect(deleted).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(deleted.stdout)).toMatchObject({
       object: "vercel_disposable_project",
@@ -244,15 +223,9 @@ describe("Vercel disposable project lifecycle", () => {
       name_inventory_absent: true,
     });
     expect(state.deleteCount).toBe(1);
-    await expect(
-      readFile(resolve(directory, "project-id"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("refuses creation outside an authenticated Pro team", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-vercel-project-test-"),
-    );
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://localhost");
       response.setHeader("content-type", "application/json");
@@ -277,26 +250,14 @@ describe("Vercel disposable project lifecycle", () => {
       throw new Error("Expected local server address.");
     }
 
-    const result = await run(
-      "create",
-      `http://127.0.0.1:${address.port}`,
-      directory,
-    );
+    const result = await run("create", `http://127.0.0.1:${address.port}`);
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain(
       "not an authorized member of the exact Pro test team",
     );
   });
 
-  it("converges when the remote project is already absent but its ID file remains", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-vercel-project-test-"),
-    );
-    await writeFile(
-      resolve(directory, "project-id"),
-      `${PROJECT_ID}\n`,
-      { mode: 0o600 },
-    );
+  it("converges when the remote project is already absent", async () => {
     const state: State = {
       exists: false,
       createBodies: [],
@@ -310,11 +271,7 @@ describe("Vercel disposable project lifecycle", () => {
       throw new Error("Expected local server address.");
     }
 
-    const result = await run(
-      "delete",
-      `http://127.0.0.1:${address.port}`,
-      directory,
-    );
+    const result = await run("delete", `http://127.0.0.1:${address.port}`);
     expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(result.stdout)).toMatchObject({
       object: "vercel_disposable_project",
@@ -323,8 +280,5 @@ describe("Vercel disposable project lifecycle", () => {
       deleted: true,
     });
     expect(state.deleteCount).toBe(0);
-    await expect(
-      readFile(resolve(directory, "project-id"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

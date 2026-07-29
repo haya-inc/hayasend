@@ -1,17 +1,9 @@
 import { createHash } from "node:crypto";
-import {
-  chmod,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { writeSync } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
+import { resolve } from "node:path";
 
-const [environmentFile, tokenFile] = process.argv.slice(2);
-if (!environmentFile || !tokenFile) {
-  throw new Error(
-    "Usage: node extract-production-blob-token.mjs <vercel-env-file> <token-file>",
-  );
-}
+const environmentFile = resolve(".hayasend-proof", "vercel-production.env");
 
 const source = await readFile(environmentFile, "utf8");
 const lines = source.split(/\r?\n/);
@@ -37,24 +29,20 @@ if (
   typeof token !== "string" ||
   token.length < 32 ||
   token.length > 4_096 ||
+  /[\u0000-\u001f\u007f]/.test(token) ||
   !token.includes("vercel_blob_rw_")
 ) {
   throw new Error("The pulled production Blob token is invalid.");
 }
 
-await writeFile(tokenFile, `${token}\n`, {
-  encoding: "utf8",
-  flag: "wx",
-  mode: 0o600,
-});
-await chmod(tokenFile, 0o600);
+writeSync(3, `${token}\n`, null, "utf8");
 await unlink(environmentFile);
 
 process.stdout.write(
   `${JSON.stringify({
     object: "vercel_blob_token_extraction",
     source_deleted: true,
-    token_file_mode: "0600",
+    credential_channel: "file_descriptor_3",
     token_sha256: createHash("sha256").update(token).digest("hex"),
   })}\n`,
 );

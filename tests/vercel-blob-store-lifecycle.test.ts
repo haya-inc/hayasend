@@ -1,15 +1,11 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  mkdtemp,
-  readFile,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runBlobStoreLifecycle } from "../deploy/vercel/blob-store-lifecycle.mjs";
 
 const TEAM_ID = "team_1234567890abcdef";
 const PROJECT_ID = "prj_1234567890abcdef";
@@ -21,6 +17,7 @@ const TOKEN = "vercel_test_token_12345678901234567890";
 const servers: ReturnType<typeof createServer>[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     servers.splice(0).map(
       (server) =>
@@ -69,7 +66,8 @@ function createApi(state: State) {
 
     if (
       request.method === "GET" &&
-      url.pathname === `/v9/projects/${PROJECT_ID}`
+      (url.pathname === `/v9/projects/${PROJECT_ID}` ||
+        url.pathname === `/v9/projects/${PROJECT_NAME}`)
     ) {
       response.end(
         JSON.stringify({
@@ -80,10 +78,7 @@ function createApi(state: State) {
       );
       return;
     }
-    if (
-      request.method === "GET" &&
-      url.pathname === "/v1/storage/stores"
-    ) {
+    if (request.method === "GET" && url.pathname === "/v1/storage/stores") {
       response.end(
         JSON.stringify({
           stores: state.exists ? [store()] : [],
@@ -113,8 +108,7 @@ function createApi(state: State) {
     }
     if (
       request.method === "GET" &&
-      url.pathname ===
-        `/v1/storage/stores/${STORE_ID}/connections`
+      url.pathname === `/v1/storage/stores/${STORE_ID}/connections`
     ) {
       response.end(
         JSON.stringify({
@@ -133,8 +127,7 @@ function createApi(state: State) {
     }
     if (
       request.method === "POST" &&
-      url.pathname ===
-        `/v1/storage/stores/${STORE_ID}/connections`
+      url.pathname === `/v1/storage/stores/${STORE_ID}/connections`
     ) {
       state.connectionBodies.push(await requestJson(request));
       state.connected = true;
@@ -143,8 +136,7 @@ function createApi(state: State) {
     }
     if (
       request.method === "DELETE" &&
-      url.pathname ===
-        `/v1/storage/stores/${STORE_ID}/connections`
+      url.pathname === `/v1/storage/stores/${STORE_ID}/connections`
     ) {
       state.deletedConnections += 1;
       state.connected = false;
@@ -166,76 +158,51 @@ function createApi(state: State) {
   return server;
 }
 
-async function run(
-  action: "create" | "verify" | "delete",
-  origin: string,
-  directory: string,
-) {
-  const child = spawn(
-    process.execPath,
-    [resolve(`deploy/vercel/blob-store-${action}.mjs`)],
-    {
-      env: {
-        ...process.env,
-        NODE_ENV: "test",
-        VERCEL_API_ORIGIN: origin,
-        VERCEL_TOKEN: TOKEN,
-        HAYASEND_VERCEL_ORG_ID: TEAM_ID,
-        HAYASEND_VERCEL_PROJECT_NAME: PROJECT_NAME,
-        HAYASEND_VERCEL_PROJECT_ID_FILE: resolve(
-          directory,
-          "project-id",
-        ),
-        HAYASEND_VERCEL_BLOB_STORE_NAME: STORE_NAME,
-        HAYASEND_VERCEL_BLOB_STORE_ID_FILE: resolve(
-          directory,
-          "store-id",
-        ),
-        HAYASEND_VERCEL_BLOB_TOKEN_FILE: resolve(
-          directory,
-          "blob-token",
-        ),
-        HAYASEND_VERCEL_BLOB_EVIDENCE_FILE: resolve(
-          directory,
-          `${action}-blob-evidence.json`,
-        ),
-        HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION:
-          action === "delete" ? STORE_NAME : undefined,
-        HAYASEND_VERCEL_BLOB_EMPTY:
-          action === "delete" ? "true" : undefined,
-        VERCEL_POLL_INTERVAL_MS: "1",
-        VERCEL_MAX_WAIT_MS: "500",
+async function run(action: "create" | "verify" | "delete", origin: string) {
+  vi.stubEnv("VERCEL_TOKEN", TOKEN);
+  vi.stubEnv("HAYASEND_VERCEL_ORG_ID", TEAM_ID);
+  vi.stubEnv("HAYASEND_VERCEL_PROJECT_NAME", PROJECT_NAME);
+  vi.stubEnv("HAYASEND_VERCEL_BLOB_STORE_NAME", STORE_NAME);
+  if (action === "delete") {
+    vi.stubEnv("HAYASEND_VERCEL_BLOB_DELETE_CONFIRMATION", STORE_NAME);
+    vi.stubEnv("HAYASEND_VERCEL_BLOB_EMPTY", "true");
+  }
+  let stdout = "";
+  let error;
+  try {
+    await runBlobStoreLifecycle(action, {
+      fetch: (input: URL | RequestInfo, init?: RequestInit) => {
+        const target = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+        );
+        expect(target.origin).toBe("https://api.vercel.com");
+        const rewritten = new URL(origin);
+        rewritten.pathname = target.pathname;
+        rewritten.search = target.search;
+        return fetch(rewritten, init);
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  const [code] = (await once(child, "exit")) as [number];
+      maxWaitMs: 500,
+      pollIntervalMs: 1,
+      writeEvidence: (serialized: string) => {
+        stdout += serialized;
+      },
+    });
+  } catch (caught) {
+    error = caught;
+  }
   return {
-    code,
-    stdout: Buffer.concat(stdout).toString("utf8"),
-    stderr: Buffer.concat(stderr).toString("utf8"),
+    code: error ? 1 : 0,
+    stdout,
+    stderr: error instanceof Error ? error.message : "",
   };
 }
 
 describe("Vercel private Blob store lifecycle", () => {
   it("creates, verifies, and removes one production-only private hnd1 store", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-vercel-blob-test-"),
-    );
-    await writeFile(
-      resolve(directory, "project-id"),
-      `${PROJECT_ID}\n`,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      resolve(directory, "blob-token"),
-      "vercel_blob_rw_test-token\n",
-      { mode: 0o600 },
-    );
     const state: State = {
       exists: false,
       connected: false,
@@ -253,7 +220,7 @@ describe("Vercel private Blob store lifecycle", () => {
     }
     const origin = `http://127.0.0.1:${address.port}`;
 
-    const created = await run("create", origin, directory);
+    const created = await run("create", origin);
     expect(created).toMatchObject({ code: 0, stderr: "" });
     expect(state.createBodies).toEqual([
       {
@@ -269,12 +236,6 @@ describe("Vercel private Blob store lifecycle", () => {
         type: "integration",
       },
     ]);
-    expect(
-      await readFile(resolve(directory, "store-id"), "utf8"),
-    ).toBe(`${STORE_ID}\n`);
-    expect((await stat(resolve(directory, "store-id"))).mode & 0o777).toBe(
-      0o600,
-    );
     expect(created.stdout).not.toContain(PROJECT_ID);
     expect(created.stdout).not.toContain(STORE_ID);
     expect(JSON.parse(created.stdout)).toMatchObject({
@@ -286,14 +247,14 @@ describe("Vercel private Blob store lifecycle", () => {
       production_only_connection: true,
     });
 
-    const verified = await run("verify", origin, directory);
+    const verified = await run("verify", origin);
     expect(verified).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(verified.stdout)).toMatchObject({
       object: "vercel_private_blob_store",
       action: "verified",
     });
 
-    const deleted = await run("delete", origin, directory);
+    const deleted = await run("delete", origin);
     expect(deleted).toMatchObject({ code: 0, stderr: "" });
     expect(state.deletedConnections).toBe(1);
     expect(state.deletedStores).toBe(1);
@@ -304,21 +265,16 @@ describe("Vercel private Blob store lifecycle", () => {
       bytes_before_delete: 0,
       deleted: true,
     });
-    for (const filename of ["store-id", "blob-token"]) {
-      await expect(
-        readFile(resolve(directory, filename), "utf8"),
-      ).rejects.toMatchObject({ code: "ENOENT" });
-    }
   });
 
   it("extracts one production token without printing it and deletes the source file", async () => {
     const directory = await mkdtemp(
       resolve(tmpdir(), "hayasend-vercel-env-test-"),
     );
-    const source = resolve(directory, "production.env");
-    const tokenFile = resolve(directory, "blob-token");
-    const blobToken =
-      "vercel_blob_rw_123456789012345678901234567890";
+    const proofDirectory = resolve(directory, ".hayasend-proof");
+    await mkdir(proofDirectory, { mode: 0o700 });
+    const source = resolve(proofDirectory, "vercel-production.env");
+    const blobToken = "vercel_blob_rw_123456789012345678901234567890";
     await writeFile(
       source,
       `# generated\nBLOB_READ_WRITE_TOKEN=${JSON.stringify(blobToken)}\n`,
@@ -326,19 +282,18 @@ describe("Vercel private Blob store lifecycle", () => {
     );
     const child = spawn(
       process.execPath,
-      [
-        resolve(
-          "deploy/vercel/extract-production-blob-token.mjs",
-        ),
-        source,
-        tokenFile,
-      ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      [resolve("deploy/vercel/extract-production-blob-token.mjs")],
+      {
+        cwd: directory,
+        stdio: ["ignore", "pipe", "pipe", "pipe"],
+      },
     );
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    const credential: Buffer[] = [];
+    child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.stdio[3]?.on("data", (chunk: Buffer) => credential.push(chunk));
     const [code] = (await once(child, "exit")) as [number];
     const output = Buffer.concat(stdout).toString("utf8");
 
@@ -348,34 +303,15 @@ describe("Vercel private Blob store lifecycle", () => {
     expect(JSON.parse(output)).toMatchObject({
       object: "vercel_blob_token_extraction",
       source_deleted: true,
-      token_file_mode: "0600",
+      credential_channel: "file_descriptor_3",
     });
-    expect(await readFile(tokenFile, "utf8")).toBe(`${blobToken}\n`);
-    expect((await stat(tokenFile)).mode & 0o777).toBe(0o600);
+    expect(Buffer.concat(credential).toString("utf8")).toBe(`${blobToken}\n`);
     await expect(readFile(source, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
   });
 
-  it("converges when the remote Blob store is already absent but local records remain", async () => {
-    const directory = await mkdtemp(
-      resolve(tmpdir(), "hayasend-vercel-blob-test-"),
-    );
-    await writeFile(
-      resolve(directory, "project-id"),
-      `${PROJECT_ID}\n`,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      resolve(directory, "store-id"),
-      `${STORE_ID}\n`,
-      { mode: 0o600 },
-    );
-    await writeFile(
-      resolve(directory, "blob-token"),
-      "vercel_blob_rw_test-token\n",
-      { mode: 0o600 },
-    );
+  it("converges when the remote Blob store is already absent", async () => {
     const state: State = {
       exists: false,
       connected: false,
@@ -392,26 +328,15 @@ describe("Vercel private Blob store lifecycle", () => {
       throw new Error("Expected local server address.");
     }
 
-    const result = await run(
-      "delete",
-      `http://127.0.0.1:${address.port}`,
-      directory,
-    );
+    const result = await run("delete", `http://127.0.0.1:${address.port}`);
     expect(result).toMatchObject({ code: 0, stderr: "" });
     expect(JSON.parse(result.stdout)).toMatchObject({
       object: "vercel_private_blob_store",
       action: "absent",
       store_name: STORE_NAME,
       deleted: true,
-      id_inventory_absent: true,
-      name_inventory_absent: true,
     });
     expect(state.deletedConnections).toBe(0);
     expect(state.deletedStores).toBe(0);
-    for (const filename of ["store-id", "blob-token"]) {
-      await expect(
-        readFile(resolve(directory, filename), "utf8"),
-      ).rejects.toMatchObject({ code: "ENOENT" });
-    }
   });
 });

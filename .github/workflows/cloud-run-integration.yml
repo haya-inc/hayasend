@@ -201,8 +201,8 @@ jobs:
               '[.[] | .textPayload // empty] | join("\n")' \
               <<<"$entries" > "$proof_logs"
             if node scripts/extract-portable-hosted-proof.mjs \
-              "$proof_logs" \
-              "$proof_file" >/dev/null 2>&1; then
+              <"$proof_logs" \
+              >"$proof_file" 2>/dev/null; then
               proof_ready=true
               break
             fi

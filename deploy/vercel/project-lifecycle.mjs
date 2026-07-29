@@ -1,11 +1,4 @@
 import { createHash } from "node:crypto";
-import {
-  chmod,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { pathToFileURL } from "node:url";
 
 const PRODUCTION_API_ORIGIN = "https://api.vercel.com";
 const PRODUCTION_POLL_INTERVAL_MS = 2_000;
@@ -27,8 +20,6 @@ function configuration() {
     teamSlug: required("HAYASEND_VERCEL_TEAM_SLUG"),
     teamPlan: required("HAYASEND_VERCEL_TEAM_PLAN"),
     projectName: required("HAYASEND_VERCEL_PROJECT_NAME"),
-    projectIdFile: required("HAYASEND_VERCEL_PROJECT_ID_FILE"),
-    evidenceFile: process.env.HAYASEND_VERCEL_PROJECT_EVIDENCE_FILE,
   };
   if (!/^team_[A-Za-z0-9]{8,64}$/.test(result.organizationId)) {
     throw new Error(
@@ -41,57 +32,53 @@ function configuration() {
   if (result.teamPlan !== "pro") {
     throw new Error("HAYASEND_VERCEL_TEAM_PLAN must equal pro.");
   }
-  if (
-    !/^hayasend-vercel-[a-z0-9][a-z0-9-]{0,62}$/.test(
-      result.projectName,
-    )
-  ) {
+  if (!/^hayasend-vercel-[a-z0-9][a-z0-9-]{0,62}$/.test(result.projectName)) {
     throw new Error(
       "HAYASEND_VERCEL_PROJECT_NAME must be an exact disposable proof name.",
     );
   }
-  if (result.token.length < 24 || result.token.length > 4_096) {
+  if (
+    result.token.length < 24 ||
+    result.token.length > 4_096 ||
+    /[\u0000-\u001f\u007f]/.test(result.token)
+  ) {
     throw new Error("VERCEL_TOKEN must contain 24 to 4096 characters.");
   }
   return result;
 }
 
-function apiOrigin() {
-  const configured = process.env.VERCEL_API_ORIGIN;
-  if (!configured) {
-    return PRODUCTION_API_ORIGIN;
+function runtime(options = {}) {
+  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  const pollIntervalMs = options.pollIntervalMs ?? PRODUCTION_POLL_INTERVAL_MS;
+  const maxWaitMs = options.maxWaitMs ?? PRODUCTION_MAX_WAIT_MS;
+  const writeEvidence =
+    options.writeEvidence ?? ((serialized) => process.stdout.write(serialized));
+  if (typeof fetchImplementation !== "function") {
+    throw new Error("A Fetch-compatible implementation is required.");
   }
   if (
-    process.env.NODE_ENV !== "test" ||
-    !/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(configured)
+    !Number.isInteger(pollIntervalMs) ||
+    pollIntervalMs < 1 ||
+    pollIntervalMs > PRODUCTION_POLL_INTERVAL_MS
   ) {
-    throw new Error(
-      "VERCEL_API_ORIGIN may only select loopback HTTP under NODE_ENV=test.",
-    );
+    throw new Error("The Vercel poll interval is invalid.");
   }
-  return configured;
-}
-
-function pollInterval() {
-  if (process.env.NODE_ENV !== "test") {
-    return PRODUCTION_POLL_INTERVAL_MS;
+  if (
+    !Number.isInteger(maxWaitMs) ||
+    maxWaitMs < 100 ||
+    maxWaitMs > PRODUCTION_MAX_WAIT_MS
+  ) {
+    throw new Error("The Vercel maximum wait is invalid.");
   }
-  const value = Number(process.env.VERCEL_POLL_INTERVAL_MS ?? 5);
-  if (!Number.isInteger(value) || value < 1 || value > 1_000) {
-    throw new Error("VERCEL_POLL_INTERVAL_MS is invalid.");
+  if (typeof writeEvidence !== "function") {
+    throw new Error("A Vercel evidence writer is required.");
   }
-  return value;
-}
-
-function maxWait() {
-  if (process.env.NODE_ENV !== "test") {
-    return PRODUCTION_MAX_WAIT_MS;
-  }
-  const value = Number(process.env.VERCEL_MAX_WAIT_MS ?? 5_000);
-  if (!Number.isInteger(value) || value < 100 || value > 10_000) {
-    throw new Error("VERCEL_MAX_WAIT_MS is invalid.");
-  }
-  return value;
+  return {
+    fetch: fetchImplementation,
+    maxWaitMs,
+    pollIntervalMs,
+    writeEvidence,
+  };
 }
 
 function sleep(milliseconds) {
@@ -99,7 +86,7 @@ function sleep(milliseconds) {
 }
 
 function apiUrl(pathname, query = {}) {
-  const url = new URL(pathname, apiOrigin());
+  const url = new URL(pathname, PRODUCTION_API_ORIGIN);
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined) {
       url.searchParams.set(key, String(value));
@@ -110,6 +97,7 @@ function apiUrl(pathname, query = {}) {
 
 async function request(
   config,
+  execution,
   method,
   pathname,
   {
@@ -123,7 +111,7 @@ async function request(
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let response;
     try {
-      response = await fetch(
+      response = await execution.fetch(
         apiUrl(pathname, {
           teamId: scoped ? config.organizationId : undefined,
         }),
@@ -147,7 +135,7 @@ async function request(
           { cause: error },
         );
       }
-      await sleep(pollInterval() * attempt);
+      await sleep(execution.pollIntervalMs * attempt);
       continue;
     }
     if (allowNotFound && response.status === 404) {
@@ -165,7 +153,7 @@ async function request(
       attempt < attempts
     ) {
       await response.arrayBuffer();
-      await sleep(pollInterval() * attempt);
+      await sleep(execution.pollIntervalMs * attempt);
       continue;
     }
     await response.arrayBuffer();
@@ -180,11 +168,12 @@ async function request(
   throw new Error("Vercel request exhausted its bounded retry policy.");
 }
 
-async function verifyTeam(config) {
+async function verifyTeam(config, execution) {
   const team = await request(
     config,
+    execution,
     "GET",
-    `/v2/teams/${config.organizationId}`,
+    `/v2/teams/${encodeURIComponent(config.organizationId)}`,
     { scoped: false },
   );
   if (
@@ -223,64 +212,36 @@ function assertProject(config, project, expectedId) {
   }
 }
 
-async function findProject(config, idOrName) {
+async function findProject(config, execution, idOrName) {
   return request(
     config,
+    execution,
     "GET",
     `/v9/projects/${encodeURIComponent(idOrName)}`,
     { allowNotFound: true },
   );
 }
 
-async function writePrivate(path, value) {
-  await writeFile(path, value, {
-    encoding: "utf8",
-    flag: "wx",
-    mode: 0o600,
-  });
-  await chmod(path, 0o600);
-}
-
-async function readProjectId(config) {
-  try {
-    const id = (await readFile(config.projectIdFile, "utf8")).trim();
-    if (!/^prj_[A-Za-z0-9]{8,64}$/.test(id)) {
-      throw new Error("The recorded Vercel project ID is invalid.");
-    }
-    return id;
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      throw error;
-    }
-    return undefined;
-  }
-}
-
 function hash(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function evidence(config, value) {
+async function evidence(execution, value) {
   const serialized = `${JSON.stringify(value)}\n`;
-  if (config.evidenceFile) {
-    await writeFile(config.evidenceFile, serialized, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    await chmod(config.evidenceFile, 0o600);
-  }
-  process.stdout.write(serialized);
+  await execution.writeEvidence(serialized);
 }
 
-async function createProject(config) {
-  await verifyTeam(config);
-  if ((await findProject(config, config.projectName)) !== undefined) {
+async function createProject(config, execution) {
+  await verifyTeam(config, execution);
+  if (
+    (await findProject(config, execution, config.projectName)) !== undefined
+  ) {
     throw new Error("The exact Vercel proof project already exists.");
   }
 
   let created;
   try {
-    created = await request(config, "POST", "/v11/projects", {
+    created = await request(config, execution, "POST", "/v11/projects", {
       retrySafe: false,
       body: {
         name: config.projectName,
@@ -298,18 +259,17 @@ async function createProject(config) {
   } catch (error) {
     // A create timeout is ambiguous. Never send a second POST: resolve the
     // deterministic name and record its exact ID for finally cleanup.
-    const resolved = await findProject(config, config.projectName);
+    const resolved = await findProject(config, execution, config.projectName);
     if (resolved?.id) {
-      await writePrivate(config.projectIdFile, `${resolved.id}\n`);
+      assertProject(config, resolved);
     }
     throw error;
   }
 
   assertProject(config, created);
-  await writePrivate(config.projectIdFile, `${created.id}\n`);
-  const inspected = await findProject(config, created.id);
+  const inspected = await findProject(config, execution, created.id);
   assertProject(config, inspected, created.id);
-  await evidence(config, {
+  await evidence(execution, {
     object: "vercel_disposable_project",
     action: "created",
     organization_id_sha256: hash(config.organizationId),
@@ -323,25 +283,20 @@ async function createProject(config) {
     production_api_public: true,
     git_repository_connected: false,
   });
+  return created.id;
 }
 
-async function verifyProject(config) {
-  await verifyTeam(config);
-  const projectId = await readProjectId(config);
-  if (!projectId) {
-    throw new Error("The recorded Vercel proof project ID is absent.");
-  }
-  const [byId, byName] = await Promise.all([
-    findProject(config, projectId),
-    findProject(config, config.projectName),
-  ]);
-  assertProject(config, byId, projectId);
-  assertProject(config, byName, projectId);
-  await evidence(config, {
+async function verifyProject(config, execution) {
+  await verifyTeam(config, execution);
+  const byName = await findProject(config, execution, config.projectName);
+  assertProject(config, byName);
+  const byId = await findProject(config, execution, byName.id);
+  assertProject(config, byId, byName.id);
+  await evidence(execution, {
     object: "vercel_disposable_project",
     action: "verified",
     organization_id_sha256: hash(config.organizationId),
-    project_id_sha256: hash(projectId),
+    project_id_sha256: hash(byName.id),
     project_name: config.projectName,
     team_plan: config.teamPlan,
     framework: "hono",
@@ -350,43 +305,16 @@ async function verifyProject(config) {
   });
 }
 
-async function removeProjectIdFile(config) {
-  try {
-    await unlink(config.projectIdFile);
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      throw error;
-    }
-  }
-}
-
-async function deleteProject(config) {
-  if (
-    process.env.HAYASEND_VERCEL_DELETE_CONFIRMATION !==
-    config.projectName
-  ) {
+async function deleteProject(config, execution) {
+  if (process.env.HAYASEND_VERCEL_DELETE_CONFIRMATION !== config.projectName) {
     throw new Error(
       "HAYASEND_VERCEL_DELETE_CONFIRMATION must equal the exact disposable project name.",
     );
   }
-  await verifyTeam(config);
-  const recordedId = await readProjectId(config);
-  const [byName, recordedProject] = await Promise.all([
-    findProject(config, config.projectName),
-    recordedId ? findProject(config, recordedId) : undefined,
-  ]);
-  if (
-    recordedId &&
-    byName &&
-    byName.id !== recordedId
-  ) {
-    throw new Error(
-      "The recorded Vercel project ID does not match its exact name.",
-    );
-  }
-  if (!recordedProject && !byName) {
-    await removeProjectIdFile(config);
-    await evidence(config, {
+  await verifyTeam(config, execution);
+  const byName = await findProject(config, execution, config.projectName);
+  if (!byName) {
+    await evidence(execution, {
       object: "vercel_disposable_project",
       action: "absent",
       organization_id_sha256: hash(config.organizationId),
@@ -395,30 +323,26 @@ async function deleteProject(config) {
     });
     return;
   }
-  const projectId = recordedId ?? byName?.id;
-  if (!projectId) {
-    throw new Error("Unable to resolve the exact Vercel project ID.");
-  }
-  const byId =
-    recordedProject ?? (await findProject(config, projectId));
+  const projectId = byName.id;
+  const byId = await findProject(config, execution, projectId);
   assertProject(config, byId, projectId);
   assertProject(config, byName, projectId);
 
   await request(
     config,
+    execution,
     "DELETE",
     `/v9/projects/${encodeURIComponent(projectId)}`,
   );
 
-  const deadline = Date.now() + maxWait();
+  const deadline = Date.now() + execution.maxWaitMs;
   while (Date.now() < deadline) {
     const [remainingId, remainingName] = await Promise.all([
-      findProject(config, projectId),
-      findProject(config, config.projectName),
+      findProject(config, execution, projectId),
+      findProject(config, execution, config.projectName),
     ]);
     if (!remainingId && !remainingName) {
-      await removeProjectIdFile(config);
-      await evidence(config, {
+      await evidence(execution, {
         object: "vercel_disposable_project",
         action: "deleted",
         organization_id_sha256: hash(config.organizationId),
@@ -430,29 +354,23 @@ async function deleteProject(config) {
       });
       return;
     }
-    await sleep(pollInterval());
+    await sleep(execution.pollIntervalMs);
   }
   throw new Error("The exact Vercel project remains visible after deletion.");
 }
 
-export async function runProjectLifecycle(action) {
+export async function runProjectLifecycle(action, options) {
   const config = configuration();
+  const execution = runtime(options);
   if (action === "create") {
-    await createProject(config);
+    return createProject(config, execution);
   } else if (action === "verify") {
-    await verifyProject(config);
+    await verifyProject(config, execution);
   } else if (action === "delete") {
-    await deleteProject(config);
+    await deleteProject(config, execution);
   } else {
     throw new Error(
       "Expected Vercel project action: create, verify, or delete.",
     );
   }
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  await runProjectLifecycle(process.argv[2]);
 }
