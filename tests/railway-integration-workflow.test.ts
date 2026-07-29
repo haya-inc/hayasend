@@ -16,6 +16,12 @@ describe("Railway hosted lifecycle workflow", () => {
       'if [[ "$GITHUB_REF" != "refs/heads/main" ]]',
     );
     expect(workflow).toContain(
+      '[[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]',
+    );
+    expect(workflow).toContain(
+      '${{ inputs.confirm_cost_ceiling_usd }}',
+    );
+    expect(workflow).toContain(
       '[[ "$RAILWAY_TEST_PLAN" != "hobby" ]]',
     );
     expect(workflow).toContain(

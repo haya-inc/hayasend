@@ -209,18 +209,49 @@ export HAYASEND_ALLOW_PURGE_KEY_VAULT=azure-container-apps
 
 The script requires the exact account, a `hayasend_dedicated=true` group, and
 an inventory in which every active top-level resource carries the exact
-deployment ID. It deletes Event Grid first, removes the lock/retention through
-a normal plan, destroys Terraform resources, explicitly purges the disposable
-Key Vault, and waits for both runtime and Container Apps infrastructure
-resource groups to disappear. Before deletion it verifies that the environment
-reports the exact Terraform-derived infrastructure group. If Azure's
-asynchronous cleanup leaves that group behind, the script deletes only that
-exact group and only after it is empty; any non-empty residue fails closed for
-manual investigation.
+deployment ID. It deletes Event Grid first and runs only `terraform destroy`;
+it never applies missing resources during cleanup. It explicitly purges the
+disposable Key Vault and waits for both runtime and deterministic Container
+Apps infrastructure resource groups to disappear. Before deletion it verifies
+that any existing environment reports the exact Terraform-derived
+infrastructure group. Interrupted workflow cleanup may set
+`HAYASEND_AZURE_ALLOW_PARTIAL=true`; names are then independently re-derived
+from the exact subscription, resource group, and prefix. Any remaining
+recoverable Key Vault, Event Grid subscription, custom ACS role definition, or
+resource group fails closed.
 
 Do not use this path for production offboarding. Keep purge protection and
 recovery retention until a separately reviewed retention/offboarding plan
 authorizes irreversible deletion.
+
+## GitHub-hosted lifecycle and terminal proof
+
+`.github/workflows/azure-integration.yml` is a manual-only workflow on
+protected `main` behind the `azure-integration` GitHub environment. Configure
+the exact test subscription, tenant, OIDC client and deployer object IDs,
+`japaneast` location, absent disposable runtime resource-group name, and the
+existing reviewed ACS resource group, Communication Service, Email Service,
+custom-domain resource, endpoint, and verified sender.
+
+The subscription must carry `environment=test` and
+`purpose=general-purpose-test` tags. Set
+`AZURE_TEST_ACCOUNT_KIND=general-purpose-test`,
+`AZURE_TEST_SUBSCRIPTION_PURPOSE=hayasend-azure-integration`,
+`AZURE_TEST_COST_CEILING_USD=100`, and
+`AZURE_TEST_DURATION_MINUTES=120`. Store the exact two distinct controlled
+recipient addresses as the `AZURE_TEST_TO_JSON` environment secret. No Azure
+client secret or ACS connection string is used.
+
+Dispatch must repeat the exact subscription, runtime group, proposed USD 100
+ceiling, and explicitly approve the real two-recipient terminal proof. The
+workflow uses OIDC, verifies the test subscription and non-mutated ACS/domain
+prerequisites, creates the disposable runtime, runs the provider-private
+30-day console proof, sends one controlled ACS message, requires
+recipient-level `delivered` events for both recipients, proves
+duplicate/out-of-order convergence, rolls back to the exact reviewed immutable
+image, deletes the runtime graph and retained Key Vault copy, and re-verifies
+the preserved ACS prerequisites. It is implemented and locally validated but
+has not been run; no delivery or production-readiness claim is made.
 
 ## Current limitations
 
@@ -238,7 +269,7 @@ authorizes irreversible deletion.
 
 ## Official references
 
-Checked on 2026-07-28:
+Checked on 2026-07-29:
 
 - [AzureRM 4.81.0](https://registry.terraform.io/providers/hashicorp/azurerm/4.81.0)
 - [Azure Container Apps Terraform resource](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/container_app)

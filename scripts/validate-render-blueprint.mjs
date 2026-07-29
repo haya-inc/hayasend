@@ -70,15 +70,34 @@ if (!validate(blueprint)) {
   );
 }
 
+const project = (blueprint.projects ?? []).find(
+  (candidate) => candidate.name === "hayasend-render",
+);
+const environment = project?.environments?.find(
+  (candidate) => candidate.name === "production",
+);
+if (
+  blueprint.projects?.length !== 1 ||
+  !project ||
+  project.environments?.length !== 1 ||
+  !environment ||
+  environment.networking?.isolation !== "enabled" ||
+  environment.permissions?.protection !== "disabled"
+) {
+  throw new Error(
+    "The Blueprint must define one disposable, isolated hayasend-render/production project environment.",
+  );
+}
+
 const services = new Map(
-  (blueprint.services ?? []).map((service) => [
+  (environment.services ?? []).map((service) => [
     service.name,
     service,
   ]),
 );
 const api = services.get("hayasend-api");
 const worker = services.get("hayasend-worker");
-const database = (blueprint.databases ?? []).find(
+const database = (environment.databases ?? []).find(
   (candidate) => candidate.name === "hayasend-postgres",
 );
 if (!api || api.type !== "web" || api.runtime !== "image") {

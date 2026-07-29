@@ -2,6 +2,7 @@ locals {
   api_name                         = "${var.name_prefix}-api"
   worker_name                      = "${var.name_prefix}-worker"
   migration_name                   = "${var.name_prefix}-migrate"
+  hosted_proof_name                = "${var.name_prefix}-proof"
   database_instance                = "${var.name_prefix}-postgres"
   api_account_id                   = "${var.name_prefix}-api"
   worker_account_id                = "${var.name_prefix}-worker"
@@ -65,6 +66,19 @@ locals {
     HAYASEND_TRANSPORT         = "aws-ses"
     HAYASEND_OBJECT_STORAGE    = "disabled"
     GOOGLE_CLOUD_PROJECT       = var.project_id
+  }
+
+  hosted_proof_environment = {
+    HAYASEND_MODE                         = "portable"
+    HAYASEND_DATABASE_URL_FILE            = local.database_url_file
+    HAYASEND_API_KEY_FILE                 = local.api_key_file
+    HAYASEND_TRANSPORT                    = "console"
+    HAYASEND_CONSOLE_PROOF_CONFIRM        = "isolated-non-sending"
+    HAYASEND_OBJECT_STORAGE               = "disabled"
+    HAYASEND_HOSTED_PROOF_API_URL         = google_cloud_run_v2_service.api.uri
+    HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS   = "30"
+    HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS = "300"
+    GOOGLE_CLOUD_PROJECT                  = var.project_id
   }
 
   api_environment = merge(

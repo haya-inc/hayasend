@@ -14,6 +14,22 @@ resource "google_project_service" "required" {
   disable_on_destroy = var.disable_apis_on_destroy
 }
 
+check "hosted_proof_job_safety" {
+  assert {
+    condition = (
+      !var.enable_hosted_proof_job ||
+      (
+        var.transport == "console" &&
+        var.allow_public_api &&
+        !var.deletion_protection &&
+        var.force_destroy_attachment_bucket &&
+        var.bucket_soft_delete_retention_seconds == 0
+      )
+    )
+    error_message = "The hosted proof job requires a public console-only disposable deployment with deletion protection and bucket retention disabled."
+  }
+}
+
 resource "google_service_account" "api" {
   project      = var.project_id
   account_id   = local.api_account_id
@@ -266,6 +282,15 @@ resource "google_secret_manager_secret_iam_member" "api_key" {
   member    = each.value
 }
 
+resource "google_secret_manager_secret_iam_member" "api_key_hosted_proof" {
+  count = var.enable_hosted_proof_job ? 1 : 0
+
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.api_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = local.migration_service_account_member
+}
+
 resource "google_secret_manager_secret_iam_member" "sendgrid_api_key" {
   for_each = var.transport == "sendgrid" ? local.runtime_service_account_members : {}
 
@@ -475,6 +500,109 @@ resource "google_cloud_run_v2_job" "migration" {
     google_secret_manager_secret_iam_member.database_url,
     google_sql_database.hayasend,
     google_sql_user.hayasend,
+  ]
+}
+
+resource "google_cloud_run_v2_job" "hosted_proof" {
+  count = var.enable_hosted_proof_job ? 1 : 0
+
+  project             = var.project_id
+  name                = local.hosted_proof_name
+  location            = var.region
+  deletion_protection = var.deletion_protection
+  labels              = local.labels
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account       = google_service_account.migration.email
+      timeout               = "600s"
+      max_retries           = 0
+      execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = google_compute_network.hayasend.id
+          subnetwork = google_compute_subnetwork.cloud_run.id
+        }
+      }
+
+      containers {
+        name    = "hosted-proof"
+        image   = var.image
+        command = ["node"]
+        args    = ["dist/portable/hosted-proof.js"]
+
+        dynamic "env" {
+          for_each = local.hosted_proof_environment
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        volume_mounts {
+          name       = "cloudsql"
+          mount_path = "/cloudsql"
+        }
+        volume_mounts {
+          name       = "database-url"
+          mount_path = "/var/run/hayasend/database-url"
+        }
+        volume_mounts {
+          name       = "api-key"
+          mount_path = "/var/run/hayasend/api-key"
+        }
+      }
+
+      volumes {
+        name = "cloudsql"
+        cloud_sql_instance {
+          instances = [google_sql_database_instance.postgres.connection_name]
+        }
+      }
+      volumes {
+        name = "database-url"
+        secret {
+          secret       = google_secret_manager_secret.database_url.secret_id
+          default_mode = 292
+          items {
+            version = google_secret_manager_secret_version.database_url.version
+            path    = "value"
+            mode    = 292
+          }
+        }
+      }
+      volumes {
+        name = "api-key"
+        secret {
+          secret       = google_secret_manager_secret.api_key.secret_id
+          default_mode = 292
+          items {
+            version = google_secret_manager_secret_version.api_key.version
+            path    = "value"
+            mode    = 292
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_cloud_run_v2_service.api,
+    google_project_iam_member.cloud_sql_client,
+    google_secret_manager_secret_iam_member.api_key_hosted_proof,
+    google_secret_manager_secret_iam_member.database_url,
   ]
 }
 

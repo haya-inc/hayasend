@@ -15,15 +15,16 @@ error. Queue and Cron delivery may duplicate or overlap; PostgreSQL
 transactional jobs and leases make this safe.
 
 This pack is not a production-readiness claim. Vercel Queues and private Blob
-are Beta, Vercel does not supply PostgreSQL or a native mail service, and
-hosted lifecycle, restore, interruption, terminal-delivery, controlled-receipt,
-and cleanup evidence remain pending. The first hosted lifecycle profile uses
-the non-sending `console` transport. The reviewed external transport for a
-separate terminal-delivery phase is the signed SendGrid adapter.
+are Beta, Vercel does not supply PostgreSQL or a native mail service, and the
+reviewed hosted workflow has not yet been run. Restore, interruption,
+terminal-delivery, controlled-receipt, and zero-residue evidence therefore
+remain pending. The first hosted lifecycle profile uses the non-sending
+`console` transport. The reviewed external transport for a separate
+terminal-delivery phase is the signed SendGrid adapter.
 
 ## Pinned inputs and platform limits
 
-Validated on 2026-07-28 with:
+Validated on 2026-07-29 with:
 
 - Vercel CLI `58.1.0`, pinned by npm registry integrity;
 - `@vercel/queue` `0.4.0`;
@@ -37,12 +38,74 @@ limit, and 300-second queue/Cron limits. Vercel Functions accept at most
 4.5 MB request or response bodies. Attachments therefore use signed direct
 Blob uploads rather than crossing the Function body.
 
-Queues retain a message for at most seven days, and an idempotency key
-deduplicates for at most 24 hours. HayaSend still supports schedules up to 30
-days because PostgreSQL stores every due time and the minute Cron recovers any
-lost wakeup. The queue is a latency accelerator, not storage.
+Queues retain a message for at most seven days. A producer idempotency key now
+deduplicates for the original message lifetime, up to that TTL. HayaSend still
+supports schedules up to 30 days because PostgreSQL stores every due time and
+the minute Cron recovers any lost wakeup. The queue is a latency accelerator,
+not storage.
 
-## Create an isolated project
+## Reviewed disposable hosted proof
+
+`.github/workflows/vercel-integration.yml` is the reviewed, manual-only
+lifecycle proof. It runs only from protected `main` behind the
+`vercel-integration` GitHub environment. It creates a new Vercel project and a
+new production-only private Blob store for every run. It reuses one explicitly
+designated general-purpose Neon project, but creates and hard-deletes a fresh
+PostgreSQL 18 branch and endpoint inside it. It never reuses an existing
+application project, Blob store, database branch, or application credential.
+
+Configure these environment variables:
+
+| Variable | Required value |
+| --- | --- |
+| `VERCEL_TEST_ACCOUNT_KIND` | `general-purpose-test` |
+| `VERCEL_TEST_ORG_ID` | exact approved `team_*` ID |
+| `VERCEL_TEST_TEAM_SLUG` | exact team slug |
+| `VERCEL_TEST_TEAM_PLAN` | `pro` |
+| `VERCEL_TEST_FUNCTION_REGION` | `hnd1` |
+| `VERCEL_TEST_COST_CEILING_USD` | `50` |
+| `VERCEL_TEST_DURATION_MINUTES` | `90` |
+| `NEON_TEST_ACCOUNT_KIND` | `general-purpose-test` |
+| `NEON_TEST_ORG_ID` | exact approved Neon organization ID |
+| `NEON_TEST_PROJECT_ID` | exact reusable test project ID |
+| `NEON_TEST_PROJECT_NAME` | `hayasend-general-purpose-test` |
+| `NEON_TEST_REGION_ID` | exact reviewed Neon region |
+| `NEON_TEST_PARENT_BRANCH_ID` | protected default branch ID |
+| `NEON_TEST_PARENT_BRANCH_NAME` | `main` |
+| `NEON_TEST_DATABASE_NAME` | empty proof database name |
+| `NEON_TEST_ROLE_NAME` | least-privilege proof role name |
+
+Store a team-scoped `VERCEL_TOKEN` and project-scoped `NEON_API_KEY` as
+environment secrets. The Vercel token must resolve to a confirmed Owner or
+Member of the exact Pro team. The Neon project must be PostgreSQL 18 with
+stored passwords, in the exact configured organization and region, and its
+`main` branch must be protected, default, and ready. Do not store either
+credential as a repository secret or workflow-dispatch input.
+
+Dispatch must repeat the exact Vercel team ID, exact Neon project ID, proposed
+USD 50 ceiling, and hard-cleanup confirmation. These are proposal gates, not a
+claim that GitHub can enforce the final cloud invoice. The workflow:
+
+1. creates and independently verifies the disposable project, private Blob
+   store, production-only connection, and ephemeral Neon branch;
+2. deploys the exact signed HayaSend v0.3.1 release commit as the rollback
+   baseline;
+3. deploys and verifies v0.3.1 from protected `main`;
+4. proves PostgreSQL-authoritative 30-day scheduling and private signed Blob
+   upload, overwrite refusal, authenticated reading, and worker consumption;
+5. rolls the production alias back to that exact deployment and verifies its
+   Vercel deployment ID, even when both revisions report version v0.3.1; and
+6. empties and deletes Blob, hard-deletes the Neon branch, and deletes the
+   Vercel project, including on failure.
+
+Only privacy-safe JSON evidence is uploaded. Database URLs, Blob tokens,
+application keys, Cron secrets, message bodies, addresses, and signed URLs are
+held in mode-0600 runner files and are never artifacts. Do not run this
+workflow until the two API tokens, account labels, cost/duration bounds, and
+reusable empty Neon test project have been reviewed. Its current status is
+**implemented and locally validated, but not executed**.
+
+## Manual isolated project
 
 Use a dedicated Vercel Pro project. Pro is required for the reviewed
 every-minute Cron schedule. Do not use a project that contains another
@@ -177,6 +240,7 @@ Select one exact prior `READY` deployment from the same project:
 
 ```bash
 export HAYASEND_VERCEL_ROLLBACK_DEPLOYMENT="https://previous.vercel.app"
+export HAYASEND_VERCEL_ROLLBACK_VERSION="0.3.1"
 export HAYASEND_VERCEL_API_URL="https://production.example"
 ./deploy/vercel/rollback.sh
 ```
@@ -202,16 +266,18 @@ export BLOB_READ_WRITE_TOKEN="..."
 ./deploy/vercel/cleanup.sh
 ```
 
-The script validates the exact link, verifies the private store is empty,
-deletes that exact store, requires interactive confirmation of the exact
-project name, and verifies project absence. Independently verify domain/DNS
-detachment, environment variables, team tokens, Queue usage, Cron inventory,
-external database backups, transport resources, observability retention, and
-billing. The script alone is not zero-residue evidence.
+The manual script validates the exact link, verifies the private store is
+empty, deletes that exact store, requires interactive confirmation of the
+exact project name, and verifies project absence. The hosted workflow instead
+uses the non-interactive ID-and-name-checked lifecycle helpers in this
+directory. Independently verify domain/DNS detachment, environment variables,
+team tokens, Queue usage, Cron inventory, external database backups, transport
+resources, observability retention, and billing. Neither path alone is
+zero-residue evidence.
 
 ## Official references
 
-Checked on 2026-07-28:
+Checked on 2026-07-29:
 
 - [Hono on Vercel](https://vercel.com/docs/frameworks/backend/hono)
 - [Vercel Queues](https://vercel.com/docs/queues)

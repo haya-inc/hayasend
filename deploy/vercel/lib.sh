@@ -99,3 +99,28 @@ inspect_ready_deployment() {
     exit 1
   fi
 }
+
+ready_deployment_id() {
+  local deployment="$1"
+  local inspection deployment_id
+  inspection="$(
+    VERCEL_ORG_ID="$HAYASEND_VERCEL_ORG_ID" \
+      VERCEL_PROJECT_ID="$HAYASEND_VERCEL_PROJECT_ID" \
+      "$vercel_cli" inspect "$deployment" \
+        --cwd "$repository_root" \
+        --json \
+        --wait \
+        --timeout 5m
+  )"
+  if ! jq --exit-status \
+    --arg project "$HAYASEND_VERCEL_PROJECT_ID" \
+    '((.readyState // .state) == "READY") and
+      ((.projectId // .project.id // $project) == $project) and
+      ((.id // .uid // "") | test("^dpl_[A-Za-z0-9]+$"))' \
+    <<<"$inspection" >/dev/null; then
+    echo "The Vercel deployment does not expose an exact READY deployment ID for the expected project." >&2
+    exit 1
+  fi
+  deployment_id="$(jq --raw-output '.id // .uid' <<<"$inspection")"
+  printf '%s\n' "$deployment_id"
+}

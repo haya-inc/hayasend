@@ -5,6 +5,7 @@ locals {
   api_name             = "${var.name_prefix}-api"
   worker_name          = "${var.name_prefix}-worker"
   migration_name       = "${var.name_prefix}-migrate"
+  hosted_proof_name    = "${var.name_prefix}-proof"
   environment_name     = "${var.name_prefix}-environment"
   infrastructure_rg    = "${var.name_prefix}-${local.deployment_id}-managed"
   log_analytics_name   = "${var.name_prefix}-logs"
@@ -74,6 +75,16 @@ locals {
     HAYASEND_DATABASE_URL = "database-url"
     HAYASEND_API_KEY      = "api-key"
   }
+
+  hosted_proof_environment = {
+    HAYASEND_MODE                         = "portable"
+    HAYASEND_TRANSPORT                    = "console"
+    HAYASEND_CONSOLE_PROOF_CONFIRM        = "isolated-non-sending"
+    HAYASEND_OBJECT_STORAGE               = "disabled"
+    HAYASEND_HOSTED_PROOF_API_URL         = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+    HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS   = "30"
+    HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS = "300"
+  }
 }
 
 check "acr_configuration" {
@@ -101,5 +112,20 @@ check "database_ha_sku" {
   assert {
     condition     = !var.database_high_availability_enabled || !startswith(var.database_sku_name, "B_")
     error_message = "Burstable PostgreSQL SKUs cannot be used with the production HA default."
+  }
+}
+
+check "hosted_proof_job_safety" {
+  assert {
+    condition = (
+      !var.enable_hosted_proof_job ||
+      (
+        !var.database_high_availability_enabled &&
+        !var.deletion_protection &&
+        !var.key_vault_purge_protection_enabled &&
+        var.storage_soft_delete_days == 0
+      )
+    )
+    error_message = "The hosted proof job requires an explicitly disposable, low-cost deployment with HA, deletion protection, Key Vault purge protection, and Blob soft delete disabled."
   }
 }

@@ -32,6 +32,7 @@ jobs:
       HAYASEND_CLOUDFLARE_API_KEY: ${{ secrets.HAYASEND_CLOUDFLARE_API_KEY }}
       DEPLOYMENT_NAME: it-${{ github.run_id }}-${{ github.run_attempt }}
       DEPLOYMENT_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
+      WRANGLER_VERSION: 4.115.0
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,13 +40,20 @@ jobs:
       - name: Validate isolated test-account configuration
         id: account_guard
         shell: bash
+        env:
+          CONFIRM_ACCOUNT: ${{ inputs.confirm_account }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] ||
+            [[ "${GITHUB_REF_PROTECTED:-false}" != "true" ]]; then
+            echo "::error::The Cloudflare hosted proof must run from protected main."
+            exit 1
+          fi
           if [[ ! "$CLOUDFLARE_TEST_ACCOUNT_ID" =~ ^[a-f0-9]{32}$ ]]; then
             echo "::error::CLOUDFLARE_TEST_ACCOUNT_ID must be a 32-character account ID."
             exit 1
           fi
-          if [[ "${{ inputs.confirm_account }}" != "$CLOUDFLARE_TEST_ACCOUNT_ID" ]]; then
+          if [[ "$CONFIRM_ACCOUNT" != "$CLOUDFLARE_TEST_ACCOUNT_ID" ]]; then
             echo "::error::The dispatch confirmation does not match the dedicated account."
             exit 1
           fi
@@ -102,7 +110,7 @@ jobs:
           {
             node --version
             npm --version
-            npx --yes wrangler@4.114.0 --version
+            npx --yes "wrangler@$WRANGLER_VERSION" --version
           } | tee "$RUNNER_TEMP/cloudflare-tool-versions.txt"
 
       - name: Review deployment plan
@@ -122,13 +130,13 @@ jobs:
         run: |
           set -euo pipefail
           prefix="hayasend-$DEPLOYMENT_NAME"
-          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          d1_json="$(npx --yes "wrangler@$WRANGLER_VERSION" d1 list --json)"
           # shellcheck disable=SC2016
           if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
             echo "::error::The isolated D1 name already exists."
             exit 1
           fi
-          r2_list="$(npx --yes wrangler@4.114.0 r2 bucket list)"
+          r2_list="$(npx --yes "wrangler@$WRANGLER_VERSION" r2 bucket list)"
           if grep -F "$prefix-payloads" <<< "$r2_list"; then
             echo "::error::The isolated R2 name already exists."
             exit 1
@@ -137,7 +145,7 @@ jobs:
             echo "::error::The isolated restore R2 name already exists."
             exit 1
           fi
-          queue_list="$(npx --yes wrangler@4.114.0 queues list)"
+          queue_list="$(npx --yes "wrangler@$WRANGLER_VERSION" queues list)"
           if grep -F "$prefix-" <<< "$queue_list"; then
             echo "::error::An isolated Queue name already exists."
             exit 1
@@ -148,7 +156,7 @@ jobs:
           fi
           set +e
           worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$prefix" \
               --json 2>&1
           )"
@@ -169,7 +177,7 @@ jobs:
           fi
           set +e
           restore_worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$RESTORE_WORKER" \
               --json 2>&1
           )"
@@ -245,10 +253,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes wrangler@4.114.0 d1 create \
+          npx --yes "wrangler@$WRANGLER_VERSION" d1 create \
             "$RESTORE_DATABASE" \
             --location apac
-          restore_d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          restore_d1_json="$(npx --yes "wrangler@$WRANGLER_VERSION" d1 list --json)"
           restore_database_id="$(
             node -e '
               const databases = JSON.parse(process.argv[1]);
@@ -261,10 +269,10 @@ jobs:
             ' "$restore_d1_json" "$RESTORE_DATABASE"
           )"
           echo "RESTORE_DATABASE_ID=$restore_database_id" >> "$GITHUB_ENV"
-          npx --yes wrangler@4.114.0 r2 bucket create \
+          npx --yes "wrangler@$WRANGLER_VERSION" r2 bucket create \
             "$RESTORE_BUCKET" \
             --location apac
-          npx --yes wrangler@4.114.0 queues create \
+          npx --yes "wrangler@$WRANGLER_VERSION" queues create \
             "$RESTORE_QUEUE" \
             --message-retention-period-secs 86400
 
@@ -308,7 +316,7 @@ jobs:
               {mode: 0o600},
             );
           ' "$proof_secrets"
-          npx --yes wrangler@4.114.0 deploy \
+          npx --yes "wrangler@$WRANGLER_VERSION" deploy \
             --config "$source_config" \
             --secrets-file "$proof_secrets" \
             --strict \
@@ -365,13 +373,13 @@ jobs:
         run: |
           set -euo pipefail
           backup_file="$RUNNER_TEMP/hayasend-cloudflare-backup.sql"
-          npx --yes wrangler@4.114.0 d1 export \
+          npx --yes "wrangler@$WRANGLER_VERSION" d1 export \
             "$SOURCE_DATABASE" \
             --remote \
             --skip-confirmation \
             --output "$backup_file"
           test -s "$backup_file"
-          npx --yes wrangler@4.114.0 d1 execute \
+          npx --yes "wrangler@$WRANGLER_VERSION" d1 execute \
             "$RESTORE_DATABASE" \
             --remote \
             --yes \
@@ -412,7 +420,7 @@ jobs:
                 }]
               }
             }' > "$restore_config"
-          npx --yes wrangler@4.114.0 deploy \
+          npx --yes "wrangler@$WRANGLER_VERSION" deploy \
             --config "$restore_config" \
             --secrets-file "$proof_secrets" \
             --strict \
@@ -575,13 +583,13 @@ jobs:
         run: |
           set -euo pipefail
           prefix="hayasend-$DEPLOYMENT_NAME"
-          d1_json="$(npx --yes wrangler@4.114.0 d1 list --json)"
+          d1_json="$(npx --yes "wrangler@$WRANGLER_VERSION" d1 list --json)"
           # shellcheck disable=SC2016
           if node -e 'const a=JSON.parse(process.argv[1]);const p=process.argv[2];process.exit(a.some(x=>x.name===`${p}-d1`)?0:1)' "$d1_json" "$prefix"; then
             echo "::error::D1 database remains after cleanup."
             exit 1
           fi
-          r2_list="$(npx --yes wrangler@4.114.0 r2 bucket list)"
+          r2_list="$(npx --yes "wrangler@$WRANGLER_VERSION" r2 bucket list)"
           if grep -F "$prefix-payloads" <<< "$r2_list"; then
             echo "::error::R2 bucket remains after cleanup."
             exit 1
@@ -590,7 +598,7 @@ jobs:
             echo "::error::Restore R2 bucket remains after cleanup."
             exit 1
           fi
-          queue_list="$(npx --yes wrangler@4.114.0 queues list)"
+          queue_list="$(npx --yes "wrangler@$WRANGLER_VERSION" queues list)"
           if grep -F "$prefix-" <<< "$queue_list"; then
             echo "::error::Queue remains after cleanup."
             exit 1
@@ -601,7 +609,7 @@ jobs:
           fi
           set +e
           worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$prefix" \
               --json 2>&1
           )"
@@ -622,7 +630,7 @@ jobs:
           fi
           set +e
           restore_worker_check="$(
-            npx --yes wrangler@4.114.0 versions list \
+            npx --yes "wrangler@$WRANGLER_VERSION" versions list \
               --name "$RESTORE_WORKER" \
               --json 2>&1
           )"

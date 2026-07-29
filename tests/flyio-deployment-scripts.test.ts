@@ -24,6 +24,7 @@ const app = "hayasend-flyio-ci";
 const organization = "haya-inc";
 const clusterId = "mpg_cluster_123";
 const bucket = `${app}-attachments`;
+const proofMachineName = "hayasend-proof-123456";
 
 async function fakeCommands() {
   const directory = await mkdtemp(
@@ -85,14 +86,44 @@ elif [[ "\${1:-} \${2:-}" == "secrets list" ]]; then
 elif [[ "\${1:-} \${2:-}" == "machine list" ]]; then
   machine_image="registry.fly.io/$HAYASEND_FLY_APP:deployment-test"
   machine_digest="\${FLY_FAKE_MACHINE_DIGEST:-$HAYASEND_FLY_MACHINE_IMAGE_DIGEST}"
+  transport="\${HAYASEND_TRANSPORT:-console}"
+  proof_guard=''
+  if [[ "$transport" == "console" ]]; then
+    proof_guard=',"HAYASEND_CONSOLE_PROOF_CONFIRM":"isolated-non-sending"'
+  fi
   extra=''
   if [[ "\${FLY_FAKE_EXTRA_MACHINE:-false}" == "true" ]]; then
     extra=',{"id":"extra","state":"started","image_ref":{"digest":"'"$machine_digest"'","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"'"$machine_image"'","metadata":{"fly_process_group":"extra"},"mounts":[]}}'
   fi
-  printf '[{"id":"api","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","metadata":{"fly_process_group":"api"},"mounts":[]}},{"id":"worker","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","metadata":{"fly_process_group":"worker"},"mounts":[]}}%s]\\n' \
-    "$machine_digest" "$machine_image" "$machine_digest" "$machine_image" "$extra"
+  proof=''
+  if [[ -f "\${state}.proof-created" && ! -f "\${state}.proof-deleted" ]]; then
+    proof=',{"id":"1234567890abcd","name":"'"$HAYASEND_FLY_PROOF_MACHINE_NAME"'","region":"nrt","state":"stopped","image_ref":{"digest":"'"$machine_digest"'","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"'"$machine_image"'","metadata":{"hayasend_proof":"portable-hosted-v1"},"env":{"HAYASEND_MODE":"portable","HAYASEND_TRANSPORT":"console","HAYASEND_CONSOLE_PROOF_CONFIRM":"isolated-non-sending","HAYASEND_OBJECT_STORAGE":"disabled","HAYASEND_HOSTED_PROOF_API_URL":"https://'"$HAYASEND_FLY_APP"'.fly.dev","HAYASEND_HOSTED_PROOF_SCHEDULE_DAYS":"30","HAYASEND_HOSTED_PROOF_TIMEOUT_SECONDS":"300"},"mounts":[],"services":[]}}'
+  fi
+  printf '[{"id":"aaaaaaaaaaaaaa","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_TRANSPORT":"%s"%s},"metadata":{"fly_process_group":"api"},"mounts":[]}},{"id":"bbbbbbbbbbbbbb","state":"started","image_ref":{"digest":"%s","labels":{"org.opencontainers.image.source":"https://github.com/haya-inc/hayasend","org.opencontainers.image.title":"HayaSend"}},"config":{"image":"%s","env":{"HAYASEND_TRANSPORT":"%s"%s},"metadata":{"fly_process_group":"worker"},"mounts":[]}}%s%s]\\n' \
+    "$machine_digest" "$machine_image" "$transport" "$proof_guard" \
+    "$machine_digest" "$machine_image" "$transport" "$proof_guard" \
+    "$extra" "$proof"
 elif [[ "\${1:-} \${2:-}" == "checks list" ]]; then
   printf '%s\\n' '{"api":[{"name":"servicecheck-00-http-8080","status":"passing"}]}'
+elif [[ "\${1:-} \${2:-}" == "machine run" ]]; then
+  : > "\${state}.proof-created"
+  printf '%s\\n' \
+    "Success! A Machine has been successfully launched in app $HAYASEND_FLY_APP" \
+    " Machine ID: 1234567890abcd" \
+    " Instance ID: instance-proof" \
+    " State: started"
+elif [[ "\${1:-} \${2:-}" == "machine wait" ]]; then
+  printf '%s\\n' 'Machine 1234567890abcd reached state "stopped"'
+elif [[ "\${1:-} \${2:-}" == "machine status" ]]; then
+  printf '%s\\n' \
+    "Machine ID: 1234567890abcd" \
+    "exit_code=0,oom_killed=false,requested_stop=false"
+elif [[ "\${1:-}" == "logs" ]]; then
+  printf '%s\\n' '{"level":"info","instance":"1234567890abcd","message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.1\\",\\"database\\":{\\"major_version\\":17},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","region":"nrt","timestamp":"2026-07-29T00:00:00Z"}'
+elif [[ "\${1:-} \${2:-}" == "machine exec" ]]; then
+  printf '%s\\n' '{"exit_code":0,"stdout":"{\\"object\\":\\"hayasend_flyio_bucket_inventory\\",\\"bucket\\":\\"'"$HAYASEND_FLY_BUCKET"'\\",\\"object_count\\":0,\\"empty\\":true}\\n"}'
+elif [[ "\${1:-} \${2:-}" == "machine destroy" ]]; then
+  : > "\${state}.proof-deleted"
 elif [[ "\${1:-} \${2:-}" == "storage destroy" ]]; then
   : > "\${state}.bucket-deleted"
 elif [[ "\${1:-} \${2:-}" == "apps destroy" ]]; then
@@ -221,6 +252,90 @@ describe.skipIf(process.platform === "win32")(
 
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
+    });
+
+    it("runs the shared semantic proof in one disposable exact Machine", async () => {
+      const fixture = await fakeCommands();
+      const proofFile = resolve(fixture.directory, "proof.json");
+      const machineIdFile = resolve(
+        fixture.directory,
+        "proof-machine-id.txt",
+      );
+      const result = run("proof.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_FLY_PROOF_FILE: proofFile,
+        HAYASEND_FLY_PROOF_MACHINE_ID_FILE: machineIdFile,
+        HAYASEND_FLY_PROOF_MACHINE_NAME: proofMachineName,
+      });
+      const commands = await readFile(fixture.log, "utf8");
+      const proof = JSON.parse(
+        await readFile(proofFile, "utf8"),
+      ) as {
+        object: string;
+        database: { major_version: number };
+      };
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).toContain(
+        `machine run ${image} node dist/portable/hosted-proof.js`,
+      );
+      expect(commands).toContain(
+        `--name ${proofMachineName} --region nrt --detach`,
+      );
+      expect(commands).toContain(
+        "--env HAYASEND_TRANSPORT=console",
+      );
+      expect(commands).toContain(
+        "--env HAYASEND_OBJECT_STORAGE=disabled",
+      );
+      expect(commands).toContain(
+        "machine wait 1234567890abcd " +
+          `--app ${app} --state stopped --wait-timeout 10m`,
+      );
+      expect(commands).toContain(
+        `logs --app ${app} --machine 1234567890abcd --no-tail --json`,
+      );
+      expect(commands).toContain(
+        `machine destroy 1234567890abcd --app ${app} --force`,
+      );
+      expect(await readFile(machineIdFile, "utf8")).toBe(
+        "1234567890abcd\n",
+      );
+      expect(proof).toMatchObject({
+        object: "portable_hosted_semantic_proof",
+        database: { major_version: 17 },
+      });
+    });
+
+    it("authenticates inside the exact API Machine to prove Tigris is empty", async () => {
+      const fixture = await fakeCommands();
+      const evidenceFile = resolve(
+        fixture.directory,
+        "bucket-evidence.json",
+      );
+      const result = run("verify-bucket-empty.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_FLY_BUCKET_EVIDENCE_FILE: evidenceFile,
+      });
+      const commands = await readFile(fixture.log, "utf8");
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).toContain(
+        `machine exec aaaaaaaaaaaaaa node --input-type=module`,
+      );
+      expect(commands).toContain(
+        `--app ${app} --timeout 120 --json`,
+      );
+      expect(
+        JSON.parse(await readFile(evidenceFile, "utf8")),
+      ).toEqual({
+        object: "hayasend_flyio_bucket_inventory",
+        bucket,
+        object_count: 0,
+        empty: true,
+      });
     });
 
     it("rolls back by redeploying an older immutable image without rerunning migrations", async () => {

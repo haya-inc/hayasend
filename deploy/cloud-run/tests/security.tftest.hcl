@@ -72,6 +72,63 @@ run "secure_foundation_defaults" {
   }
 }
 
+run "hosted_proof_is_explicit_disposable_and_non_sending" {
+  command = plan
+
+  variables {
+    project_id                           = "hayasend-test-project"
+    image                                = "ghcr.io/haya-inc/hayasend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    api_key                              = "re_test_test_test_test_test_test_test"
+    database_password                    = "test-test-test-test-test-test-test-test"
+    allow_public_api                     = true
+    bucket_soft_delete_retention_seconds = 0
+    database_availability_type           = "ZONAL"
+    deletion_protection                  = false
+    enable_hosted_proof_job              = true
+    force_destroy_attachment_bucket      = true
+    transport                            = "console"
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_job.hosted_proof) == 1
+    error_message = "The hosted proof job must exist only after explicit opt-in."
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_job.hosted_proof[0].deletion_protection == false
+    error_message = "The disposable hosted proof job must not retain deletion protection."
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_job.hosted_proof[0].template[0].template[0].max_retries == 0
+    error_message = "The semantic proof must not hide failures with automatic retries."
+  }
+
+  assert {
+    condition = (
+      one(google_cloud_run_v2_job.hosted_proof[0].template[0].template[0].containers[0].command) == "node" &&
+      one(google_cloud_run_v2_job.hosted_proof[0].template[0].template[0].containers[0].args) == "dist/portable/hosted-proof.js"
+    )
+    error_message = "The job must execute the shared portable semantic proof."
+  }
+
+  assert {
+    condition = one([
+      for setting in google_cloud_run_v2_job.hosted_proof[0].template[0].template[0].containers[0].env :
+      setting.value if setting.name == "HAYASEND_CONSOLE_PROOF_CONFIRM"
+    ]) == "isolated-non-sending"
+    error_message = "The proof job must retain the exact non-sending guard."
+  }
+
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.api_key_hosted_proof) == 1 &&
+      google_secret_manager_secret_iam_member.api_key_hosted_proof[0].role == "roles/secretmanager.secretAccessor"
+    )
+    error_message = "The proof identity must receive only API-key secret read access."
+  }
+}
+
 run "workloads_use_pinned_identity_and_manual_worker" {
   command = plan
 

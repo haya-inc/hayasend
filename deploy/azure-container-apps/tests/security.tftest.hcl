@@ -152,6 +152,7 @@ run "disposable_cleanup_requires_explicit_weaker_settings" {
     deletion_protection                = false
     key_vault_purge_protection_enabled = false
     storage_soft_delete_days           = 0
+    enable_hosted_proof_job            = true
   }
 
   assert {
@@ -167,6 +168,31 @@ run "disposable_cleanup_requires_explicit_weaker_settings" {
   assert {
     condition     = !azurerm_key_vault.hayasend.purge_protection_enabled
     error_message = "A disposable zero-residue proof must explicitly disable Key Vault purge protection."
+  }
+
+  assert {
+    condition = (
+      length(azurerm_container_app_job.hosted_proof) == 1 &&
+      azurerm_container_app_job.hosted_proof[0].replica_retry_limit == 0
+    )
+    error_message = "The hosted proof job must be opt-in and must not hide failures with automatic retries."
+  }
+
+  assert {
+    condition = (
+      one(azurerm_container_app_job.hosted_proof[0].template[0].container[0].command) == "node" &&
+      one(azurerm_container_app_job.hosted_proof[0].template[0].container[0].args) == "dist/portable/hosted-proof.js"
+    )
+    error_message = "The hosted proof job must run the shared portable semantic proof."
+  }
+
+  assert {
+    condition = contains([
+      for setting in azurerm_container_app_job.hosted_proof[0].template[0].container[0].env :
+      "${setting.name}=${setting.value}"
+      if setting.value != null
+    ], "HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending")
+    error_message = "The hosted proof job must carry the exact non-sending console guard."
   }
 }
 

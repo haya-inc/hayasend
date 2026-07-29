@@ -18,6 +18,20 @@ if [[ "$(jq --raw-output .id <<<"$account_json")" != "$TF_VAR_subscription_id" ]
   echo "Azure CLI is not authenticated to the exact configured subscription and tenant." >&2
   exit 1
 fi
+required_containerapp_extension_version="$(
+  tr -d '[:space:]' < .containerapp-extension-version
+)"
+containerapp_extension_version="$(
+  az extension show \
+    --name containerapp \
+    --query version \
+    --output tsv \
+    --only-show-errors
+)"
+if [[ "$containerapp_extension_version" != "$required_containerapp_extension_version" ]]; then
+  echo "Azure CLI containerapp extension $required_containerapp_extension_version is required; found $containerapp_extension_version." >&2
+  exit 1
+fi
 
 terraform init -input=false -lockfile=readonly >/dev/null
 
@@ -80,6 +94,27 @@ jq --exit-status \
     and .properties.configuration.replicaRetryLimit == 0
     and (.identity.userAssignedIdentities | has($identity))
   ' <<<"$job_json" >/dev/null
+
+if [[ "${TF_VAR_enable_hosted_proof_job:-false}" == "true" ]]; then
+  hosted_proof_job="$(terraform output -raw hosted_proof_job_name)"
+  hosted_proof_json="$(
+    az containerapp job show \
+      --subscription "$TF_VAR_subscription_id" \
+      --resource-group "$resource_group" \
+      --name "$hosted_proof_job" \
+      --only-show-errors \
+      --output json
+  )"
+  jq --exit-status \
+    --arg image "$TF_VAR_image" \
+    --arg identity "$runtime_identity" '
+      .properties.template.containers[0].image == $image
+      and .properties.template.containers[0].command == ["node"]
+      and .properties.template.containers[0].args == ["dist/portable/hosted-proof.js"]
+      and .properties.configuration.replicaRetryLimit == 0
+      and (.identity.userAssignedIdentities | has($identity))
+    ' <<<"$hosted_proof_json" >/dev/null
+fi
 
 postgres_json="$(
   az postgres flexible-server show \
