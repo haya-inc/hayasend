@@ -90,11 +90,12 @@ claim that GitHub can enforce the final cloud invoice. The workflow:
    store, production-only connection, and ephemeral Neon branch;
 2. deploys the exact signed HayaSend v0.3.1 release commit as the rollback
    baseline;
-3. deploys and verifies v0.3.1 from protected `main`;
+3. deploys and verifies v0.3.2 from protected `main`;
 4. proves PostgreSQL-authoritative 30-day scheduling and private signed Blob
    upload, overwrite refusal, authenticated reading, and worker consumption;
 5. rolls the production alias back to that exact deployment and verifies its
-   Vercel deployment ID, even when both revisions report version v0.3.1; and
+   Vercel deployment ID, independently of the reported application version;
+   and
 6. empties and deletes Blob, hard-deletes the Neon branch, and deletes the
    Vercel project, including on failure.
 
