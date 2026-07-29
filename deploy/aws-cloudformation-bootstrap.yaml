@@ -429,6 +429,13 @@ Resources:
             Condition:
               StringEquals:
                 aws:RequestedRegion: !Ref AWS::Region
+          - Sid: ReadRegionalDriftTypeConfigurations
+            Effect: Allow
+            Action: cloudformation:BatchDescribeTypeConfigurations
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
           - Sid: ReadAndPlanExactHayaSendStacks
             Effect: Allow
             Action:
@@ -439,6 +446,7 @@ Resources:
               - cloudformation:DescribeStackResources
               - cloudformation:DescribeStacks
               - cloudformation:DetectStackDrift
+              - cloudformation:DetectStackResourceDrift
               - cloudformation:GetStackPolicy
               - cloudformation:GetTemplate
               - cloudformation:GetTemplateSummary
