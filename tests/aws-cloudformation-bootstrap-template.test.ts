@@ -68,6 +68,10 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
       bootstrap.indexOf("  OperatorPolicy:"),
       bootstrap.indexOf("\nOutputs:"),
     );
+    const regionalDriftSection = operatorSection.slice(
+      operatorSection.indexOf("Sid: ReadRegionalDriftMetadata"),
+      operatorSection.indexOf("Sid: ReadAndPlanExactHayaSendStacks"),
+    );
     expect(operatorSection).toContain("iam:PassedToService");
     expect(operatorSection).toContain("cloudformation.amazonaws.com");
     expect(operatorSection).toContain(
@@ -88,6 +92,13 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     );
     expect(operatorSection).toContain(
       "cloudformation:DetectStackResourceDrift",
+    );
+    expect(regionalDriftSection).toContain(
+      "cloudformation:DescribeStackDriftDetectionStatus",
+    );
+    expect(regionalDriftSection).toContain('Resource: "*"');
+    expect(regionalDriftSection).toContain(
+      "aws:RequestedRegion: !Ref AWS::Region",
     );
     expect(operatorSection).toContain("aws:RequestedRegion: !Ref AWS::Region");
     expect(operatorSection).not.toContain("changeSet/*/*");
