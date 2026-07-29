@@ -112,8 +112,9 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 3. privacy-safe outbox age, stuck-lease, queue/DLQ, provider-event lag, and
    capability evidence for the in-memory, AWS SQS, or portable PostgreSQL
    runtime when the key has `diagnostics:read`;
-4. whether the running AWS SES, Azure ACS Email, Cloudflare Email, or SendGrid
-   capability digest matches this CLI package;
+4. whether the running transport, runtime substrate, and exact
+   runtime-plus-transport deployment digests match this CLI package, including
+   cross-checking the deployment's declared runtime and provider;
 5. whether the local preview is available.
 
 Without `diagnostics:read`, the recovery check reports `not_authorized`
@@ -122,6 +123,11 @@ the API key, addresses, subject or body content, signed URLs, raw provider
 errors, or unrecognized server fields. HTTPS is required unless the endpoint
 is `localhost`, `127.0.0.1`, or `[::1]`; endpoint credentials, queries, and
 fragments are rejected.
+
+Older servers may omit the additive `runtime_capability` and
+`deployment_capability` objects. Bundled deployments report them: an unknown
+customer extension produces `drift: null`, while any changed bundled document
+or inconsistent runtime/provider binding produces `drift: true`.
 
 ## Onboard a sending domain
 

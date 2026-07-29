@@ -13,11 +13,16 @@ assert_mpg_inventory
 assert_bucket_inventory
 assert_secret_names false
 
-console_proof_environment=()
+capability_environment=()
 if [[ "$HAYASEND_TRANSPORT" == "console" ]]; then
-  console_proof_environment=(
+  capability_environment=(
     --env
     "HAYASEND_CONSOLE_PROOF_CONFIRM=$HAYASEND_CONSOLE_PROOF_CONFIRM"
+  )
+else
+  capability_environment=(
+    --env
+    "HAYASEND_DEPLOYMENT_PROFILE=flyio-sendgrid"
   )
 fi
 
@@ -30,8 +35,9 @@ fi
   --app "$HAYASEND_FLY_APP" \
   --config "$pack_directory/fly.toml" \
   --image "$HAYASEND_IMAGE" \
+  --env "HAYASEND_RUNTIME_PROFILE=portable-postgres" \
   --env "HAYASEND_TRANSPORT=$HAYASEND_TRANSPORT" \
-  "${console_proof_environment[@]}" \
+  "${capability_environment[@]}" \
   --strategy rolling \
   --release-command-timeout 10m \
   --ha=false \

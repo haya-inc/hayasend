@@ -128,8 +128,11 @@ from an approved private path before moving to the transport phase.
 
 After the lifecycle, recovery, upgrade, rollback, and restore
 proofs pass, an independently reviewed transport phase may set
-`HAYASEND_TRANSPORT=sendgrid`, add a scoped `SENDGRID_API_KEY` to both
-services, and add `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` to the API only. Configure
+`HAYASEND_TRANSPORT=sendgrid` and
+`HAYASEND_DEPLOYMENT_PROFILE=render-sendgrid` on both services, add a scoped
+`SENDGRID_API_KEY` to both services, and add
+`SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` to the API only. Keep the committed
+`HAYASEND_RUNTIME_PROFILE=portable-postgres` declaration. Configure
 the Signed Event Webhook URL as `https://API_HOST/events/sendgrid` and enable
 processed, deferred, delivered, bounce, dropped, spamreport, open, and click
 events. Only opaque HayaSend correlation values enter custom arguments, and

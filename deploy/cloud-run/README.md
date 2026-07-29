@@ -144,6 +144,12 @@ export TF_VAR_sendgrid_api_key="SG...."
 export TF_VAR_sendgrid_event_webhook_public_key="..."
 ```
 
+Terraform declares `HAYASEND_RUNTIME_PROFILE=portable-postgres` for both
+profiles and adds `HAYASEND_DEPLOYMENT_PROFILE=cloud-run-sendgrid` only for
+this exact SendGrid combination. Recovery diagnostics and `hayasend doctor`
+therefore expose drift without treating the console proof as a sending
+deployment.
+
 After deploy, configure SendGrid's Signed Event Webhook URL as
 `https://API_HOST/events/sendgrid` and enable `processed`, `deferred`,
 `delivered`, `bounce`, `dropped`, `spamreport`, `open`, and `click` events.

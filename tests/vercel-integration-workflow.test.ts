@@ -52,6 +52,12 @@ describe("Vercel hosted lifecycle workflow", () => {
     expect(workflow).toContain(
       '.version == "0.3.1"',
     );
+    expect(workflow).toContain(
+      "add_plain HAYASEND_RUNTIME_PROFILE vercel-serverless",
+    );
+    expect(workflow).toContain(
+      "--env HAYASEND_RUNTIME_PROFILE=vercel-serverless",
+    );
 
     const projectAttempt = workflow.indexOf(
       "Mark the external lifecycle as started",

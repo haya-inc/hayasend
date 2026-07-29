@@ -715,7 +715,7 @@ jobs:
               "$RUNNER_TEMP/npm-pack-metadata.json"
           )"
           jq --exit-status '
-            .entryCount <= 590 and
+            .entryCount <= 600 and
             .size < 740000 and
             .unpackedSize < 3800000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -754,6 +754,12 @@ jobs:
               index("conformance/providers/sendgrid.v1.json") != null) and
             ([.files[].path] |
               index("dist/provider-capability-registry.js") != null) and
+            ([.files[].path] |
+              index("dist/runtime-capability-registry.js") != null) and
+            ([.files[].path] |
+              index("dist/deployment-capability-registry.js") != null) and
+            ([.files[].path] |
+              index("dist/capability-profiles.js") != null) and
             ([.files[].path] |
               index("dist/adapters/portable-attachment-storage.js") != null) and
             ([.files[].path] |
@@ -901,6 +907,11 @@ jobs:
             "$package_root/conformance/providers/azure-communication-services.v1.json"
           test -f \
             "$package_root/dist/provider-capability-registry.js"
+          test -f \
+            "$package_root/dist/runtime-capability-registry.js"
+          test -f \
+            "$package_root/dist/deployment-capability-registry.js"
+          test -f "$package_root/dist/capability-profiles.js"
           test -f \
             "$package_root/dist/adapters/portable-attachment-storage.js"
           test -f \

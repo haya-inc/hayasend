@@ -277,9 +277,11 @@ intent.
 Use `GET /diagnostics/recovery` or `hayasend doctor` with a
 `diagnostics:read` key to inspect the same outbox measures together with SQS
 queue and DLQ depth, latest provider-event lag, and the running capability
-document digest. The CLI verifies the digest for every bundled transport:
-AWS SES, Azure ACS Email, Cloudflare Email, and SendGrid. An unknown extension
-is reported without inventing capability truth. Use
+document digest. Bundled deployments also report runtime and exact
+runtime-plus-transport deployment digests. The CLI verifies all three
+registries and cross-checks that the deployment document names the same
+runtime and provider reported by the running service. An unknown extension is
+reported without inventing capability truth. Use
 `GET /emails/{id}/recipients` or
 `hayasend emails recipients ID` with `emails:read` for canonical
 mixed-recipient truth. Both outputs are allowlisted: they exclude addresses,

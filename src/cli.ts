@@ -42,8 +42,16 @@ import {
 import { suppressionCommand } from "./cli-suppressions.js";
 import { webhookCommand } from "./cli-webhooks.js";
 import {
+  deploymentCapabilityDocument,
+  deploymentCapabilityDocumentDigest,
+} from "./deployment-capability-registry.js";
+import {
   providerCapabilityDocumentDigest,
 } from "./provider-capability-registry.js";
+import {
+  runtimeCapabilityDocument,
+  runtimeCapabilityDocumentDigest,
+} from "./runtime-capability-registry.js";
 import { apiKeySchema, publicApiKeySchema } from "./schemas.js";
 import { runServerProcess } from "./server.js";
 import { HAYASEND_VERSION } from "./version.js";
@@ -904,6 +912,26 @@ const queueDepthSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
+const runtimeCapabilityDiagnosticsSchema = z.object({
+  runtime: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+  adapter_version: z.string(),
+  capability_version: z.string(),
+  checked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+const deploymentCapabilityDiagnosticsSchema = z.object({
+  deployment: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+  adapter_version: z.string(),
+  capability_version: z.string(),
+  checked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  runtime: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+  provider: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+  maturity: z.enum(["experimental", "beta", "production"]),
+  production_ready: z.boolean(),
+  document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
 const recoveryDiagnosticsSchema = z.object({
   object: z.literal("recovery_diagnostics"),
   generated_at: z.iso.datetime({ offset: true }),
@@ -939,7 +967,33 @@ const recoveryDiagnosticsSchema = z.object({
       .nullable(),
     document_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }),
+  runtime_capability: runtimeCapabilityDiagnosticsSchema.optional(),
+  deployment_capability:
+    deploymentCapabilityDiagnosticsSchema.optional(),
 });
+
+type ParsedRecoveryDiagnostics = z.infer<
+  typeof recoveryDiagnosticsSchema
+>;
+
+type DoctorRecoveryDiagnostics = Omit<
+  ParsedRecoveryDiagnostics,
+  "capability" | "runtime_capability" | "deployment_capability"
+> & {
+  capability: ParsedRecoveryDiagnostics["capability"] & {
+    drift: boolean | null;
+  };
+  runtime_capability?: NonNullable<
+    ParsedRecoveryDiagnostics["runtime_capability"]
+  > & {
+    drift: boolean | null;
+  };
+  deployment_capability?: NonNullable<
+    ParsedRecoveryDiagnostics["deployment_capability"]
+  > & {
+    drift: boolean | null;
+  };
+};
 
 async function doctor(args: string[], dependencies: CliDependencies) {
   const baseUrl = endpoint(args, dependencies.env);
@@ -974,13 +1028,7 @@ async function doctor(args: string[], dependencies: CliDependencies) {
     },
   );
   let recoveryCheck: "pass" | "not_authorized" | "not_supported";
-  let recovery:
-    | (z.infer<typeof recoveryDiagnosticsSchema> & {
-        capability: z.infer<typeof recoveryDiagnosticsSchema>["capability"] & {
-          drift: boolean | null;
-        };
-      })
-    | undefined;
+  let recovery: DoctorRecoveryDiagnostics | undefined;
   if (recoveryResponse.status === 403) {
     recoveryCheck = "not_authorized";
   } else if (recoveryResponse.status === 404) {
@@ -995,15 +1043,90 @@ async function doctor(args: string[], dependencies: CliDependencies) {
     const expectedDigest = providerCapabilityDocumentDigest(
       parsed.data.capability.provider,
     );
+    const expectedRuntimeDigest = parsed.data.runtime_capability
+      ? runtimeCapabilityDocumentDigest(
+          parsed.data.runtime_capability.runtime,
+        )
+      : undefined;
+    const expectedRuntime = parsed.data.runtime_capability
+      ? runtimeCapabilityDocument(
+          parsed.data.runtime_capability.runtime,
+        )
+      : undefined;
+    const expectedDeploymentDigest =
+      parsed.data.deployment_capability
+        ? deploymentCapabilityDocumentDigest(
+            parsed.data.deployment_capability.deployment,
+          )
+        : undefined;
+    const expectedDeployment = parsed.data.deployment_capability
+      ? deploymentCapabilityDocument(
+          parsed.data.deployment_capability.deployment,
+        )
+      : undefined;
     recoveryCheck = "pass";
+    const {
+      capability,
+      runtime_capability: runtimeCapability,
+      deployment_capability: deploymentCapability,
+      ...recoveryDiagnostics
+    } = parsed.data;
     recovery = {
-      ...parsed.data,
+      ...recoveryDiagnostics,
       capability: {
-        ...parsed.data.capability,
+        ...capability,
         drift: expectedDigest
-          ? parsed.data.capability.document_sha256 !== expectedDigest
+          ? capability.document_sha256 !== expectedDigest
           : null,
       },
+      ...(runtimeCapability
+        ? {
+            runtime_capability: {
+              ...runtimeCapability,
+              drift:
+                expectedRuntimeDigest && expectedRuntime
+                  ? runtimeCapability.document_sha256 !==
+                      expectedRuntimeDigest ||
+                    runtimeCapability.adapter_version !==
+                      expectedRuntime.adapter_version ||
+                    runtimeCapability.capability_version !==
+                      expectedRuntime.schema_version ||
+                    runtimeCapability.checked_at !==
+                      expectedRuntime.checked_at
+                  : null,
+            },
+          }
+        : {}),
+      ...(deploymentCapability
+        ? {
+            deployment_capability: {
+              ...deploymentCapability,
+              drift:
+                expectedDeploymentDigest && expectedDeployment
+                  ? deploymentCapability.document_sha256 !==
+                      expectedDeploymentDigest ||
+                    deploymentCapability.adapter_version !==
+                      expectedDeployment.adapter_version ||
+                    deploymentCapability.capability_version !==
+                      expectedDeployment.schema_version ||
+                    deploymentCapability.checked_at !==
+                      expectedDeployment.checked_at ||
+                    deploymentCapability.runtime !==
+                      expectedDeployment.runtime.profile ||
+                    deploymentCapability.provider !==
+                      expectedDeployment.transport.provider ||
+                    deploymentCapability.maturity !==
+                      expectedDeployment.maturity.combination ||
+                    deploymentCapability.production_ready !==
+                      expectedDeployment.production_ready ||
+                    deploymentCapability.runtime !==
+                      runtimeCapability?.runtime ||
+                    deploymentCapability.provider !==
+                      capability.provider
+                  : null,
+            },
+          }
+        : {}),
     };
   } else {
     throw new Error(

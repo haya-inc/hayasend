@@ -79,6 +79,20 @@ function run(
 describe.skipIf(process.platform === "win32")(
   "Render deployment scripts",
   () => {
+    it("declares the portable runtime on both long-running services", async () => {
+      const blueprint = await readFile(
+        resolve(deploymentDirectory, "render.yaml"),
+        "utf8",
+      );
+
+      expect(
+        blueprint.match(/key: HAYASEND_RUNTIME_PROFILE/g),
+      ).toHaveLength(2);
+      expect(
+        blueprint.match(/value: portable-postgres/g),
+      ).toHaveLength(2);
+    });
+
     it("deploys the API before the worker and verifies readiness", async () => {
       const fixture = await fakeCommands();
       const result = run("deploy.sh", fixture, {

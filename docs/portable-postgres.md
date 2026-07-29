@@ -32,10 +32,18 @@ Set these on the migration, API, and worker processes:
 | Variable | Meaning |
 | --- | --- |
 | `HAYASEND_MODE=portable` | Selects the portable PostgreSQL runtime |
+| `HAYASEND_RUNTIME_PROFILE` | Runtime capability identity; defaults to `portable-postgres`, while Vercel uses `vercel-serverless` |
+| `HAYASEND_DEPLOYMENT_PROFILE` | Optional exact runtime-plus-transport identity; bundled packs set it for real Azure ACS or SendGrid phases |
 | `HAYASEND_DATABASE_URL` | `postgresql://` connection URL; configure TLS according to the managed database |
 | `HAYASEND_API_KEY` | Secret-injected bootstrap key, 16–512 characters and beginning with `re_` |
-| `HAYASEND_TRANSPORT` | `aws-ses`, `azure-communication-services`, or `sendgrid` for real submission; `console` for development only |
+| `HAYASEND_TRANSPORT` | `aws-ses`, `azure-communication-services`, or `sendgrid` for real submission; `console` for non-sending lifecycle/development proof only |
 | `AWS_REGION` | SES Region when `HAYASEND_TRANSPORT=aws-ses` |
+
+The exact deployment profile must match both declarations. Bundled values are
+`azure-container-apps-acs`, `cloud-run-sendgrid`, `render-sendgrid`,
+`railway-sendgrid`, `flyio-sendgrid`, and `vercel-sendgrid`. A mismatch fails
+before the runtime starts. Omitting the field preserves compatibility but
+makes no exact deployment claim in recovery diagnostics.
 
 `aws-ses` also needs AWS credentials supplied through the AWS SDK credential
 chain and optional `HAYASEND_CONFIGURATION_SET`. Cross-cloud identity and

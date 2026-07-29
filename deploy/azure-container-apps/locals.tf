@@ -55,6 +55,8 @@ locals {
   common_environment = {
     HAYASEND_MODE                      = "portable"
     HAYASEND_HOST                      = "0.0.0.0"
+    HAYASEND_RUNTIME_PROFILE           = "portable-postgres"
+    HAYASEND_DEPLOYMENT_PROFILE        = "azure-container-apps-acs"
     HAYASEND_TRANSPORT                 = var.transport
     HAYASEND_OBJECT_STORAGE            = "azure-blob"
     HAYASEND_OBJECT_STORAGE_BUCKET     = azurerm_storage_container.attachments.name
@@ -78,6 +80,7 @@ locals {
 
   hosted_proof_environment = {
     HAYASEND_MODE                         = "portable"
+    HAYASEND_RUNTIME_PROFILE              = "portable-postgres"
     HAYASEND_TRANSPORT                    = "console"
     HAYASEND_CONSOLE_PROOF_CONFIRM        = "isolated-non-sending"
     HAYASEND_OBJECT_STORAGE               = "disabled"

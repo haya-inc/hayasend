@@ -47,6 +47,7 @@ locals {
     HAYASEND_HOST                  = "0.0.0.0"
     HAYASEND_DATABASE_URL_FILE     = local.database_url_file
     HAYASEND_API_KEY_FILE          = local.api_key_file
+    HAYASEND_RUNTIME_PROFILE       = "portable-postgres"
     HAYASEND_TRANSPORT             = var.transport
     HAYASEND_OBJECT_STORAGE        = "gcs"
     HAYASEND_OBJECT_STORAGE_BUCKET = google_storage_bucket.attachments.name
@@ -55,8 +56,9 @@ locals {
     }, var.transport == "console" ? {
     HAYASEND_CONSOLE_PROOF_CONFIRM = "isolated-non-sending"
     } : {}, var.transport == "sendgrid" ? {
-    SENDGRID_API_KEY_FILE = local.sendgrid_api_key_file
-    SENDGRID_API_BASE_URL = "https://api.sendgrid.com"
+    HAYASEND_DEPLOYMENT_PROFILE = "cloud-run-sendgrid"
+    SENDGRID_API_KEY_FILE       = local.sendgrid_api_key_file
+    SENDGRID_API_BASE_URL       = "https://api.sendgrid.com"
   } : {})
 
   migration_environment = {
@@ -72,6 +74,7 @@ locals {
     HAYASEND_MODE                         = "portable"
     HAYASEND_DATABASE_URL_FILE            = local.database_url_file
     HAYASEND_API_KEY_FILE                 = local.api_key_file
+    HAYASEND_RUNTIME_PROFILE              = "portable-postgres"
     HAYASEND_TRANSPORT                    = "console"
     HAYASEND_CONSOLE_PROOF_CONFIRM        = "isolated-non-sending"
     HAYASEND_OBJECT_STORAGE               = "disabled"

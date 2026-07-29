@@ -132,6 +132,9 @@ deployment and rollback. When omitted it resolves to `console`, matching the
 committed `fly.toml`, and also passes the exact
 `HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending` guard. An operator cannot
 replace that guard with a lookalike value, and SendGrid deployments omit it.
+Both paths declare `HAYASEND_RUNTIME_PROFILE=portable-postgres`; SendGrid also
+declares `HAYASEND_DEPLOYMENT_PROFILE=flyio-sendgrid`. `verify.sh` rejects
+Machines whose profile inventory does not match that exact selection.
 
 Run the
 [shared portable hosted proof](https://github.com/haya-inc/hayasend/blob/main/docs/portable-hosted-proof.md)

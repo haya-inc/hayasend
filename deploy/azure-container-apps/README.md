@@ -17,6 +17,11 @@ zero-residue evidence are tracked in
 [#152](https://github.com/haya-inc/hayasend/issues/152). Running Terraform
 creates billable Azure resources and requires separate explicit authorization.
 
+The pack declares `HAYASEND_RUNTIME_PROFILE=portable-postgres` and
+`HAYASEND_DEPLOYMENT_PROFILE=azure-container-apps-acs` on the exact ACS
+runtime. Startup rejects a mismatched transport declaration, and recovery
+diagnostics let `hayasend doctor` verify both documents and their binding.
+
 ## Security model
 
 - The API, worker, and migration job use the same immutable image digest and

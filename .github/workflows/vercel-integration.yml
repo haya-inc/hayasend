@@ -278,6 +278,7 @@ jobs:
               --no-color < "$file"
           }
           add_plain HAYASEND_MODE portable
+          add_plain HAYASEND_RUNTIME_PROFILE vercel-serverless
           add_plain HAYASEND_TRANSPORT console
           add_plain HAYASEND_CONSOLE_PROOF_CONFIRM isolated-non-sending
           add_plain HAYASEND_OBJECT_STORAGE vercel-blob
@@ -308,6 +309,7 @@ jobs:
             npm run validate:vercel
             npm run build
             HAYASEND_MODE=portable \
+              HAYASEND_RUNTIME_PROFILE=vercel-serverless \
               HAYASEND_TRANSPORT=console \
               HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
               HAYASEND_OBJECT_STORAGE=vercel-blob \
@@ -321,6 +323,7 @@ jobs:
               --prod \
               --yes \
               --project "$HAYASEND_VERCEL_PROJECT_ID" \
+              --env HAYASEND_RUNTIME_PROFILE=vercel-serverless \
               --env HAYASEND_TRANSPORT=console \
               --env HAYASEND_CONSOLE_PROOF_CONFIRM=isolated-non-sending \
               --non-interactive \

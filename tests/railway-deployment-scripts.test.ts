@@ -127,6 +127,20 @@ const baseEnvironment = {
 describe.skipIf(process.platform === "win32")(
   "Railway deployment scripts",
   () => {
+    it("binds the exact runtime and SendGrid deployment profiles", async () => {
+      const infrastructure = await readFile(
+        resolve(deploymentDirectory, ".railway/railway.ts"),
+        "utf8",
+      );
+
+      expect(infrastructure).toContain(
+        'HAYASEND_RUNTIME_PROFILE: "portable-postgres"',
+      );
+      expect(infrastructure).toContain(
+        'HAYASEND_DEPLOYMENT_PROFILE: "railway-sendgrid"',
+      );
+    });
+
     it("applies only a non-destructive plan and verifies the deployed graph", async () => {
       const fixture = await fakeCommands();
       const result = run("deploy.sh", fixture, baseEnvironment);
