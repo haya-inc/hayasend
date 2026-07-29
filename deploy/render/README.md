@@ -197,9 +197,12 @@ general-purpose test workspace, leave autosync off, enter one independent
 Before mutation the workflow verifies the one-environment, two-service,
 one-database Blueprint graph, network isolation, no custom domains, exact
 plans, and disabled autosync. Dispatch must repeat the exact project ID and
-proposed USD 30 ceiling. It deploys the immutable HayaSend image, runs the
-30-day console proof as one exact Render one-off job, disconnects the
-Blueprint, and deletes the dedicated project. It does not configure external
+proposed USD 30 ceiling. It first deploys the immutable v0.3.0 compatibility
+baseline, upgrades both services to the immutable current image, runs the
+30-day console proof as one exact Render one-off job, and uses the guarded
+rollback wrapper to redeploy v0.3.0 without reversing forward migrations. It
+records baseline, upgrade, and rollback evidence before disconnecting the
+Blueprint and deleting the dedicated project. It does not configure external
 object storage or SendGrid and does not send mail. It is implemented and
 locally validated, but has not yet been run.
 

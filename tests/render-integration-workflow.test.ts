@@ -36,6 +36,15 @@ describe("Render hosted lifecycle workflow", () => {
     );
     expect(workflow).toContain("deploy/render/verify-project.sh");
     expect(workflow).toContain("deploy/render/proof.sh");
+    expect(workflow).toContain(
+      "Deploy the reviewed previous compatible baseline",
+    );
+    expect(workflow).toContain(
+      "Upgrade and verify the reviewed current immutable image",
+    );
+    expect(workflow).toContain("deploy/render/rollback.sh");
+    expect(workflow).toContain('object: "render_upgrade_proof"');
+    expect(workflow).toContain('object: "render_rollback_proof"');
     expect(workflow).toContain("deploy/render/cleanup-project.sh");
     expect(workflow).toContain(
       "HAYASEND_ALLOW_DESTROY: render-project",
@@ -45,6 +54,9 @@ describe("Render hosted lifecycle workflow", () => {
     );
     expect(workflow).toContain(
       "ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979",
+    );
+    expect(workflow).toContain(
+      "ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519",
     );
     expect(workflow).not.toContain("SENDGRID_API_KEY");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);

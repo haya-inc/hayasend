@@ -29,6 +29,7 @@ jobs:
     env:
       GCLOUD_VERSION: 578.0.0
       HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_ROLLBACK_IMAGE: ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519
       TF_VAR_allow_public_api: "true"
       TF_VAR_bucket_soft_delete_retention_seconds: "0"
       TF_VAR_database_availability_type: ZONAL
@@ -152,12 +153,34 @@ jobs:
         shell: bash
         run: echo "attempted=true" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy the reviewed disposable graph
+      - name: Deploy the reviewed previous compatible baseline
         shell: bash
+        env:
+          TF_VAR_image: ${{ env.HAYASEND_ROLLBACK_IMAGE }}
+        run: |
+          set -euo pipefail
+          deploy/cloud-run/deploy.sh \
+            | tee "$RUNNER_TEMP/cloud-run-baseline.txt"
+
+      - name: Upgrade to the reviewed current immutable release
+        shell: bash
+        env:
+          TF_VAR_image: ${{ env.HAYASEND_IMAGE }}
         run: |
           set -euo pipefail
           deploy/cloud-run/deploy.sh \
             | tee "$RUNNER_TEMP/cloud-run-deploy.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_ROLLBACK_IMAGE" \
+            --arg to "$HAYASEND_IMAGE" '
+              {
+                object: "cloud_run_upgrade_proof",
+                migration_policy: "migration-first-forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_upgrade: true
+              }
+            ' > "$RUNNER_TEMP/cloud-run-upgrade.json"
 
       - name: Execute and collect the provider-private semantic proof
         shell: bash
@@ -227,6 +250,27 @@ jobs:
               .cleanup.fixture_rows_remaining == 0' \
             "$proof_file" >/dev/null
 
+      - name: Roll back to the reviewed previous immutable release
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: cloud-run
+        run: |
+          set -euo pipefail
+          deploy/cloud-run/rollback.sh \
+            | tee "$RUNNER_TEMP/cloud-run-rollback.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_IMAGE" \
+            --arg to "$HAYASEND_ROLLBACK_IMAGE" '
+              {
+                object: "cloud_run_rollback_proof",
+                migration_policy: "forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_rollback: true
+              }
+            ' > "$RUNNER_TEMP/cloud-run-rollback.json"
+          echo "TF_VAR_image=$HAYASEND_ROLLBACK_IMAGE" >> "$GITHUB_ENV"
+
       - name: Delete the disposable graph and verify zero residue
         if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' && steps.deployment_attempt.outputs.attempted == 'true' }}
         shell: bash
@@ -244,7 +288,11 @@ jobs:
         with:
           name: cloud-run-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/cloud-run-baseline.txt
+            ${{ runner.temp }}/cloud-run-upgrade.json
             ${{ runner.temp }}/cloud-run-portable-proof.json
+            ${{ runner.temp }}/cloud-run-rollback.json
+            ${{ runner.temp }}/cloud-run-rollback.txt
             ${{ runner.temp }}/cloud-run-cleanup.txt
           if-no-files-found: warn
           retention-days: 7

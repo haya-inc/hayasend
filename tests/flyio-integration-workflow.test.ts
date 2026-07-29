@@ -31,6 +31,18 @@ describe("Fly.io hosted lifecycle workflow", () => {
     expect(workflow).toContain("HAYASEND_TRANSPORT: console");
     expect(workflow).toContain("deploy/flyio/proof.sh");
     expect(workflow).toContain(
+      "Establish the reviewed previous compatible baseline",
+    );
+    expect(workflow).toContain(
+      "Upgrade to the reviewed current immutable release",
+    );
+    expect(workflow).toContain("deploy/flyio/rollback.sh");
+    expect(workflow).toContain('object: "flyio_upgrade_proof"');
+    expect(workflow).toContain('object: "flyio_rollback_proof"');
+    expect(workflow).toContain(
+      "sha256:4731fbc644c55088399f6a8c11105d9c3b300acb2b3beda71b581289327f2a4b",
+    );
+    expect(workflow).toContain(
       "deploy/flyio/cleanup-proof-machine.sh",
     );
     expect(workflow).toContain(

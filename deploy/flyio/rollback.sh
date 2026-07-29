@@ -4,6 +4,11 @@ set -euo pipefail
 # shellcheck source=deploy/flyio/lib.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/lib.sh"
 
+if [[ "${HAYASEND_ALLOW_ROLLBACK:-}" != "flyio" ]]; then
+  echo "Set HAYASEND_ALLOW_ROLLBACK=flyio to confirm the reviewed digest rollback." >&2
+  exit 1
+fi
+
 require_flyctl
 require_transport
 require_resource_inputs

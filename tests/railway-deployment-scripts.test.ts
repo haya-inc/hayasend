@@ -13,6 +13,9 @@ const deploymentDirectory = resolve("deploy/railway");
 const image =
   "ghcr.io/haya-inc/hayasend@sha256:" +
   "0123456789abcdef".repeat(4);
+const rollbackImage =
+  "ghcr.io/haya-inc/hayasend@sha256:" +
+  "fedcba9876543210".repeat(4);
 const projectId = "11111111-1111-4111-8111-111111111111";
 const environmentId = "22222222-2222-4222-8222-222222222222";
 const workspaceId = "33333333-3333-4333-8333-333333333333";
@@ -198,6 +201,42 @@ describe.skipIf(process.platform === "win32")(
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Set SENDGRID_API_KEY");
       expect(await readFile(fixture.log, "utf8")).toBe("--version\n");
+    });
+
+    it("rolls back the API and worker through the reviewed IaC", async () => {
+      const fixture = await fakeCommands();
+      const result = run("rollback.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_ALLOW_ROLLBACK: "railway",
+        HAYASEND_ROLLBACK_IMAGE: rollbackImage,
+      });
+      const commands = await readFile(fixture.log, "utf8");
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(commands).toContain(
+        `config apply --file ${deploymentDirectory}/.railway/railway.ts --yes --json`,
+      );
+      expect(result.stdout).toContain(
+        "preserves forward migrations",
+      );
+      expect(result.stdout).toContain(
+        `HayaSend Railway API: ${apiUrl}`,
+      );
+    });
+
+    it("refuses rollback without the exact operator guard", async () => {
+      const fixture = await fakeCommands();
+      const result = run("rollback.sh", fixture, {
+        ...baseEnvironment,
+        HAYASEND_ROLLBACK_IMAGE: rollbackImage,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(
+        "Set HAYASEND_ALLOW_ROLLBACK=railway",
+      );
+      expect(await readFile(fixture.log, "utf8")).toBe("");
     });
 
     it("deletes only the exact empty dedicated project", async () => {

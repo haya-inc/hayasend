@@ -27,6 +27,7 @@ jobs:
     environment: railway-integration
     env:
       HAYASEND_IMAGE: ghcr.io/haya-inc/hayasend@sha256:73c650a648824005adeb45cf6e5ef1ca8c7d9f321d25c5c58290c070ee6a8979
+      HAYASEND_ROLLBACK_IMAGE: ghcr.io/haya-inc/hayasend@sha256:458e9299ddef7a0d398e51cc18ce0daae2557cd444af55dadc67ae3e10bea519
       HAYASEND_RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_TEST_ENVIRONMENT_ID }}
       HAYASEND_RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_TEST_PROJECT_ID }}
       HAYASEND_RAILWAY_WORKSPACE_ID: ${{ vars.RAILWAY_TEST_WORKSPACE_ID }}
@@ -156,7 +157,26 @@ jobs:
           echo "::add-mask::$api_key"
           echo "HAYASEND_API_KEY=$api_key" >> "$GITHUB_ENV"
 
-      - name: Deploy the reviewed console-only graph
+      - name: Deploy the reviewed previous compatible baseline
+        shell: bash
+        env:
+          HAYASEND_IMAGE: ${{ env.HAYASEND_ROLLBACK_IMAGE }}
+        run: |
+          set -euo pipefail
+          RAILWAY_CLI="$RAILWAY_CLI" \
+            deploy/railway/deploy.sh \
+            | tee "$RUNNER_TEMP/railway-baseline.txt"
+          api_url="$(
+            sed -n 's/^HayaSend Railway API: //p' \
+              "$RUNNER_TEMP/railway-baseline.txt"
+          )"
+          if [[ ! "$api_url" =~ ^https://[a-zA-Z0-9.-]+$ ]]; then
+            echo "::error::The baseline Railway API origin is missing or invalid."
+            exit 1
+          fi
+          echo "HAYASEND_RAILWAY_API_URL=$api_url" >> "$GITHUB_ENV"
+
+      - name: Upgrade to the reviewed current console-only graph
         shell: bash
         run: |
           set -euo pipefail
@@ -172,6 +192,17 @@ jobs:
             exit 1
           fi
           echo "HAYASEND_RAILWAY_API_URL=$api_url" >> "$GITHUB_ENV"
+          jq --null-input \
+            --arg from "$HAYASEND_ROLLBACK_IMAGE" \
+            --arg to "$HAYASEND_IMAGE" '
+              {
+                object: "railway_upgrade_proof",
+                migration_policy: "migration-first-forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_upgrade: true
+              }
+            ' > "$RUNNER_TEMP/railway-upgrade.json"
 
       - name: Run the portable semantic proof inside Railway
         shell: bash
@@ -210,6 +241,28 @@ jobs:
           RAILWAY_CLI="$RAILWAY_CLI" \
             deploy/railway/verify.sh
 
+      - name: Roll back to the reviewed previous immutable release
+        shell: bash
+        env:
+          HAYASEND_ALLOW_ROLLBACK: railway
+        run: |
+          set -euo pipefail
+          RAILWAY_CLI="$RAILWAY_CLI" \
+            deploy/railway/rollback.sh \
+            | tee "$RUNNER_TEMP/railway-rollback.txt"
+          jq --null-input \
+            --arg from "$HAYASEND_IMAGE" \
+            --arg to "$HAYASEND_ROLLBACK_IMAGE" '
+              {
+                object: "railway_rollback_proof",
+                migration_policy: "forward-compatible",
+                from_image: $from,
+                to_image: $to,
+                ready_after_rollback: true
+              }
+            ' > "$RUNNER_TEMP/railway-rollback.json"
+          echo "HAYASEND_IMAGE=$HAYASEND_ROLLBACK_IMAGE" >> "$GITHUB_ENV"
+
       - name: Delete the dedicated project
         if: ${{ always() && steps.inventory_guard.outputs.validated == 'true' }}
         shell: bash
@@ -229,7 +282,11 @@ jobs:
         with:
           name: railway-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/railway-baseline.txt
+            ${{ runner.temp }}/railway-upgrade.json
             ${{ runner.temp }}/railway-portable-proof.json
+            ${{ runner.temp }}/railway-rollback.json
+            ${{ runner.temp }}/railway-rollback.txt
             ${{ runner.temp }}/railway-cleanup.txt
           if-no-files-found: warn
           retention-days: 7

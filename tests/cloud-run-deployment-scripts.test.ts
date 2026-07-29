@@ -119,6 +119,22 @@ describe.skipIf(process.platform === "win32")(
       );
     });
 
+    it("ships a guarded forward-compatible immutable rollback", async () => {
+      const rollback = await readFile(
+        resolve(deploymentDirectory, "rollback.sh"),
+        "utf8",
+      );
+
+      expect(rollback).toContain(
+        'HAYASEND_ALLOW_ROLLBACK:-}" != "cloud-run"',
+      );
+      expect(rollback).toContain(
+        'export TF_VAR_image="$HAYASEND_ROLLBACK_IMAGE"',
+      );
+      expect(rollback).toContain("./deploy.sh");
+      expect(rollback).toContain("preserves forward migrations");
+    });
+
     it("checks every managed resource family including Pub/Sub and IAM", async () => {
       const fixture = await fakeGcloud();
       const result = verify(fixture);
