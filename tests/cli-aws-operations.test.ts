@@ -216,7 +216,7 @@ function awsRunner(
       return result("SAM CLI, version 1.164.0");
     }
     if (command === "npm" && args[0] === "--version") {
-      return result("12.0.1");
+      return result("12.0.2");
     }
     if (command === "npm" && args[0] === "root" && args[1] === "--global") {
       return result(join(tmpdir(), "hayasend-test-npm-root"));

@@ -114,7 +114,7 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("package-manager-cache: false");
     expect(workflow).toContain(
-      "npm install --global --ignore-scripts npm@12.0.1",
+      "npm install --global --ignore-scripts npm@12.0.2",
     );
     expect(workflow).toContain(
       'npm_archive="haya-inc-hayasend-${VERSION}.tgz"',

@@ -9,6 +9,11 @@ The example pins the current `standardwebhooks@1.0.0` package and is checked
 with Deno 2.9.4. Supabase CLI commands below pin the current `supabase@2.110.0`
 release.
 
+Contributors need Deno 2.9.4 on `PATH` to run `npm run check:supabase-hook`. CI
+and Release install it with the pinned official setup action. Deno is
+intentionally not an npm dependency, so the product's Alpine/musl container
+install remains portable and does not include the example-only toolchain.
+
 HayaSend remains early beta. Keep authentication, recovery, and
 security-notification traffic on the existing provider until AWS SES production
 access, terminal delivery, a controlled hook canary, mailbox receipt, and
