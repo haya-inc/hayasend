@@ -467,6 +467,7 @@ jobs:
           npm ci
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - run: npm run check
+      - run: npm run check:supabase-hook
       - run: npm run check:workers
       - run: npm run check:conformance
       - run: npm run validate:flyio

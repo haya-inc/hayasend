@@ -123,6 +123,24 @@ relay. An SMTP workload must move to the supported HTTP API or keep its SMTP
 provider. A supported inventory is only `CANARY_ELIGIBLE`; it is not a
 production-readiness claim.
 
+### Supabase Auth: replace SMTP with the HTTPS Send Email Hook
+
+Do not add an SMTP relay only to migrate Supabase Auth. Current Supabase Auth
+can replace its built-in SMTP submission with a signed HTTPS Send Email Hook.
+The deployable
+[`examples/supabase-auth-send-email-hook`](../examples/supabase-auth-send-email-hook/)
+bridge verifies the Standard Webhooks signature over the exact raw body, maps
+the hook ID to a HayaSend idempotency key, renders every currently documented
+Auth email action, and submits through an `emails:send` scoped HayaSend key.
+
+The bridge uses a 3.5-second HayaSend timeout inside Supabase's documented
+five-second total HTTP-hook budget. It returns `503` with `Retry-After: 2`
+only for throttling, timeout, or temporary unavailability so Supabase's
+documented retry behavior remains bounded. Permanent request rejection does
+not create a retry storm. Keep the existing Resend SMTP configuration as the
+tested rollback until terminal delivery, mailbox receipt, and the
+workload-specific GO report pass.
+
 ## Run a controlled dual-provider canary
 
 Use one synthetic message and a mailbox controlled by the migration operator.

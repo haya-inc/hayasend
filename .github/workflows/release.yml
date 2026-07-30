@@ -101,6 +101,8 @@ jobs:
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Type-check
         run: npm run check
+      - name: Verify the Supabase Auth hook example
+        run: npm run check:supabase-hook
       - name: Verify conformance artifacts
         run: npm run check:conformance
       - name: Test
