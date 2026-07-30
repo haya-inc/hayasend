@@ -36,7 +36,7 @@ describe("AWS SES terminal delivery workflow", () => {
     );
     expect(workflow).toContain("node-version: 24.18.0");
     expect(workflow).toContain("version: 1.164.0");
-    expect(workflow).toContain("npm@12.0.1");
+    expect(workflow).toContain("npm@12.0.2");
     expect(workflow).toContain("retain_stack");
     expect(workflow).toContain("if-no-files-found: error");
   });

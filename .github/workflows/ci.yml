@@ -197,7 +197,7 @@ jobs:
           node-version: 24.18.0
           cache: npm
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - name: Verify the pinned Railway CLI and deployment pack
         env:
           HAYASEND_API_KEY: re_RAILWAY_CI_VALIDATION_DO_NOT_USE
@@ -307,7 +307,7 @@ jobs:
           node-version: 24.18.0
           cache: npm
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - run: npm ci
       - name: Verify the pinned Vercel SDKs, CLI, and deployment pack
         run: |
@@ -377,7 +377,7 @@ jobs:
           node-version: 24.18.0
           cache: npm
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - run: npm ci
       - name: Exercise PostgreSQL 18 store, jobs, and portable runtime
         env:
@@ -458,15 +458,20 @@ jobs:
         with:
           node-version: 24.18.0
           cache: npm
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.9.4
+          cache: true
       - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
           version: 1.164.0
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - run: |
           npm ci
           echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
       - run: npm run check
+      - run: npm run check:supabase-hook
       - run: npm run check:workers
       - run: npm run check:conformance
       - run: npm run validate:flyio
@@ -543,7 +548,7 @@ jobs:
           cache: pip
           cache-dependency-path: tests/sdk/python-requirements.txt
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - run: npm ci
       - name: Install the official Resend Python SDK
         run: >
@@ -594,7 +599,7 @@ jobs:
           node-version: 24.18.0
           cache: npm
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - run: npm ci
       - name: Exercise the published OpenAPI contract
         env:
@@ -702,7 +707,7 @@ jobs:
           node-version: 24.18.0
           package-manager-cache: false
       - name: Install npm
-        run: npm install --global --ignore-scripts npm@12.0.1
+        run: npm install --global --ignore-scripts npm@12.0.2
       - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
           version: 1.164.0

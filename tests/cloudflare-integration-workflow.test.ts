@@ -58,7 +58,7 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
     expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
-    expect(workflow).toContain("npm@12.0.1");
+    expect(workflow).toContain("npm@12.0.2");
 
     const apiProof = await readFile(
       new URL("../scripts/cloudflare-integration-api.mjs", import.meta.url),
@@ -105,7 +105,7 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
     expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
-    expect(workflow).toContain("npm@12.0.1");
+    expect(workflow).toContain("npm@12.0.2");
 
     const proof = await readFile(
       new URL("../scripts/cloudflare-terminal-delivery.mjs", import.meta.url),

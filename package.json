@@ -4,7 +4,7 @@
   "description": "Resend-compatible, provider-portable email infrastructure you run in your own cloud account.",
   "type": "module",
   "license": "Apache-2.0",
-  "packageManager": "npm@12.0.1",
+  "packageManager": "npm@12.0.2",
   "homepage": "https://hayasend.com/",
   "repository": {
     "type": "git",
@@ -62,6 +62,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
+    "check:supabase-hook": "deno check --frozen --config examples/supabase-auth-send-email-hook/deno.json examples/supabase-auth-send-email-hook/index.ts examples/supabase-auth-send-email-hook/handler_test.ts && deno test --frozen --config examples/supabase-auth-send-email-hook/deno.json examples/supabase-auth-send-email-hook/handler_test.ts",
     "check:workers": "npm run check:workers:types && npm run check:workers:boundary && tsc -p tsconfig.workers.json && npm run test:workers && wrangler deploy --dry-run --outdir .wrangler/dist",
     "check:workers:boundary": "node scripts/check-workers-boundary.mjs",
     "check:workers:types": "wrangler types worker-configuration.d.ts --env-interface CloudflareEnv --check",

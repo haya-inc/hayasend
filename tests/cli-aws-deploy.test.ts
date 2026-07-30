@@ -83,7 +83,7 @@ function baseRunner(
       return result("SAM CLI, version 1.164.0");
     }
     if (command === "npm" && args[0] === "--version") {
-      return result("12.0.1");
+      return result("12.0.2");
     }
     if (command === "npm" && args[0] === "root" && args[1] === "--global") {
       return result(join(tmpdir(), "hayasend-test-npm-root"));
@@ -218,7 +218,7 @@ describe("plan-first AWS deployment CLI", () => {
       tools: {
         aws_cli: "aws-cli/2.35.24 Python/3.13",
         sam_cli: "SAM CLI, version 1.164.0",
-        npm_cli: "12.0.1",
+        npm_cli: "12.0.2",
       },
       identity: {
         account: "123456789012",
