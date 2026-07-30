@@ -1,6 +1,6 @@
 {
   "name": "@haya-inc/hayasend",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Resend-compatible, provider-portable email infrastructure you run in your own cloud account.",
   "type": "module",
   "license": "Apache-2.0",
