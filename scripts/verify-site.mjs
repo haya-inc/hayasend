@@ -38,7 +38,7 @@ async function verifySite() {
   for (const expected of [
     "<title>HayaSend API Reference</title>",
     "HayaSend API",
-    "0.3.4",
+    "0.3.5",
     '"operationId":"sendEmail"',
     '"operationId":"createDomain"',
     '"operationId":"replayWebhookDelivery"',

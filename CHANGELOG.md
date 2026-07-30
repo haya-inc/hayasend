@@ -6,6 +6,20 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.5 - 2026-07-30
+
+- Add a deployable Supabase Auth Send Email Hook that verifies the signed raw
+  request before any HayaSend call, uses an exact `emails:send` scoped key, and
+  maps retryable provider failures into Supabase's bounded hook retry contract.
+- Cover every current Supabase Auth email action, including the two-message
+  Secure Email Change flow with deterministic per-message idempotency.
+- Pin Standard Webhooks 1.0.0 and Deno 2.9.4 for the example, keep the Deno
+  toolchain outside the Alpine product image, and update repository npm pins to
+  12.0.2.
+- Keep production authentication mail on the existing provider until the SES
+  production-access, controlled-canary, rollback-rehearsal, and dogfood gates
+  pass.
+
 ## 0.3.4 - 2026-07-30
 
 - Add a fail-closed Resend migration inventory schema that records HTTP API,

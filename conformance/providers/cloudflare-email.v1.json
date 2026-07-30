@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "provider": "cloudflare-email",
-  "adapter_version": "0.3.4",
+  "adapter_version": "0.3.5",
   "checked_at": "2026-07-27",
   "service_maturity": "beta",
   "required_plan": "Cloudflare Email Service is Beta and outbound Email Sending requires a Workers Paid plan.",
