@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "provider": "aws-ses",
-  "adapter_version": "0.3.3",
+  "adapter_version": "0.3.4",
   "checked_at": "2026-07-27",
   "service_maturity": "beta",
   "required_plan": "An AWS account with Amazon SES production access in the deployment Region is required for unverified recipients.",

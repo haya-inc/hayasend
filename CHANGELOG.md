@@ -6,6 +6,17 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.4 - 2026-07-30
+
+- Add a fail-closed Resend migration inventory schema that records HTTP API,
+  official SDK, and SMTP transports; configuration, application, and
+  provider-managed switching; rollback ownership; and both source and provider
+  account review evidence. Legacy inventories and SMTP workloads remain
+  blocked from canary promotion.
+- Stabilize the published batch-send contract proof with a deterministic valid
+  request before property-based exploration while retaining all generated
+  endpoint checks.
+
 ## 0.3.3 - 2026-07-30
 
 - Add a hosted, alarm-driven AWS CodeDeploy canary failure proof that requires
