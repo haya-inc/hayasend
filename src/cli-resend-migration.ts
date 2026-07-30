@@ -66,9 +66,34 @@ const streamSchema = z
   })
   .strict();
 
+const transportSchema = z
+  .object({
+    mode: z.enum(["official_sdk", "http_api", "smtp"]),
+    endpoint_switch: z.enum([
+      "configuration",
+      "application_change",
+      "provider_managed",
+    ]),
+    rollback: z.enum([
+      "configuration",
+      "deployment",
+      "provider_console",
+      "unverified",
+    ]),
+  })
+  .strict();
+
+const inventoryInspectionSchema = z
+  .object({
+    source_reviewed: z.boolean(),
+    provider_account_reviewed: z.boolean(),
+    observed_at: z.iso.datetime(),
+  })
+  .strict();
+
 export const resendInventorySchema = z
   .object({
-    schema_version: z.literal(1),
+    schema_version: z.union([z.literal(1), z.literal(2)]),
     workload: z
       .object({
         name: z.string().trim().min(1).max(128),
@@ -77,6 +102,8 @@ export const resendInventorySchema = z
       })
       .strict(),
     sdks: z.array(sdkSchema).min(1),
+    transport: transportSchema.optional(),
+    inspection: inventoryInspectionSchema.optional(),
     features: z
       .object({
         send_fields: z.array(z.string().trim().min(1).max(64)),
@@ -121,6 +148,20 @@ export const resendInventorySchema = z
   })
   .strict()
   .superRefine((inventory, context) => {
+    if (inventory.schema_version === 2 && !inventory.transport) {
+      context.addIssue({
+        code: "custom",
+        message: "schema_version 2 requires transport.",
+        path: ["transport"],
+      });
+    }
+    if (inventory.schema_version === 2 && !inventory.inspection) {
+      context.addIssue({
+        code: "custom",
+        message: "schema_version 2 requires inspection.",
+        path: ["inspection"],
+      });
+    }
     if (!inventory.features.templates.used && inventory.features.templates.count > 0) {
       context.addIssue({
         code: "custom",
@@ -275,6 +316,43 @@ export type ResendEvidence = z.infer<typeof resendEvidenceSchema>;
 export function assessResendInventory(inventory: ResendInventory) {
   const blockers: string[] = [];
   const warnings: string[] = [];
+  if (inventory.schema_version === 1) {
+    blockers.push(
+      "Inventory schema_version 1 does not attest the transport or provider-account review; upgrade the inventory to schema_version 2.",
+    );
+  }
+  if (inventory.schema_version === 2) {
+    if (!inventory.inspection?.source_reviewed) {
+      blockers.push(
+        "The application source has not been reviewed for every Resend send path.",
+      );
+    }
+    if (!inventory.inspection?.provider_account_reviewed) {
+      blockers.push(
+        "The Resend account has not been reviewed for domains, templates, webhooks, suppressions, schedules, inbound, and marketing features.",
+      );
+    }
+    if (inventory.transport?.mode === "smtp") {
+      blockers.push(
+        "HayaSend exposes the Resend-compatible HTTP API, not an SMTP relay; migrate this stream to a supported HTTP integration or keep its SMTP provider.",
+      );
+    }
+    if (inventory.transport?.endpoint_switch === "application_change") {
+      warnings.push(
+        "Switching this workload requires an application change; test and deploy that change before the controlled canary.",
+      );
+    }
+    if (inventory.transport?.endpoint_switch === "provider_managed") {
+      warnings.push(
+        "Switching this workload depends on provider-managed configuration; preserve and rehearse the provider-console rollback.",
+      );
+    }
+    if (inventory.transport?.rollback === "unverified") {
+      warnings.push(
+        "The rollback mechanism is unverified and must be rehearsed before the migration report can pass.",
+      );
+    }
+  }
   const unsupportedFields = [
     ...new Set(
       inventory.features.send_fields.filter(
@@ -342,9 +420,14 @@ export function assessResendInventory(inventory: ResendInventory) {
 
   return {
     object: "resend_migration_inventory",
-    schema_version: 1,
+    schema_version: inventory.schema_version,
     workload: inventory.workload,
-    inventory_complete: true,
+    inventory_complete:
+      inventory.schema_version === 2 &&
+      inventory.inspection?.source_reviewed === true &&
+      inventory.inspection.provider_account_reviewed === true,
+    ...(inventory.transport ? { transport: inventory.transport } : {}),
+    ...(inventory.inspection ? { inspection: inventory.inspection } : {}),
     blockers,
     warnings,
     canary_streams: inventory.streams.map((stream) => ({

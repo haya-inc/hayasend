@@ -28,7 +28,7 @@ independently routable stream:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "workload": {
     "name": "account notifications",
     "environment": "production",
@@ -41,6 +41,16 @@ independently routable stream:
       "version": "6.18.1"
     }
   ],
+  "transport": {
+    "mode": "official_sdk",
+    "endpoint_switch": "configuration",
+    "rollback": "configuration"
+  },
+  "inspection": {
+    "source_reviewed": true,
+    "provider_account_reviewed": true,
+    "observed_at": "2026-07-29T00:00:00.000Z"
+  },
   "features": {
     "send_fields": [
       "from",
@@ -98,10 +108,20 @@ hayasend migration resend inventory \
   --file ./hayasend.resend-inventory.json
 ```
 
-The result is `BLOCKED` for unknown send fields or webhook events, schedules
-beyond 30 days, missing raw-body webhook signature verification, or any Resend
-marketing/contact/audience/broadcast API. A supported inventory is only
-`CANARY_ELIGIBLE`; it is not a production-readiness claim.
+Schema v2 records whether the workload uses the official SDK, a direct HTTP
+integration, or SMTP; whether switching requires configuration, application
+code, or provider-managed settings; and how Resend rollback will be performed.
+It also attests that both application source and the Resend account were
+reviewed. Schema v1 remains parseable so existing inventory files get an
+actionable result, but it is `BLOCKED` until upgraded to v2.
+
+The result is also `BLOCKED` for SMTP, an unreviewed source or provider
+account, unknown send fields or webhook events, schedules beyond 30 days,
+missing raw-body webhook signature verification, or any Resend
+marketing/contact/audience/broadcast API. HayaSend does not expose an SMTP
+relay. An SMTP workload must move to the supported HTTP API or keep its SMTP
+provider. A supported inventory is only `CANARY_ELIGIBLE`; it is not a
+production-readiness claim.
 
 ## Run a controlled dual-provider canary
 

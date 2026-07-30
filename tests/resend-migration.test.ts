@@ -28,7 +28,7 @@ function inventory(
   extraStreamFeatures: string[] = [],
 ): ResendInventory {
   return resendInventorySchema.parse({
-    schema_version: 1,
+    schema_version: 2,
     workload: {
       name: "account notifications",
       environment: "production",
@@ -41,6 +41,16 @@ function inventory(
         version: "6.18.1",
       },
     ],
+    transport: {
+      mode: "official_sdk",
+      endpoint_switch: "configuration",
+      rollback: "configuration",
+    },
+    inspection: {
+      source_reviewed: true,
+      provider_account_reviewed: true,
+      observed_at: "2026-07-29T00:00:00.000Z",
+    },
     features: {
       send_fields: [
         "from",
@@ -163,6 +173,71 @@ describe("Resend migration inventory and report", () => {
     );
     expect(result.blockers).toContain(
       "Resend marketing, contact, audience, and broadcast APIs do not have HayaSend parity.",
+    );
+  });
+
+  it("accepts legacy schema v1 but fails closed until transport and account review are recorded", () => {
+    const current = inventory();
+    const legacy = resendInventorySchema.parse({
+      ...current,
+      schema_version: 1,
+      transport: undefined,
+      inspection: undefined,
+    });
+    const result = assessResendInventory(legacy);
+
+    expect(result.disposition).toBe("BLOCKED");
+    expect(result.inventory_complete).toBe(false);
+    expect(result.blockers).toContain(
+      "Inventory schema_version 1 does not attest the transport or provider-account review; upgrade the inventory to schema_version 2.",
+    );
+  });
+
+  it("blocks SMTP and provider-account inventories that have not been reviewed", () => {
+    const current = inventory();
+    const result = assessResendInventory(
+      resendInventorySchema.parse({
+        ...current,
+        transport: {
+          mode: "smtp",
+          endpoint_switch: "provider_managed",
+          rollback: "provider_console",
+        },
+        inspection: {
+          ...current.inspection,
+          provider_account_reviewed: false,
+        },
+      }),
+    );
+
+    expect(result.disposition).toBe("BLOCKED");
+    expect(result.blockers).toContain(
+      "The Resend account has not been reviewed for domains, templates, webhooks, suppressions, schedules, inbound, and marketing features.",
+    );
+    expect(result.blockers).toContain(
+      "HayaSend exposes the Resend-compatible HTTP API, not an SMTP relay; migrate this stream to a supported HTTP integration or keep its SMTP provider.",
+    );
+  });
+
+  it("warns when migration requires an application change and rollback is unverified", () => {
+    const current = inventory();
+    const result = assessResendInventory(
+      resendInventorySchema.parse({
+        ...current,
+        transport: {
+          mode: "http_api",
+          endpoint_switch: "application_change",
+          rollback: "unverified",
+        },
+      }),
+    );
+
+    expect(result.disposition).toBe("CANARY_ELIGIBLE");
+    expect(result.warnings).toContain(
+      "Switching this workload requires an application change; test and deploy that change before the controlled canary.",
+    );
+    expect(result.warnings).toContain(
+      "The rollback mechanism is unverified and must be rehearsed before the migration report can pass.",
     );
   });
 
