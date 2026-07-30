@@ -1936,7 +1936,8 @@ Commands:
 
   migration resend inventory --file FILE
       Validate a versioned, workload-specific inventory and report unsupported
-      send fields, webhooks, scheduling, marketing, and proof requirements.
+      transports, unreviewed account state, send fields, webhooks, scheduling,
+      marketing, and proof requirements.
 
   migration resend canary --comparison-id ID --from ADDRESS --to-file FILE
       Plan a synthetic dual-provider comparison without sending. Add --apply

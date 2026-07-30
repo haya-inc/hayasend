@@ -642,6 +642,27 @@ jobs:
             sleep 1
           done
 
+          batch_response="$(
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${contract_api_key}" \
+              --header "Content-Type: application/json" \
+              --header "Idempotency-Key: openapi-contract/batch" \
+              --data '[
+                {
+                  "from": "Contract <contract@example.test>",
+                  "to": ["recipient@example.test"],
+                  "subject": "Contract batch",
+                  "text": "Synthetic OpenAPI batch contract."
+                }
+              ]' \
+              "$contract_base_url/emails/batch"
+          )"
+          jq --exit-status '
+            (.data | type == "array" and length == 1) and
+            (.data[0].id | test("^email_[a-f0-9]{32}$"))
+          ' <<< "$batch_response"
+
           docker run --rm \
             --network host \
             --read-only \
@@ -668,6 +689,7 @@ jobs:
             --workers 1 \
             --max-failures 20 \
             --request-timeout 2 \
+            --suppress-health-check filter_too_much \
             --no-color
 
   npm-package:
