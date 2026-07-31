@@ -36,7 +36,10 @@ jobs:
       AWS_TERMINAL_FROM: ${{ vars.AWS_TERMINAL_FROM }}
       AWS_TERMINAL_TO: ${{ vars.AWS_TERMINAL_TO }}
       CONFIRM_ACCOUNT: ${{ inputs.confirm_account }}
-      STACK_NAME: hayasend-terminal-${{ github.run_id }}-${{ github.run_attempt }}
+      # The integration role scopes every resource ARN to hayasend-it-*, so the
+      # proof must name its stack inside that prefix. Nothing sweeps by prefix;
+      # both workflows scope their own cleanup to their exact STACK_NAME.
+      STACK_NAME: hayasend-it-terminal-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
