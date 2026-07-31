@@ -34,6 +34,7 @@ const observation = {
   poll_attempts: 0,
   poll_transient_failures: 0,
   email_id: undefined,
+  provider_message_id: undefined,
   email_status: "not_created",
   aggregate_status: "not_created",
   recipient_status: "not_created",
@@ -145,6 +146,8 @@ while (Date.now() < deliveryDeadline) {
   recipientSummary = await recipientResponse.json();
   emailStatus = email.status;
   recipientStatus = recipientSummary.data?.[0]?.status ?? "missing";
+  observation.provider_message_id =
+    email.message_id ?? observation.provider_message_id;
   observation.email_status = emailStatus;
   observation.aggregate_status = recipientSummary.aggregate_status ?? "missing";
   observation.recipient_status = recipientStatus;
@@ -174,13 +177,17 @@ if (
 ) {
   persistObservation();
   throw new Error(
-    `Cloudflare remained provider-accepted without a delivered event (${emailStatus}/${recipientStatus}).`,
+    `Cloudflare accepted the message but published no terminal event within the deadline (${emailStatus}/${recipientStatus}). ` +
+      "This is an observability failure and is NOT evidence of non-delivery: correlate provider message ID " +
+      `${observation.provider_message_id ?? "unknown"} against the recipient mailbox ` +
+      "(rfc822msgid lookup) before making any delivery claim.",
   );
 }
 
 const proof = {
   object: "cloudflare_terminal_delivery_proof",
   email_id: data.id,
+  provider_message_id: observation.provider_message_id,
   subject,
   email_status: emailStatus,
   aggregate_status: recipientSummary.aggregate_status,
