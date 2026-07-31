@@ -194,7 +194,8 @@ jobs:
             if (
               plan.identity?.account !== process.env.AWS_TEST_ACCOUNT_ID ||
               plan.region !== process.env.AWS_REGION ||
-              plan.parameters.WorkerReservedConcurrency !== "1" ||
+              plan.parameters.WorkerReservedConcurrency !== "0" ||
+              plan.parameters.WorkerMaximumConcurrency !== "10" ||
               plan.ses?.production_access !== true ||
               plan.ses?.sending_enabled !== true
             ) {
