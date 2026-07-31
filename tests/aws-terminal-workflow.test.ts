@@ -24,7 +24,10 @@ describe("AWS SES terminal delivery workflow", () => {
     expect(workflow).toContain('test "$sending_enabled" = "true"');
     expect(workflow).toContain('test "$verification_status" = "SUCCESS"');
     expect(workflow).toContain('test "$verified_for_sending" = "true"');
-    expect(workflow).toContain("--worker-reserved-concurrency 1");
+    // Reserving any concurrency requires the account to keep 10 unreserved
+    // executions, which a low-quota account cannot satisfy. The proof relies on
+    // WorkerMaximumConcurrency to bound the worker instead.
+    expect(workflow).toContain("--worker-reserved-concurrency 0");
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");
     expect(workflow).toContain("node scripts/aws-terminal-ledger.mjs");
     expect(workflow).toContain("Verify zero run-scoped residue");

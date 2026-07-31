@@ -55,7 +55,9 @@ const TEMPLATE_DEFAULTS: Record<string, string> = {
   WebhookDeliveryRetentionDays: "7",
   TemplateHistoryRetentionDays: "90",
   TemplateHistoryLimit: "50",
-  WorkerReservedConcurrency: "10",
+  WorkerReservedConcurrency: "0",
+  WorkerMaximumConcurrency: "10",
+  InboundReservedConcurrency: "0",
   EnableGradualDeployments: "false",
   DeploymentPreferenceType: "Canary10Percent5Minutes",
   EnableBackups: "true",
@@ -193,6 +195,8 @@ export interface AwsDeployOptions {
   templateHistoryRetentionDays?: string;
   templateHistoryLimit?: string;
   workerReservedConcurrency?: string;
+  workerMaximumConcurrency?: string;
+  inboundReservedConcurrency?: string;
   deploymentPreferenceType?: string;
   enableBackups?: boolean;
   backupRetentionDays?: string;
@@ -229,6 +233,7 @@ export interface AwsCleanupOptions extends AwsTargetOptions {
   apply: boolean;
   confirmStack?: string;
   disableTerminationProtection: boolean;
+  purgeFailedCreateResources?: boolean;
 }
 
 interface NormalizedTarget {
@@ -305,6 +310,15 @@ interface SesAccount {
   maxSendRate: unknown;
   sentLast24Hours: unknown;
 }
+
+interface LambdaConcurrency {
+  concurrentExecutions: number | null;
+  unreservedConcurrentExecutions: number | null;
+}
+
+// AWS refuses any reservation that would leave the account with fewer than
+// this many unreserved executions.
+const MINIMUM_UNRESERVED_CONCURRENCY = 10;
 
 interface ResourceChange {
   action: string;
@@ -709,6 +723,24 @@ function normalizeOptions(
   );
   if (workerReservedConcurrency !== undefined) {
     explicitParameters.WorkerReservedConcurrency = workerReservedConcurrency;
+  }
+  const workerMaximumConcurrency = requireInteger(
+    options.workerMaximumConcurrency,
+    "--worker-maximum-concurrency",
+    2,
+    1000,
+  );
+  if (workerMaximumConcurrency !== undefined) {
+    explicitParameters.WorkerMaximumConcurrency = workerMaximumConcurrency;
+  }
+  const inboundReservedConcurrency = requireInteger(
+    options.inboundReservedConcurrency,
+    "--inbound-reserved-concurrency",
+    0,
+    1000,
+  );
+  if (inboundReservedConcurrency !== undefined) {
+    explicitParameters.InboundReservedConcurrency = inboundReservedConcurrency;
   }
   if (options.deploymentPreferenceType !== undefined) {
     if (!DEPLOYMENT_PREFERENCE_TYPES.has(options.deploymentPreferenceType)) {
@@ -1321,6 +1353,196 @@ async function requireSesAccount(
   };
 }
 
+async function requireLambdaConcurrency(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+): Promise<LambdaConcurrency> {
+  const settings = await requireJson<{
+    AccountLimit?: {
+      ConcurrentExecutions?: unknown;
+      UnreservedConcurrentExecutions?: unknown;
+    };
+  }>(
+    dependencies,
+    "aws",
+    awsArgs(options, ["lambda", "get-account-settings"]),
+    "Lambda concurrency preflight",
+  );
+  const asCount = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  return {
+    concurrentExecutions: asCount(settings.AccountLimit?.ConcurrentExecutions),
+    unreservedConcurrentExecutions: asCount(
+      settings.AccountLimit?.UnreservedConcurrentExecutions,
+    ),
+  };
+}
+
+/**
+ * Refuse a reservation the account can never satisfy, at plan time, instead of
+ * letting CloudFormation discover it minutes into a create and roll back.
+ *
+ * The hard check uses the account total rather than the currently unreserved
+ * pool so that updating a stack which already holds its own reservation is not
+ * falsely refused. A reservation that only conflicts with other functions'
+ * existing reservations is reported as a warning.
+ */
+function assessLambdaConcurrency(
+  concurrency: LambdaConcurrency,
+  requested: Array<{ name: string; reserved: number }>,
+) {
+  const reservations = requested.filter((entry) => entry.reserved > 0);
+  const total = reservations.reduce((sum, entry) => sum + entry.reserved, 0);
+  const warnings: string[] = [];
+  const limit = concurrency.concurrentExecutions;
+  const unreserved = concurrency.unreservedConcurrentExecutions;
+  const detail = reservations
+    .map((entry) => `${entry.name}=${entry.reserved}`)
+    .join(", ");
+
+  if (total > 0 && limit !== null && limit - total < MINIMUM_UNRESERVED_CONCURRENCY) {
+    throw new Error(
+      `The account's Lambda concurrent-execution limit is ${limit}, so reserving ${total} (${detail}) would leave ${limit - total} unreserved and AWS requires at least ${MINIMUM_UNRESERVED_CONCURRENCY}. ` +
+        "Deploy with --worker-reserved-concurrency 0 (the default; --worker-maximum-concurrency still bounds worker throughput without an account reservation), " +
+        `or raise the "Concurrent executions" quota (lambda, L-B99A9384) to at least ${total + MINIMUM_UNRESERVED_CONCURRENCY} first.`,
+    );
+  }
+  if (
+    total > 0 &&
+    unreserved !== null &&
+    unreserved - total < MINIMUM_UNRESERVED_CONCURRENCY
+  ) {
+    warnings.push(
+      `Only ${unreserved} of the account's concurrency is currently unreserved; reserving ${total} (${detail}) may fail unless this stack already holds those reservations.`,
+    );
+  }
+  if (
+    total === 0 &&
+    limit !== null &&
+    limit < MINIMUM_UNRESERVED_CONCURRENCY * 2
+  ) {
+    warnings.push(
+      `The account's Lambda concurrent-execution limit is ${limit}. The API and worker functions share that pool, so a send burst can slow request handling. Raise the "Concurrent executions" quota (lambda, L-B99A9384) before treating this deployment as production-grade.`,
+    );
+  }
+  return {
+    account_limit: limit,
+    unreserved: unreserved,
+    requested_reservations: Object.fromEntries(
+      reservations.map((entry) => [entry.name, entry.reserved]),
+    ),
+    total_requested_reservation: total,
+    minimum_unreserved: MINIMUM_UNRESERVED_CONCURRENCY,
+    warnings,
+  };
+}
+
+/**
+ * Decide whether one resource retained by a failed initial creation is safe to
+ * purge. CloudFormation only reports ROLLBACK_COMPLETE after a create that
+ * never succeeded, so these resources cannot hold committed HayaSend records —
+ * but the emptiness of each one is still verified against the live API before
+ * anything is deleted, and anything non-empty or unrecognized is refused.
+ */
+async function inspectRetainedResource(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedTarget,
+  resource: { logical_id: string; resource_type: string; physical_id: string | null },
+): Promise<{ purgeable: boolean; reason: string; command?: string[] }> {
+  const name = resource.physical_id;
+  if (!name) {
+    return { purgeable: false, reason: "CloudFormation reported no physical id." };
+  }
+  switch (resource.resource_type) {
+    case "AWS::DynamoDB::Table": {
+      const table = await requireJson<{ Table?: { ItemCount?: unknown } }>(
+        dependencies,
+        "aws",
+        awsArgs(options, ["dynamodb", "describe-table", "--table-name", name]),
+        "DynamoDB emptiness check",
+      );
+      if (table.Table?.ItemCount !== 0) {
+        return {
+          purgeable: false,
+          reason: `The table reports ${String(table.Table?.ItemCount)} items; refusing to delete a table that is not empty.`,
+        };
+      }
+      return {
+        purgeable: true,
+        reason: "The table is empty.",
+        command: awsArgs(options, ["dynamodb", "delete-table", "--table-name", name]),
+      };
+    }
+    case "AWS::S3::Bucket": {
+      const objects = await requireJson<{
+        Versions?: unknown[];
+        DeleteMarkers?: unknown[];
+      }>(
+        dependencies,
+        "aws",
+        awsArgs(options, [
+          "s3api",
+          "list-object-versions",
+          "--bucket",
+          name,
+          "--max-items",
+          "1",
+        ]),
+        "S3 emptiness check",
+      );
+      const stored =
+        (objects.Versions?.length ?? 0) + (objects.DeleteMarkers?.length ?? 0);
+      if (stored > 0) {
+        return {
+          purgeable: false,
+          reason:
+            "The bucket still stores object versions or delete markers; refusing to delete a bucket that is not empty.",
+        };
+      }
+      return {
+        purgeable: true,
+        reason: "The bucket holds no object versions.",
+        command: awsArgs(options, ["s3api", "delete-bucket", "--bucket", name]),
+      };
+    }
+    case "AWS::Backup::BackupVault": {
+      const points = await requireJson<{ RecoveryPoints?: unknown[] }>(
+        dependencies,
+        "aws",
+        awsArgs(options, [
+          "backup",
+          "list-recovery-points-by-backup-vault",
+          "--backup-vault-name",
+          name,
+        ]),
+        "Backup vault emptiness check",
+      );
+      if ((points.RecoveryPoints?.length ?? 0) > 0) {
+        return {
+          purgeable: false,
+          reason:
+            "The vault still holds recovery points; refusing to delete a vault that is not empty.",
+        };
+      }
+      return {
+        purgeable: true,
+        reason: "The vault holds no recovery points.",
+        command: awsArgs(options, [
+          "backup",
+          "delete-backup-vault",
+          "--backup-vault-name",
+          name,
+        ]),
+      };
+    }
+    default:
+      return {
+        purgeable: false,
+        reason: `${resource.resource_type} is not purged automatically; scheduling KMS key deletion and similar operations stay an explicit operator decision.`,
+      };
+  }
+}
+
 async function listStackResources(
   dependencies: AwsDeployDependencies,
   options: NormalizedTarget,
@@ -1812,7 +2034,11 @@ function applyCommand(
     "--template-history-limit",
     parameters.TemplateHistoryLimit ?? "50",
     "--worker-reserved-concurrency",
-    parameters.WorkerReservedConcurrency ?? "10",
+    parameters.WorkerReservedConcurrency ?? "0",
+    "--worker-maximum-concurrency",
+    parameters.WorkerMaximumConcurrency ?? "10",
+    "--inbound-reserved-concurrency",
+    parameters.InboundReservedConcurrency ?? "0",
     "--deployment-preference-type",
     parameters.DeploymentPreferenceType ?? "Canary10Percent5Minutes",
     ...(parameters.EnableBackups === "true"
@@ -2336,6 +2562,20 @@ export async function cleanupAws(
       resource_type: resource.type,
       physical_id: resource.physicalId ?? null,
     }));
+  const failedCreate = stack.status === "ROLLBACK_COMPLETE";
+  if (rawOptions.purgeFailedCreateResources && !failedCreate) {
+    throw new Error(
+      `--purge-failed-create-resources only applies to a stack in ROLLBACK_COMPLETE, which CloudFormation reports solely after a failed initial creation. Stack ${options.stack} is in ${stack.status ?? "an unknown state"}, so its retained resources may hold committed data; remove them separately after reviewing their contents.`,
+    );
+  }
+  const purge = rawOptions.purgeFailedCreateResources
+    ? await Promise.all(
+        retained.map(async (resource) => ({
+          ...resource,
+          ...(await inspectRetainedResource(dependencies, options, resource)),
+        })),
+      )
+    : [];
   const applyCommand = [
     ...targetCommand("cleanup", {
       ...options,
@@ -2344,6 +2584,9 @@ export async function cleanupAws(
     "--apply",
     "--confirm-stack",
     options.stack,
+    ...(rawOptions.purgeFailedCreateResources
+      ? ["--purge-failed-create-resources"]
+      : []),
     ...(stack.terminationProtectionEnabled === true
       ? ["--disable-termination-protection"]
       : []),
@@ -2374,8 +2617,16 @@ export async function cleanupAws(
       deletion: {
         cloudformation_stack: options.stack,
         retained_resources: retained,
-        retained_resource_handling:
-          "Retained DynamoDB, S3, and inbound KMS resources are not purged. Inspect and remove them separately only when their data is no longer required.",
+        retained_resource_handling: rawOptions.purgeFailedCreateResources
+          ? "This stack never completed its initial creation, so each retained resource was checked against the live API and only verifiably empty ones are deleted."
+          : "Retained DynamoDB, S3, and inbound KMS resources are not purged. Inspect and remove them separately only when their data is no longer required.",
+        ...(rawOptions.purgeFailedCreateResources
+          ? {
+              failed_create_purge: purge.map(
+                ({ command: _command, ...entry }) => entry,
+              ),
+            }
+          : {}),
       },
       ...(rawOptions.apply ? {} : { apply_command: applyCommand }),
     }),
@@ -2491,6 +2742,28 @@ export async function cleanupAws(
       }. Recent failure events: ${events}`,
     );
   }
+  const purged: Array<{
+    logical_id: string;
+    resource_type: string;
+    physical_id: string | null;
+    deleted: boolean;
+    reason: string;
+  }> = [];
+  for (const entry of purge) {
+    const { command, purgeable, reason, ...resource } = entry;
+    if (!purgeable || !command) {
+      purged.push({ ...resource, deleted: false, reason });
+      continue;
+    }
+    await requireCommand(
+      dependencies,
+      "aws",
+      command,
+      `${resource.logical_id} purge`,
+    );
+    purged.push({ ...resource, deleted: true, reason });
+  }
+  const refused = purged.filter((entry) => !entry.deleted);
   dependencies.log(
     JSON.stringify({
       schema_version: 1,
@@ -2499,8 +2772,14 @@ export async function cleanupAws(
       deleted: true,
       stack: options.stack,
       retained_resources: retained,
-      next:
-        retained.length > 0
+      ...(rawOptions.purgeFailedCreateResources
+        ? { failed_create_purge: purged }
+        : {}),
+      next: rawOptions.purgeFailedCreateResources
+        ? refused.length > 0
+          ? `Deleted ${purged.length - refused.length} empty resource(s) retained by the failed creation. Review the ${refused.length} refused entry/entries and remove them explicitly.`
+          : "The failed creation left no residue; a fresh deploy can reuse this stack name."
+        : retained.length > 0
           ? "Review retained resources and their retention/compliance requirements before any separate purge."
           : "No retained HayaSend data resources were found.",
     }),
@@ -2547,7 +2826,10 @@ export async function deployAws(
     (!stack.status || !STABLE_STACK_STATUSES.has(stack.status))
   ) {
     throw new Error(
-      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before deploying.`,
+      `Stack ${options.stack} is in ${stack.status ?? "an unknown state"}; recover it before deploying.` +
+        (stack.status === "ROLLBACK_COMPLETE"
+          ? ` CloudFormation only reaches ROLLBACK_COMPLETE after a failed initial creation, and deletion is its only valid next operation. Run "${targetCommand("cleanup", options).join(" ")} --purge-failed-create-resources" to plan removing the stack together with the empty resources its failed creation retained.`
+          : ""),
     );
   }
   const samVersionResult = await requireCommand(
@@ -2566,6 +2848,22 @@ export async function deployAws(
     ? await listStackResources(dependencies, options)
     : [];
   const parameters = effectiveParameters(options, stack, stackResources);
+  const lambdaConcurrency = assessLambdaConcurrency(
+    await requireLambdaConcurrency(dependencies, options),
+    [
+      {
+        name: "WorkerReservedConcurrency",
+        reserved: Number(parameters.WorkerReservedConcurrency ?? "0"),
+      },
+      {
+        name: "InboundReservedConcurrency",
+        reserved:
+          parameters.EnableInbound === "true"
+            ? Number(parameters.InboundReservedConcurrency ?? "0")
+            : 0,
+      },
+    ],
+  );
   const deployments = gradualDeploymentSummary(parameters, stackResources);
   const backups = backupSummary(parameters, stackResources);
   const deploymentTemplate = renderAwsTemplate(
@@ -2666,6 +2964,7 @@ export async function deployAws(
           build: "pass",
         },
         parameters,
+        lambda_concurrency: lambdaConcurrency,
         tags: Object.fromEntries(tags.map(({ key, value }) => [key, value])),
         protections: {
           termination_protection: "enabled_on_apply",

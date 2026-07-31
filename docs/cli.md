@@ -699,8 +699,14 @@ template are not replayed. Supported overrides are:
 - `--webhook-retention-days 1..30`;
 - `--template-history-retention-days 1..365`;
 - `--template-history-limit 1..50`;
-- `--worker-reserved-concurrency 0..1000` (`0` uses the account's unreserved
-  concurrency pool);
+- `--worker-reserved-concurrency 0..1000` (default `0`, which uses the
+  account's unreserved concurrency pool; reserving concurrency requires the
+  account to keep at least 10 unreserved executions, which a new AWS account
+  cannot satisfy);
+- `--worker-maximum-concurrency 2..1000` (default `10`; caps concurrent worker
+  invocations from the SQS event source, bounding the provider send rate
+  without reserving account concurrency);
+- `--inbound-reserved-concurrency 0..1000` (default `0`);
 - `--deployment-preference-type Canary10Percent5Minutes|Canary10Percent10Minutes|Canary10Percent15Minutes|Canary10Percent30Minutes|Linear10PercentEvery1Minute|Linear10PercentEvery2Minutes|Linear10PercentEvery3Minutes|Linear10PercentEvery10Minutes`;
 - `--enable-backups` or `--disable-backups`;
 - `--backup-retention-days 1..365`;
@@ -819,6 +825,15 @@ AWS. Apply uses the same isolated SAM build, exact new change-set selection,
 resource-action output, and destructive-change refusal as deployment. Run
 `status aws` after CloudFormation reaches its terminal state.
 
+The one upgrade that turns on gradual deployments is the documented exception:
+it always requires `--allow-destructive-changes`, because attaching a
+deployment preference republishes every function and CloudFormation reports
+each superseded `AWS::Lambda::Version` as a removal with
+`policy_action: Retain`. See
+[the AWS quickstart](aws-quickstart.md#4-enable-safe-updates) for the exact
+entries to expect. Ordinary upgrades must not need the flag; a removal in one
+of those means something else and deserves inspection.
+
 ## Clean up AWS
 
 Cleanup is also plan-first:
@@ -844,6 +859,27 @@ points cannot be deleted. Expire or copy recovery points under the applicable
 retention policy before a separate reviewed vault-deletion procedure. Export,
 retain, or destroy the other resources through the same reviewed data
 lifecycle.
+
+### Recover from a failed first deployment
+
+A creation that fails leaves the stack in `ROLLBACK_COMPLETE` and keeps its
+retained resources, so the next deployment fails again on the deterministic
+backup-vault name. CloudFormation reports `ROLLBACK_COMPLETE` only after an
+initial creation that never succeeded, so those resources cannot hold
+committed HayaSend records:
+
+```bash
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --purge-failed-create-resources
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" cleanup aws \
+  --purge-failed-create-resources --apply --confirm-stack hayasend
+```
+
+The flag is refused for any other stack status. Each retained resource is
+still checked against the live API and deleted only when it is verifiably
+empty: a table with items, a bucket with object versions, and a vault with
+recovery points are reported and left in place. KMS keys are never scheduled
+for deletion automatically.
 
 ## Assess a Resend migration
 
