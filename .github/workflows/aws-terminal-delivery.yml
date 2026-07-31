@@ -185,6 +185,7 @@ jobs:
             --api-burst-limit 2 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
+            --disable-backups \
             --tag Purpose=TerminalDeliveryProof \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/aws-terminal-deploy-plan.json"
@@ -196,6 +197,7 @@ jobs:
               plan.region !== process.env.AWS_REGION ||
               plan.parameters.WorkerReservedConcurrency !== "0" ||
               plan.parameters.WorkerMaximumConcurrency !== "10" ||
+              plan.parameters.EnableBackups !== "false" ||
               plan.ses?.production_access !== true ||
               plan.ses?.sending_enabled !== true
             ) {
@@ -215,6 +217,7 @@ jobs:
             --api-burst-limit 2 \
             --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
+            --disable-backups \
             --tag Purpose=TerminalDeliveryProof \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
             --apply \

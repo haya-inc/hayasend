@@ -36,6 +36,12 @@ describe("AWS SES terminal delivery workflow", () => {
     expect(workflow).toContain(
       'plan.parameters.WorkerMaximumConcurrency !== "10"',
     );
+    // The proof covers send, provider events, ledger convergence, and receipt.
+    // A backup plan is outside that scope, and its service role is the one
+    // resource the integration role cannot create or detach under this stack
+    // name, which would leave residue the proof must not leave behind.
+    expect(workflow).toContain("--disable-backups");
+    expect(workflow).toContain('plan.parameters.EnableBackups !== "false"');
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");
     expect(workflow).toContain("node scripts/aws-terminal-ledger.mjs");
     expect(workflow).toContain("Verify zero run-scoped residue");
