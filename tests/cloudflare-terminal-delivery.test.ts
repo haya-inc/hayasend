@@ -7,6 +7,7 @@ import { once } from "node:events";
 import { describe, expect, it } from "vitest";
 
 const EMAIL_ID = "email_0123456789abcdef0123456789abcdef";
+const PROVIDER_MESSAGE_ID = "<AAZaUUqt9Z4vb7rt3tq7LXwiKImA8B7SUJ5D@example.com>";
 
 describe("Cloudflare terminal delivery proof", () => {
   it("recovers an ambiguous SDK timeout with the same idempotency key", async () => {
@@ -35,7 +36,13 @@ describe("Cloudflare terminal delivery proof", () => {
       }
       if (request.method === "GET" && request.url === `/emails/${EMAIL_ID}`) {
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ id: EMAIL_ID, status: "delivered" }));
+        response.end(
+          JSON.stringify({
+            id: EMAIL_ID,
+            status: "delivered",
+            message_id: PROVIDER_MESSAGE_ID,
+          }),
+        );
         return;
       }
       if (
@@ -107,6 +114,7 @@ describe("Cloudflare terminal delivery proof", () => {
     expect(proof).toMatchObject({
       object: "cloudflare_terminal_delivery_proof",
       email_id: EMAIL_ID,
+      provider_message_id: PROVIDER_MESSAGE_ID,
       email_status: "delivered",
       aggregate_status: "delivered",
       recipient_status: "delivered",

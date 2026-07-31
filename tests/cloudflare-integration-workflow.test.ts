@@ -90,6 +90,9 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain(
       "npm run --silent cli -- doctor cloudflare-events",
     );
+    expect(workflow).toContain(
+      "npm run --silent cli -- doctor cloudflare-sending-domain",
+    );
     expect(workflow).toContain("node scripts/cloudflare-terminal-delivery.mjs");
     expect(workflow).toContain('provider_type !== "delivered"');
     expect(workflow).toContain(
@@ -118,8 +121,10 @@ describe("Cloudflare hosted lifecycle workflow", () => {
       'recipientSummary.aggregate_status === "delivered"',
     );
     expect(proof).toContain(
-      "Cloudflare remained provider-accepted without a delivered event",
+      "Cloudflare accepted the message but published no terminal event",
     );
+    expect(proof).toContain("is NOT evidence of non-delivery");
+    expect(proof).toContain("provider_message_id");
     expect(proof).toContain("signal: AbortSignal.timeout(sendTimeoutMs)");
     expect(proof).toContain("send_transient_failures");
     expect(proof).toContain("poll_transient_failures");

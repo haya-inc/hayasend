@@ -1101,6 +1101,88 @@ export async function cleanupCloudflare(
   }
 }
 
+const sendingZoneSchema = z.object({
+  name: z.string(),
+  enabled: z.boolean(),
+  synced: z.boolean().optional(),
+  admin_locked: z.boolean().optional(),
+});
+
+export async function doctorCloudflareSendingDomain(
+  input: {
+    account: string;
+    emailDomain: string;
+  },
+  dependencies: Pick<CloudflareDependencies, "env" | "log"> & {
+    fetch: typeof fetch;
+  },
+): Promise<void> {
+  const account = validateAccount(input.account);
+  const emailDomain = validateEmailDomain(input.emailDomain);
+  const token = dependencies.env.CLOUDFLARE_API_TOKEN;
+  if (!token) {
+    throw new Error(
+      "CLOUDFLARE_API_TOKEN is required to inspect Email Sending domains.",
+    );
+  }
+  const response = await dependencies.fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/email/sending/zones`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Cloudflare Email Sending domain inspection failed with HTTP ${response.status}.`,
+    );
+  }
+  const parsed = z
+    .object({ result: z.array(sendingZoneSchema).nullish() })
+    .safeParse(await response.json());
+  if (!parsed.success) {
+    throw new Error("Cloudflare returned an invalid Email Sending domain list.");
+  }
+  const zone = (parsed.data.result ?? []).find(
+    (candidate) => candidate.name.trim().toLowerCase() === emailDomain,
+  );
+  const healthy =
+    zone !== undefined &&
+    zone.enabled === true &&
+    zone.synced === true &&
+    zone.admin_locked === false;
+  dependencies.log(
+    JSON.stringify(
+      {
+        object: "cloudflare_email_sending_domain_doctor",
+        account,
+        expected: {
+          domain: emailDomain,
+          enabled: true,
+          synced: true,
+          admin_locked: false,
+        },
+        found: zone
+          ? {
+              name: zone.name,
+              enabled: zone.enabled,
+              synced: zone.synced ?? null,
+              admin_locked: zone.admin_locked ?? null,
+            }
+          : null,
+        healthy,
+      },
+      null,
+      2,
+    ),
+  );
+  if (!healthy) {
+    throw new Error(
+      "Cloudflare Email Sending requires the reviewed domain to be onboarded, enabled, DNS-synced, and not admin-locked before a delivery proof can run.",
+    );
+  }
+}
+
 export async function doctorCloudflareEmailEvents(
   input: {
     account: string;

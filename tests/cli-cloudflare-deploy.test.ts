@@ -13,6 +13,7 @@ import {
   deployCloudflare,
   doctorCloudflare,
   doctorCloudflareEmailEvents,
+  doctorCloudflareSendingDomain,
   rollbackCloudflare,
 } from "../src/cli-cloudflare-deploy.js";
 
@@ -504,6 +505,76 @@ describe("plan-first Cloudflare lifecycle", () => {
         },
       ),
     ).rejects.toThrow("exactly one subscription");
+  });
+
+  it("fails closed unless the Email Sending domain is enabled and DNS-synced", async () => {
+    const logs: string[] = [];
+    const zoneResponse = (zone: Record<string, unknown> | undefined) =>
+      new Response(JSON.stringify({ result: zone ? [zone] : [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const healthyZone = {
+      name: EMAIL_DOMAIN,
+      enabled: true,
+      synced: true,
+      admin_locked: false,
+    };
+
+    await doctorCloudflareSendingDomain(
+      { account: ACCOUNT, emailDomain: EMAIL_DOMAIN },
+      {
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        fetch: async () => zoneResponse(healthyZone),
+        log: (message) => logs.push(message),
+      },
+    );
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_email_sending_domain_doctor",
+      healthy: true,
+      found: { name: EMAIL_DOMAIN, enabled: true, synced: true },
+    });
+
+    for (const unhealthy of [
+      undefined,
+      { ...healthyZone, enabled: false },
+      { ...healthyZone, synced: false },
+      { ...healthyZone, admin_locked: true },
+      { name: EMAIL_DOMAIN, enabled: true },
+    ]) {
+      await expect(
+        doctorCloudflareSendingDomain(
+          { account: ACCOUNT, emailDomain: EMAIL_DOMAIN },
+          {
+            env: { CLOUDFLARE_API_TOKEN: "private-token" },
+            fetch: async () => zoneResponse(unhealthy),
+            log: () => undefined,
+          },
+        ),
+      ).rejects.toThrow("onboarded, enabled, DNS-synced");
+    }
+
+    await expect(
+      doctorCloudflareSendingDomain(
+        { account: ACCOUNT, emailDomain: EMAIL_DOMAIN },
+        {
+          env: {},
+          fetch: async () => zoneResponse(healthyZone),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("CLOUDFLARE_API_TOKEN is required");
+
+    await expect(
+      doctorCloudflareSendingDomain(
+        { account: ACCOUNT, emailDomain: EMAIL_DOMAIN },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () => new Response("", { status: 403 }),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("HTTP 403");
   });
 
   it("deletes Queue event subscriptions before consumers and resources", async () => {
