@@ -45,6 +45,15 @@ describe("AWS SES terminal delivery workflow", () => {
     // role, or table, and cannot delete them either, so the proof would fail
     // its own zero-residue criterion.
     expect(workflow).toContain("STACK_NAME: hayasend-it-");
+    // A successful deploy always enables termination protection, so the proof
+    // cannot delete the stack it just sent from without disabling it first.
+    expect(workflow).toContain(
+      "aws cloudformation update-termination-protection",
+    );
+    expect(workflow).toContain("--no-enable-termination-protection");
+    expect(workflow).toContain(
+      "Termination protection remains enabled; refusing to leave it unverified.",
+    );
     expect(workflow).toContain("--disable-backups");
     expect(workflow).toContain('plan.parameters.EnableBackups !== "false"');
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");
