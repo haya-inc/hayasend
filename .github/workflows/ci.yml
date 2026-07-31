@@ -745,8 +745,8 @@ jobs:
             "$RUNNER_TEMP/npm-pack-metadata.json"
           jq --exit-status '
             .entryCount <= 624 and
-            .size < 815000 and
-            .unpackedSize < 4225000 and
+            .size < 830000 and
+            .unpackedSize < 4275000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] |
               index("dist/cli-resend-migration.js") != null) and

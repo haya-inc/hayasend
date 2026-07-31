@@ -39,6 +39,11 @@ const servicePrefixesByResourceType: Record<string, string[]> = {
   "Custom::HayaSendLogRetention": ["lambda"],
 };
 
+const serviceRoleSection = bootstrap.slice(
+  bootstrap.indexOf("  CloudFormationServiceRole:"),
+  bootstrap.indexOf("\n  OperatorPolicy:"),
+);
+
 describe("AWS CloudFormation deployment bootstrap template", () => {
   it("covers every application resource type with reviewed service actions", () => {
     const resourceSection = application.slice(
@@ -102,8 +107,9 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     );
     expect(operatorSection).toContain("aws:RequestedRegion: !Ref AWS::Region");
     expect(operatorSection).not.toContain("changeSet/*/*");
+    expect(operatorSection).not.toMatch(/\b(?:dynamodb|sqs|sns|backup|kms):/);
     expect(operatorSection).not.toMatch(
-      /\b(?:lambda|dynamodb|sqs|sns|backup|kms):/,
+      /\blambda:(?!GetAccountSettings\b)[A-Za-z*]+/,
     );
     expect(operatorSection).not.toMatch(/\bses:(?!GetAccount\b)[A-Za-z*]+/);
     expect(operatorSection).not.toMatch(
@@ -114,10 +120,6 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
   });
 
   it("scopes role creation and passing to application roles and services", () => {
-    const serviceRoleSection = bootstrap.slice(
-      bootstrap.indexOf("  CloudFormationServiceRole:"),
-      bootstrap.indexOf("\n  OperatorPolicy:"),
-    );
     expect(serviceRoleSection).toContain("Sid: UseOnlyTheSAMTransform");
     expect(serviceRoleSection).toContain(
       "Action: cloudformation:CreateChangeSet",
@@ -216,7 +218,28 @@ describe("AWS CloudFormation deployment bootstrap template", () => {
     ]) {
       expect(serviceRoleSection).toContain(service);
     }
-    expect(serviceRoleSection).not.toContain("backup-storage:MountCapsule");
+    expect(serviceRoleSection).toContain("backup-storage:MountCapsule");
+    expect(serviceRoleSection).not.toContain("backup-storage:*");
+  });
+
+  it("passes the restore testing role by exact name, not by relaxed condition", () => {
+    expect(serviceRoleSection).toContain("Sid: PassOnlyTheRestoreTestingRole");
+    expect(serviceRoleSection).toContain(
+      'Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*RestoreTestingServiceRole*"',
+    );
+    expect(serviceRoleSection).not.toContain("StringEqualsIfExists");
+  });
+
+  it("scopes backup vault encryption to backup-owned grants only", () => {
+    expect(serviceRoleSection).toContain("kms:CreateGrant");
+    expect(serviceRoleSection).toContain(
+      "kms:EncryptionContextKeys: aws:backup:backup-vault",
+    );
+    expect(serviceRoleSection).toContain("kms:GrantIsForAWSResource: true");
+    expect(serviceRoleSection).toContain(
+      "kms:ViaService: !Sub backup.${AWS::Region}.amazonaws.com",
+    );
+    expect(serviceRoleSection).not.toContain("kms:ViaService: backup.*");
   });
 
   it("retains and hardens the dedicated artifact bucket", () => {

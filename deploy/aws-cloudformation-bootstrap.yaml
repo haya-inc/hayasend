@@ -134,6 +134,15 @@ Resources:
                       - lambda.amazonaws.com
                       - scheduler.amazonaws.com
                       - ses.amazonaws.com
+              # AWS Backup's CreateRestoreTestingSelection does not populate the
+              # iam:PassedToService context key, so the conditioned statement
+              # above always evaluates to an implicit deny for it. Scope this
+              # exception to the exact restore-testing role name instead of
+              # relaxing the condition for every application role.
+              - Sid: PassOnlyTheRestoreTestingRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackNamePrefix}*RestoreTestingServiceRole*"
               - Effect: Allow
                 Action: iam:CreateServiceLinkedRole
                 Resource: "*"
@@ -422,6 +431,28 @@ Resources:
                   - ses:UpdateRuleSet
                   - ses:UpdateTrafficPolicy
                 Resource: "*"
+              - Sid: MountOnlyBackupVaultStorage
+                Effect: Allow
+                Action: backup-storage:MountCapsule
+                Resource: "*"
+              - Sid: ReadKeyMetadataForBackupVaultEncryption
+                Effect: Allow
+                Action:
+                  - kms:GenerateDataKey
+                  - kms:ListAliases
+                  - kms:ListKeys
+                Resource: "*"
+              - Sid: GrantOnlyBackupVaultEncryptionGrants
+                Effect: Allow
+                Action: kms:CreateGrant
+                Resource: "*"
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:EncryptionContextKeys: aws:backup:backup-vault
+                  Bool:
+                    kms:GrantIsForAWSResource: true
+                  StringLike:
+                    kms:ViaService: !Sub backup.${AWS::Region}.amazonaws.com
       Tags:
         - Key: Project
           Value: HayaSend
@@ -445,6 +476,7 @@ Resources:
             Effect: Allow
             Action:
               - cloudwatch:DescribeAlarms
+              - lambda:GetAccountSettings
               - ses:GetAccount
             Resource: "*"
             Condition:

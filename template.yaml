@@ -99,10 +99,32 @@ Parameters:
     Description: Maximum retained published versions per template.
   WorkerReservedConcurrency:
     Type: Number
-    Default: 10
+    Default: 0
     MinValue: 0
     MaxValue: 1000
-    Description: Reserved worker concurrency. Set to 0 to use the account's unreserved pool.
+    Description: >-
+      Reserved worker concurrency. Zero uses the account's unreserved pool and
+      is the default because reserving concurrency requires the account to keep
+      at least 10 unreserved executions, which a new AWS account cannot satisfy.
+      WorkerMaximumConcurrency already bounds worker throughput without
+      consuming an account reservation. Raise this only to guarantee the worker
+      a floor on an account with enough headroom.
+  WorkerMaximumConcurrency:
+    Type: Number
+    Default: 10
+    MinValue: 2
+    MaxValue: 1000
+    Description: >-
+      Maximum concurrent worker invocations the SQS event source may create.
+      This bounds the provider send rate without reserving account concurrency.
+  InboundReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 1000
+    Description: >-
+      Reserved inbound-processing concurrency. Zero uses the account's
+      unreserved pool. Raise it only on an account with enough headroom.
   EnableGradualDeployments:
     Type: String
     Default: "false"
@@ -169,6 +191,8 @@ Conditions:
     - !Equals [!Ref EnableRestoreTesting, "true"]
   ReserveWorkerConcurrency: !Not
     - !Equals [!Ref WorkerReservedConcurrency, 0]
+  ReserveInboundConcurrency: !Not
+    - !Equals [!Ref InboundReservedConcurrency, 0]
 
 Globals:
   Function:
@@ -425,7 +449,7 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
             ScalingConfig:
-              MaximumConcurrency: 10
+              MaximumConcurrency: !Ref WorkerMaximumConcurrency
 
   DispatcherFunction:
     Type: AWS::Serverless::Function
@@ -531,7 +555,10 @@ Resources:
       Timeout: 120
       EphemeralStorage:
         Size: 1024
-      ReservedConcurrentExecutions: 5
+      ReservedConcurrentExecutions: !If
+        - ReserveInboundConcurrency
+        - !Ref InboundReservedConcurrency
+        - !Ref AWS::NoValue
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 21600
         MaximumRetryAttempts: 2

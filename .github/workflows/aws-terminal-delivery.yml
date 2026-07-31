@@ -183,7 +183,7 @@ jobs:
             --region "$AWS_REGION" \
             --api-rate-limit 2 \
             --api-burst-limit 2 \
-            --worker-reserved-concurrency 1 \
+            --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
             --tag Purpose=TerminalDeliveryProof \
             --tag "GitHubRun=$GITHUB_RUN_ID" \
@@ -212,7 +212,7 @@ jobs:
             --region "$AWS_REGION" \
             --api-rate-limit 2 \
             --api-burst-limit 2 \
-            --worker-reserved-concurrency 1 \
+            --worker-reserved-concurrency 0 \
             --log-retention-days 7 \
             --tag Purpose=TerminalDeliveryProof \
             --tag "GitHubRun=$GITHUB_RUN_ID" \

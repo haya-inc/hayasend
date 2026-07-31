@@ -43,9 +43,11 @@ explicit destructive-change acknowledgement. The workflow then proves that the
 legacy-retention custom resource kept the same physical ID. This exercises the
 non-destructive adoption path without reading or fabricating log events.
 
-The workflow sets `WorkerReservedConcurrency=0` so a newly created account can
-use its unreserved Lambda concurrency pool without weakening the production
-default of 10 reserved worker executions.
+`WorkerReservedConcurrency=0` is now the product default rather than a
+workflow-only override, so the same configuration the workflow proves is the
+one an operator deploys. Worker throughput stays bounded by
+`WorkerMaximumConcurrency`, which caps SQS event-source scaling without
+reserving account concurrency.
 
 The opt-in `prove_canary_rollback` input runs only after the normal reviewed
 upgrade has completed successfully. It records the live API alias version,

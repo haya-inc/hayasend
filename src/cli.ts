@@ -1440,6 +1440,8 @@ async function deployCommand(
       "template-history-retention-days",
       "template-history-limit",
       "worker-reserved-concurrency",
+      "worker-maximum-concurrency",
+      "inbound-reserved-concurrency",
       "deployment-preference-type",
       "backup-retention-days",
       "payload-noncurrent-version-retention-days",
@@ -1503,6 +1505,8 @@ async function deployCommand(
   );
   const templateHistoryLimit = flag(args, "template-history-limit");
   const workerReservedConcurrency = flag(args, "worker-reserved-concurrency");
+  const workerMaximumConcurrency = flag(args, "worker-maximum-concurrency");
+  const inboundReservedConcurrency = flag(args, "inbound-reserved-concurrency");
   const deploymentPreferenceType = flag(args, "deployment-preference-type");
   const backupRetentionDays = flag(args, "backup-retention-days");
   const payloadNoncurrentVersionRetentionDays = flag(
@@ -1538,6 +1542,12 @@ async function deployCommand(
       ...(templateHistoryLimit ? { templateHistoryLimit } : {}),
       ...(workerReservedConcurrency !== undefined
         ? { workerReservedConcurrency }
+        : {}),
+      ...(workerMaximumConcurrency !== undefined
+        ? { workerMaximumConcurrency }
+        : {}),
+      ...(inboundReservedConcurrency !== undefined
+        ? { inboundReservedConcurrency }
         : {}),
       ...(deploymentPreferenceType ? { deploymentPreferenceType } : {}),
       ...(enableBackups
@@ -1669,7 +1679,11 @@ async function cleanupCommand(args: string[], dependencies: CliDependencies) {
       "cloudformation-role-arn",
       "confirm-stack",
     ],
-    booleans: ["apply", "disable-termination-protection"],
+    booleans: [
+      "apply",
+      "disable-termination-protection",
+      "purge-failed-create-resources",
+    ],
   });
   const account = flag(args, "account");
   const region = flag(args, "region");
@@ -1689,6 +1703,10 @@ async function cleanupCommand(args: string[], dependencies: CliDependencies) {
       disableTerminationProtection: hasFlag(
         args,
         "disable-termination-protection",
+      ),
+      purgeFailedCreateResources: hasFlag(
+        args,
+        "purge-failed-create-resources",
       ),
     },
     {
@@ -1933,6 +1951,9 @@ Commands:
       Plan deletion and list data resources retained by CloudFormation.
       Applying requires --apply and the exact --confirm-stack value. Protected
       stacks also require --disable-termination-protection.
+      Add --purge-failed-create-resources to also remove the resources a
+      failed initial creation retained. It is accepted only for a stack in
+      ROLLBACK_COMPLETE, and each resource is verified empty before deletion.
 
   migration resend inventory --file FILE
       Validate a versioned, workload-specific inventory and report unsupported

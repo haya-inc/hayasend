@@ -146,6 +146,18 @@ function baseRunner(
     ) {
       return missingStack();
     }
+    if (
+      command === "aws" &&
+      args[0] === "lambda" &&
+      args[1] === "get-account-settings"
+    ) {
+      return json({
+        AccountLimit: {
+          ConcurrentExecutions: 1000,
+          UnreservedConcurrentExecutions: 1000,
+        },
+      });
+    }
     if (command === "sam" && ["validate", "build"].includes(args[0] ?? "")) {
       return result("ok");
     }
@@ -181,6 +193,93 @@ describe("plan-first AWS deployment CLI", () => {
     expect(gradual).toContain("!Ref InboundFunctionAliasErrorAlarm");
     expect(gradual).toContain("PassthroughCondition: true");
     expect(gradual).not.toContain("HAYASEND_GRADUAL_DEPLOYMENT");
+  });
+
+  function lambdaAccountRunner(limit: number, unreserved = limit) {
+    return baseRunner((command, args) =>
+      command === "aws" &&
+      args[0] === "lambda" &&
+      args[1] === "get-account-settings"
+        ? json({
+            AccountLimit: {
+              ConcurrentExecutions: limit,
+              UnreservedConcurrentExecutions: unreserved,
+            },
+          })
+        : undefined,
+    );
+  }
+
+  function deployArgs(extra: string[] = []) {
+    return [
+      "deploy",
+      "aws",
+      "--account",
+      "123456789012",
+      "--region",
+      "ap-northeast-1",
+      ...extra,
+    ];
+  }
+
+  it("refuses a reservation the account can never satisfy before touching CloudFormation", async () => {
+    const capture = capturingIo();
+    const runner = lambdaAccountRunner(10);
+
+    await expect(
+      runCli(deployArgs(["--worker-reserved-concurrency", "10"]), {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: runner,
+      }),
+    ).rejects.toThrow(
+      /limit is 10, so reserving 10 .*would leave 0 unreserved and AWS requires at least 10/,
+    );
+    expect(
+      runner.mock.calls.some(
+        ([command, args]) =>
+          command === "aws" && args[0] === "cloudformation" &&
+          args[1] === "create-change-set",
+      ),
+    ).toBe(false);
+  });
+
+  it("deploys on a new low-quota account and reports the production-readiness gap", async () => {
+    const capture = capturingIo();
+
+    await runCli(deployArgs(), {
+      cwd: process.cwd(),
+      env: {},
+      io: capture.io,
+      runCommand: lambdaAccountRunner(10),
+    });
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    expect(plan.ok).toBe(true);
+    expect(plan.parameters.WorkerReservedConcurrency).toBe("0");
+    expect(plan.lambda_concurrency).toMatchObject({
+      account_limit: 10,
+      total_requested_reservation: 0,
+      minimum_unreserved: 10,
+    });
+    expect(plan.lambda_concurrency.warnings.join(" ")).toContain(
+      "L-B99A9384",
+    );
+  });
+
+  it("reports no concurrency warning once the account has production headroom", async () => {
+    const capture = capturingIo();
+
+    await runCli(deployArgs(), {
+      cwd: process.cwd(),
+      env: {},
+      io: capture.io,
+      runCommand: lambdaAccountRunner(1000),
+    });
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    expect(plan.lambda_concurrency.warnings).toEqual([]);
   });
 
   it("renders a read-only plan with identity, SES quota, and exact inputs", async () => {
@@ -245,7 +344,9 @@ describe("plan-first AWS deployment CLI", () => {
         LogRetentionDays: "30",
         TemplateHistoryRetentionDays: "90",
         TemplateHistoryLimit: "50",
-        WorkerReservedConcurrency: "10",
+        WorkerReservedConcurrency: "0",
+        WorkerMaximumConcurrency: "10",
+        InboundReservedConcurrency: "0",
         EnableBackups: "true",
         BackupRetentionDays: "35",
         PayloadNoncurrentVersionRetentionDays: "7",

@@ -113,8 +113,20 @@ the exact next command returned by that deployment:
 
 ```bash
 npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws
-npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws --apply
+npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" upgrade aws \
+  --allow-destructive-changes --apply
 ```
+
+This one upgrade always needs `--allow-destructive-changes`. Attaching a
+deployment preference to each function makes AWS SAM publish a new Lambda
+version, so CloudFormation reports the superseded version of every function as
+a removal. Those removals carry `policy_action: Retain`: CloudFormation stops
+managing the old version but does not delete it, and the previous version
+stays available for rollback. The same change set also modifies the
+log-retention custom resource with a conditional replacement, which the
+integration workflow proves keeps its physical ID. Read the printed change set
+and confirm it contains only those entries before acknowledging; do not carry
+the flag over to later upgrades, where a removal would mean something else.
 
 That second update adds CodeDeploy deployment groups. Subsequent Lambda
 updates shift 10% of traffic for five minutes by default and automatically

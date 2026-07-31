@@ -275,6 +275,18 @@ function awsRunner(
         ],
       });
     }
+    if (
+      command === "aws" &&
+      args[0] === "lambda" &&
+      args[1] === "get-account-settings"
+    ) {
+      return json({
+        AccountLimit: {
+          ConcurrentExecutions: 1000,
+          UnreservedConcurrentExecutions: 1000,
+        },
+      });
+    }
     if (command === "sam" && ["validate", "build"].includes(args[0] ?? "")) {
       return result("ok");
     }
@@ -735,6 +747,105 @@ describe("AWS lifecycle operations", () => {
           args[1] === "delete-stack",
       ),
     ).toBe(false);
+  });
+
+  function rolledBackRunner(
+    emptiness: (command: string, args: string[]) => CommandResult | undefined,
+  ) {
+    return awsRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        return existingStack({ StackStatus: "ROLLBACK_COMPLETE" });
+      }
+      return emptiness(command, args);
+    });
+  }
+
+  const allEmpty = (command: string, args: string[]) => {
+    if (command !== "aws") {
+      return undefined;
+    }
+    if (args[0] === "dynamodb" && args[1] === "describe-table") {
+      return json({ Table: { ItemCount: 0 } });
+    }
+    if (args[0] === "s3api" && args[1] === "list-object-versions") {
+      return json({});
+    }
+    if (args[0] === "backup" && args[1] === "list-recovery-points-by-backup-vault") {
+      return json({ RecoveryPoints: [] });
+    }
+    return undefined;
+  };
+
+  it("plans purging only the empty resources a failed creation retained", async () => {
+    const capture = capturingIo();
+    const runner = rolledBackRunner(allEmpty);
+
+    await runCli(["cleanup", "aws", "--purge-failed-create-resources"], {
+      env: awsEnvironment,
+      io: capture.io,
+      runCommand: runner,
+    });
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    const purge = plan.deletion.failed_create_purge as Array<{
+      logical_id: string;
+      purgeable: boolean;
+    }>;
+    expect(purge.find((e) => e.logical_id === "DataTable")?.purgeable).toBe(true);
+    expect(purge.find((e) => e.logical_id === "PayloadBucket")?.purgeable).toBe(
+      true,
+    );
+    expect(plan.apply_command).toContain("--purge-failed-create-resources");
+    expect(
+      runner.mock.calls.some(
+        ([command, args]) =>
+          command === "aws" &&
+          (args[1] === "delete-table" || args[1] === "delete-bucket"),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses to purge a retained resource that still holds data", async () => {
+    const capture = capturingIo();
+
+    await runCli(["cleanup", "aws", "--purge-failed-create-resources"], {
+      env: awsEnvironment,
+      io: capture.io,
+      runCommand: rolledBackRunner((command, args) =>
+        command === "aws" &&
+        args[0] === "dynamodb" &&
+        args[1] === "describe-table"
+          ? json({ Table: { ItemCount: 3 } })
+          : allEmpty(command, args),
+      ),
+    });
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    const table = (
+      plan.deletion.failed_create_purge as Array<{
+        logical_id: string;
+        purgeable: boolean;
+        reason: string;
+      }>
+    ).find((entry) => entry.logical_id === "DataTable");
+    expect(table?.purgeable).toBe(false);
+    expect(table?.reason).toContain("3 items");
+  });
+
+  it("refuses the failed-create purge on a stack that completed creation", async () => {
+    await expect(
+      runCli(["cleanup", "aws", "--purge-failed-create-resources"], {
+        env: awsEnvironment,
+        io: capturingIo().io,
+        runCommand: awsRunner(allEmpty),
+      }),
+    ).rejects.toThrow(
+      /only applies to a stack in ROLLBACK_COMPLETE/,
+    );
   });
 
   it("requires exact cleanup confirmation and refuses unmanaged stacks", async () => {
