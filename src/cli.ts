@@ -26,6 +26,7 @@ import {
   deployCloudflare,
   doctorCloudflare,
   doctorCloudflareEmailEvents,
+  doctorCloudflareSendingDomain,
   rollbackCloudflare,
 } from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
@@ -1911,6 +1912,30 @@ async function doctorCloudflareEventsCommand(
   );
 }
 
+async function doctorCloudflareSendingDomainCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  validateOptions(args, {
+    values: ["account", "email-domain"],
+  });
+  const account = flag(args, "account");
+  const emailDomain = flag(args, "email-domain");
+  if (!account || !emailDomain) {
+    throw new Error(
+      "doctor cloudflare-sending-domain requires --account and --email-domain.",
+    );
+  }
+  await doctorCloudflareSendingDomain(
+    { account, emailDomain },
+    {
+      env: dependencies.env,
+      fetch: dependencies.fetch,
+      log: dependencies.io.log,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -1999,6 +2024,10 @@ Commands:
   doctor cloudflare-events --account ACCOUNT_ID --name NAME --email-domain DOMAIN
       Fail unless exactly one enabled per-domain Email Sending subscription
       covers all six documented terminal/deferred lifecycle events.
+
+  doctor cloudflare-sending-domain --account ACCOUNT_ID --email-domain DOMAIN
+      Fail unless the Email Sending domain is onboarded, enabled, DNS-synced,
+      and not admin-locked before any delivery proof runs.
 
   doctor [--endpoint URL]
       Check HayaSend identity, health, authentication, and preview availability.
@@ -2169,6 +2198,8 @@ export async function runCli(
         await doctorCloudflareCommand(args.slice(1), dependencies);
       } else if (args[1] === "cloudflare-events") {
         await doctorCloudflareEventsCommand(args.slice(1), dependencies);
+      } else if (args[1] === "cloudflare-sending-domain") {
+        await doctorCloudflareSendingDomainCommand(args.slice(1), dependencies);
       } else {
         validateOptions(args, { values: ["endpoint"] });
         await doctor(args, dependencies);
