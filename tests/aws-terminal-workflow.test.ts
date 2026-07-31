@@ -54,6 +54,10 @@ describe("AWS SES terminal delivery workflow", () => {
     expect(workflow).toContain(
       "Termination protection remains enabled; refusing to leave it unverified.",
     );
+    // The payload bucket is versioned; `aws s3 rm --recursive` leaves
+    // noncurrent versions behind and the bucket then cannot be deleted.
+    expect(workflow).toContain("node scripts/aws-versioned-bucket.mjs purge");
+    expect(workflow).not.toContain("aws s3 rm ");
     expect(workflow).toContain("--disable-backups");
     expect(workflow).toContain('plan.parameters.EnableBackups !== "false"');
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");

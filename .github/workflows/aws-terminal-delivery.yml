@@ -451,7 +451,15 @@ jobs:
           fi
           if [[ -n "${PAYLOAD_BUCKET:-}" && "$PAYLOAD_BUCKET" != "None" ]] &&
             aws s3api head-bucket --bucket "$PAYLOAD_BUCKET" >/dev/null 2>&1; then
-            aws s3 rm "s3://$PAYLOAD_BUCKET" --recursive
+            # The payload bucket is versioned, so a recursive object delete
+            # leaves noncurrent versions and delete markers behind and the
+            # bucket cannot be deleted. Use the same reviewed purge the
+            # integration workflow uses.
+            node scripts/aws-versioned-bucket.mjs purge \
+              --account "$AWS_TEST_ACCOUNT_ID" \
+              --region "$AWS_REGION" \
+              --bucket "$PAYLOAD_BUCKET" \
+              --confirm-bucket "$PAYLOAD_BUCKET"
             aws s3api delete-bucket \
               --bucket "$PAYLOAD_BUCKET" \
               --region "$AWS_REGION"
