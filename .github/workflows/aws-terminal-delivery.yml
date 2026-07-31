@@ -423,6 +423,25 @@ jobs:
                   --region "$AWS_REGION"
               done
             fi
+            # A successful deploy always enables termination protection, so a
+            # run that got far enough to send cannot delete its own stack
+            # without disabling it first. Tolerate failure here: a stack that
+            # never reached CREATE_COMPLETE has no protection to disable.
+            aws cloudformation update-termination-protection \
+              --no-enable-termination-protection \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" >/dev/null 2>&1 || true
+            protected="$(
+              aws cloudformation describe-stacks \
+                --stack-name "$STACK_NAME" \
+                --region "$AWS_REGION" \
+                --query "Stacks[0].EnableTerminationProtection" \
+                --output text
+            )"
+            if [[ "$protected" != "False" ]]; then
+              echo "::error::Termination protection remains enabled; refusing to leave it unverified."
+              exit 1
+            fi
             aws cloudformation delete-stack \
               --stack-name "$STACK_NAME" \
               --region "$AWS_REGION"
