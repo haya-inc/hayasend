@@ -28,6 +28,14 @@ describe("AWS SES terminal delivery workflow", () => {
     // executions, which a low-quota account cannot satisfy. The proof relies on
     // WorkerMaximumConcurrency to bound the worker instead.
     expect(workflow).toContain("--worker-reserved-concurrency 0");
+    // The submitted flag and the plan assertion that gates the send must agree;
+    // a mismatch fails the proof after it has already assumed the AWS role.
+    expect(workflow).toContain(
+      'plan.parameters.WorkerReservedConcurrency !== "0"',
+    );
+    expect(workflow).toContain(
+      'plan.parameters.WorkerMaximumConcurrency !== "10"',
+    );
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");
     expect(workflow).toContain("node scripts/aws-terminal-ledger.mjs");
     expect(workflow).toContain("Verify zero run-scoped residue");
