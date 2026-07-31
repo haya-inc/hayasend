@@ -40,6 +40,11 @@ describe("AWS SES terminal delivery workflow", () => {
     // A backup plan is outside that scope, and its service role is the one
     // resource the integration role cannot create or detach under this stack
     // name, which would leave residue the proof must not leave behind.
+    // The integration role's policy scopes every resource ARN to hayasend-it-*.
+    // A stack named outside that prefix cannot create its own S3 bucket, IAM
+    // role, or table, and cannot delete them either, so the proof would fail
+    // its own zero-residue criterion.
+    expect(workflow).toContain("STACK_NAME: hayasend-it-");
     expect(workflow).toContain("--disable-backups");
     expect(workflow).toContain('plan.parameters.EnableBackups !== "false"');
     expect(workflow).toContain("node scripts/aws-terminal-delivery.mjs");
