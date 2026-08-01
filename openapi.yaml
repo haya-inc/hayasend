@@ -33,6 +33,25 @@ paths:
                     const: hayasend
                   version:
                     type: string
+  /auth/session:
+    get:
+      summary: Inspect the authenticated API-key session
+      description: >-
+        Returns the authenticated principal and effective scopes without
+        returning or rotating the credential. Used by deployment-local
+        operator surfaces to adapt to least-privilege keys.
+      operationId: getAuthenticatedSession
+      responses:
+        default:
+          $ref: "#/components/responses/Error"
+        "200":
+          description: Authenticated session metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedSession"
+        "401":
+          $ref: "#/components/responses/Error"
   /diagnostics/recovery:
     get:
       summary: Inspect privacy-safe recovery diagnostics
@@ -77,6 +96,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/EmailListView"
       responses:
         default:
           $ref: "#/components/responses/Error"
@@ -92,7 +112,9 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: "#/components/schemas/Email"
+                          oneOf:
+                            - $ref: "#/components/schemas/Email"
+                            - $ref: "#/components/schemas/EmailSummary"
   /emails/batch:
     post:
       summary: Send a batch of emails
@@ -1169,6 +1191,17 @@ components:
       schema:
         type: string
         minLength: 1
+    EmailListView:
+      name: view
+      in: query
+      required: false
+      description: >-
+        Use summary to omit message bodies, custom headers, and attachment
+        content metadata from list rows. The default full form preserves the
+        existing response contract.
+      schema:
+        enum: [full, summary]
+        default: full
   responses:
     CreatedId:
       description: Resource accepted
@@ -1758,6 +1791,49 @@ components:
         error:
           type: string
           description: Stable operational failure message with a category; never contains raw provider or network exception text.
+    EmailSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - from
+        - to
+        - subject
+        - status
+        - last_event
+        - created_at
+        - updated_at
+        - has_html
+        - has_text
+        - attachment_count
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        status:
+          type: string
+        last_event:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        has_html:
+          type: boolean
+        has_text:
+          type: boolean
+        attachment_count:
+          type: integer
+          minimum: 0
     RecipientSummary:
       type: object
       additionalProperties: false
@@ -2405,6 +2481,32 @@ components:
         - suppressions:write
         - api_keys:read
         - api_keys:write
+    AuthenticatedSession:
+      type: object
+      additionalProperties: false
+      required: [object, principal]
+      properties:
+        object:
+          const: authenticated_session
+        principal:
+          type: object
+          additionalProperties: false
+          required: [id, name, scopes, bootstrap]
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            scopes:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                oneOf:
+                  - $ref: "#/components/schemas/ApiScope"
+                  - const: "*"
+            bootstrap:
+              type: boolean
     ApiKey:
       type: object
       required: [id, name, prefix, scopes, created_at]

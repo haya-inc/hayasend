@@ -225,6 +225,12 @@ Open [http://localhost:8787/preview](http://localhost:8787/preview) to inspect
 every local send as rendered HTML, plain text, or JSON. The preview blocks
 remote content and email interactions; it is never registered in AWS mode.
 
+Open [http://localhost:8787/console](http://localhost:8787/console) for the
+same authenticated operator workspace that ships with hosted deployments. In
+source-development mode, connect with `re_hayasend_dev`. The console keeps the
+key in tab-scoped session storage, calls only its own HayaSend API origin, and
+uses the normal API scope checks for every view and action.
+
 The image runs as the unprivileged `node` user with all Linux capabilities
 dropped and binds only to `127.0.0.1:8787`. To run it directly:
 
@@ -489,6 +495,13 @@ backup vault, and enabled inbound data resources; it prints their physical IDs
 for a separate retention or destruction decision. See the copy-paste
 [AWS quickstart](docs/aws-quickstart.md) and the
 [operations runbook](docs/operations.md).
+
+The deployed API also serves its customer-owned Operator Console at
+`<ApiEndpoint>/console`. Create a dedicated key with only the views and actions
+the operator needs; use `emails:read` and `diagnostics:read` for
+the core delivery workspace, and add `emails:send` only when that operator may
+use the test-send dialog. The console never receives AWS credentials and does
+not copy message data to `hayasend.com` or another Haya-managed service.
 
 The first apply creates versioned `live` Lambda aliases. Apply the returned
 `upgrade aws` command once to enable the default 10%-for-5-minutes canary and

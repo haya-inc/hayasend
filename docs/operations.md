@@ -109,6 +109,16 @@ an incident, and before a production canary. Do not treat `operational: true`
 as proof of mail delivery: require `send_ready: true`, then complete a
 controlled send and confirm the terminal recipient event and mailbox receipt.
 
+Use `<ApiEndpoint>/console` for deployment-local daily inspection. Its
+Overview reads privacy-safe recovery diagnostics; Emails shows the stored
+HTML/text body and recipient-ledger summary; the remaining inventory views
+read the standard domain, webhook, suppression, and API-key endpoints. The
+console is not a substitute for `status aws --detect-drift`: infrastructure
+planning, drift, upgrade, rollback, and cleanup remain in the plan-first CLI.
+Use a dedicated scoped console key, disconnect it before handing the browser
+to another operator, and never enter the key into a console served from another
+origin.
+
 Immediately after a first deployment, review and apply one upgrade to move
 from alias bootstrap to alarm-driven CodeDeploy. `status aws` deliberately
 keeps `operational` false until all required `live` aliases and deployment

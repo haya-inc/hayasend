@@ -4,6 +4,11 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { PREVIEW_CSS, PREVIEW_HTML, PREVIEW_JS } from "./preview.js";
 import {
+  OPERATOR_CONSOLE_CSS,
+  OPERATOR_CONSOLE_HTML,
+  OPERATOR_CONSOLE_JS,
+} from "./operator-console.js";
+import {
   AppError,
   ForbiddenError,
   PreconditionFailedError,
@@ -23,6 +28,7 @@ import {
   batchEmailSchema,
   createTemplateSchema,
   domainSchema,
+  emailPaginationSchema,
   paginationSchema,
   receivedEmailQuerySchema,
   renderTemplateSchema,
@@ -320,6 +326,21 @@ function setPreviewSecurityHeaders(
   }
 }
 
+function setOperatorConsoleSecurityHeaders(
+  context: {
+    header(name: string, value: string): void;
+  },
+  contentSecurityPolicy?: string,
+) {
+  context.header("cross-origin-opener-policy", "same-origin");
+  context.header("cross-origin-resource-policy", "same-origin");
+  context.header("referrer-policy", "no-referrer");
+  context.header("x-frame-options", "DENY");
+  if (contentSecurityPolicy) {
+    context.header("content-security-policy", contentSecurityPolicy);
+  }
+}
+
 export function createApp(services: AppServices, options: AppOptions = {}) {
   const app = new Hono<AppEnv>();
   const localPreview = options.localPreview === true;
@@ -340,6 +361,14 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         context.req.path === "/favicon.ico" ||
         context.req.path === "/preview" ||
         context.req.path.startsWith("/preview/"));
+    const operatorConsolePath =
+      context.req.method === "GET" &&
+      [
+        "/console",
+        "/console/",
+        "/console/app.css",
+        "/console/app.js",
+      ].includes(context.req.path);
     const providerEventPath =
       ((options.providerEventIngress !== undefined &&
         context.req.path === "/events/azure-email") ||
@@ -349,6 +378,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     if (
       context.req.path === "/healthz" ||
       context.req.path === "/readyz" ||
+      operatorConsolePath ||
       localPreviewPath ||
       providerEventPath ||
       (attachmentUploadPath && ["PUT", "OPTIONS"].includes(context.req.method))
@@ -401,6 +431,45 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         503,
       );
     }
+  });
+
+  app.get("/console", (context) => {
+    setOperatorConsoleSecurityHeaders(
+      context,
+      "default-src 'none'; script-src 'self'; style-src 'self'; " +
+        "connect-src 'self'; img-src 'self' data:; frame-src 'self'; " +
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    );
+    return context.html(OPERATOR_CONSOLE_HTML);
+  });
+
+  app.get("/console/", (context) => context.redirect("/console", 308));
+
+  app.get("/console/app.css", (context) => {
+    setOperatorConsoleSecurityHeaders(context);
+    return context.body(OPERATOR_CONSOLE_CSS, 200, {
+      "content-type": "text/css; charset=utf-8",
+    });
+  });
+
+  app.get("/console/app.js", (context) => {
+    setOperatorConsoleSecurityHeaders(context);
+    return context.body(OPERATOR_CONSOLE_JS, 200, {
+      "content-type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/auth/session", (context) => {
+    const principal = context.get("principal");
+    return context.json({
+      object: "authenticated_session",
+      principal: {
+        id: principal.id,
+        name: principal.name,
+        scopes: principal.scopes,
+        bootstrap: principal.bootstrap,
+      },
+    });
   });
 
   if (options.providerEventIngress) {
@@ -756,14 +825,14 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   app.get(
     "/emails",
     requireScope("emails:read"),
-    zValidator("query", paginationSchema, validationCallback),
+    zValidator("query", emailPaginationSchema, validationCallback),
     async (context) => {
-      const { limit, after } = context.req.valid("query");
+      const { limit, after, view } = context.req.valid("query");
       const page = await services.emailService.list(limit, after);
       return context.json({
         object: "list",
         ...page,
-        data: page.data.map(publicEmail),
+        data: page.data.map(view === "summary" ? previewSummary : publicEmail),
       });
     },
   );
