@@ -28,6 +28,7 @@ describe("project site", () => {
     expect(html).toContain('aria-label="Primary navigation"');
     expect(html).toContain('role="status" aria-live="polite"');
     expect(html).toContain('href="./api-reference.html"');
+    expect(html).toContain('href="./setup.html"');
     expect(html).toContain('href="./openapi.yaml"');
     expect(html).toContain(
       "https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md",
@@ -38,6 +39,36 @@ describe("project site", () => {
     );
     expect(html).toContain('href="https://www.haya.company/legal"');
     expect(html).toContain("HayaSend remains early");
+  });
+
+  it("provides a local-only AWS setup and operations console", async () => {
+    const [html, runtime] = await Promise.all([
+      read("website/setup.html"),
+      read("website/setup.js"),
+    ]);
+
+    expect(html).toContain("Plan your AWS lifecycle");
+    expect(html).toContain("No cloud connection");
+    expect(html).toContain("Your settings stay in this browser");
+    expect(html).toContain("connect-src 'none'");
+    expect(html).toContain("form-action 'none'");
+    expect(html).toContain('href="./setup.css"');
+    expect(html).toContain('src="./setup.js"');
+    expect(html).not.toContain('name="api-key"');
+    expect(html).not.toContain('name="recipient"');
+    expect(runtime).toContain(
+      `const PACKAGE_VERSION = "${HAYASEND_VERSION}"`,
+    );
+    expect(runtime).toContain("@haya-inc/hayasend@${PACKAGE_VERSION}");
+    expect(runtime).toContain('"bootstrap"');
+    expect(runtime).toContain('targetTokens(placeholderState, "deploy")');
+    expect(runtime).toContain('targetTokens(placeholderState, "status")');
+    expect(runtime).toContain('targetTokens(placeholderState, "upgrade")');
+    expect(runtime).toContain('targetTokens(placeholderState, "cleanup")');
+    expect(runtime).toContain('"--disable-termination-protection"');
+    expect(runtime).not.toMatch(/\bfetch\s*\(/);
+    expect(runtime).not.toContain("XMLHttpRequest");
+    expect(runtime).not.toContain("WebSocket");
   });
 
   it("keeps public URLs and the Pages artifact aligned", async () => {
@@ -65,6 +96,7 @@ describe("project site", () => {
     expect(robots).toContain(`${siteUrl}sitemap.xml`);
     expect(sitemap).toContain(`<loc>${siteUrl}</loc>`);
     expect(sitemap).toContain(`<loc>${siteUrl}api-reference.html</loc>`);
+    expect(sitemap).toContain(`<loc>${siteUrl}setup.html</loc>`);
     expect(workflow).toContain("npm run site:build");
     expect(workflow).toContain("npm run site:verify");
     expect(workflow).toContain("path: dist/site");

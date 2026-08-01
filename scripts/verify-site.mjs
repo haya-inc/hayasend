@@ -12,9 +12,20 @@ function requireText(value, expected, label) {
 }
 
 async function verifySite() {
-  const [index, reference, contract, sourceContract, sitemap, customDomain] =
+  const [
+    index,
+    setup,
+    setupRuntime,
+    reference,
+    contract,
+    sourceContract,
+    sitemap,
+    customDomain,
+  ] =
     await Promise.all([
       readFile(join(SITE_OUTPUT_DIRECTORY, "index.html"), "utf8"),
+      readFile(join(SITE_OUTPUT_DIRECTORY, "setup.html"), "utf8"),
+      readFile(join(SITE_OUTPUT_DIRECTORY, "setup.js"), "utf8"),
       readFile(join(SITE_OUTPUT_DIRECTORY, "api-reference.html"), "utf8"),
       readFile(join(SITE_OUTPUT_DIRECTORY, "openapi.yaml"), "utf8"),
       readFile(new URL("../openapi.yaml", import.meta.url), "utf8"),
@@ -27,9 +38,37 @@ async function verifySite() {
   for (const link of ["./api-reference.html", "./openapi.yaml"]) {
     requireText(index, `href="${link}"`, "Project site");
   }
+  requireText(index, 'href="./setup.html"', "Project site");
+  for (const expected of [
+    `connect-src 'none'`,
+    `form-action 'none'`,
+    'href="./setup.css"',
+    'src="./setup.js"',
+    "Plan your AWS lifecycle",
+    "No cloud connection",
+  ]) {
+    requireText(setup, expected, "Setup console");
+  }
+  for (const expected of [
+    `const PACKAGE_VERSION = "0.3.5"`,
+    `@haya-inc/hayasend@\${PACKAGE_VERSION}`,
+    `"bootstrap"`,
+    `targetTokens(placeholderState, "deploy")`,
+    `targetTokens(placeholderState, "status")`,
+    `targetTokens(placeholderState, "upgrade")`,
+    `targetTokens(placeholderState, "cleanup")`,
+    `--disable-termination-protection`,
+  ]) {
+    requireText(setupRuntime, expected, "Setup console runtime");
+  }
   requireText(
     sitemap,
     "<loc>https://hayasend.com/api-reference.html</loc>",
+    "Sitemap",
+  );
+  requireText(
+    sitemap,
+    "<loc>https://hayasend.com/setup.html</loc>",
     "Sitemap",
   );
   if (customDomain !== "hayasend.com\n") {
