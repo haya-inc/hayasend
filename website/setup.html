@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Plan a safe HayaSend AWS deployment, configuration, verification, update, and removal from one local-only operator workspace."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self'; form-action 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f4f0e6" />
+    <link rel="canonical" href="https://hayasend.com/setup.html" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./setup.css" />
+    <title>HayaSend Setup — AWS operator workspace</title>
+  </head>
+  <body class="setup-body">
+    <a class="skip-link" href="#main">Skip to workspace</a>
+
+    <header class="setup-header">
+      <a class="brand" href="./" aria-label="HayaSend home">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M7 9h7v9h12V9h7v22h-7v-7H14v7H7z" />
+          <path class="brand-spark" d="m30 3 2 4 4 2-4 2-2 4-2-4-4-2 4-2z" />
+        </svg>
+        <span>HayaSend</span>
+      </a>
+      <nav class="setup-nav" aria-label="Setup navigation">
+        <a aria-current="page" href="./setup.html">Setup</a>
+        <a href="./api-reference.html">API</a>
+        <a href="https://github.com/haya-inc/hayasend">GitHub ↗</a>
+      </nav>
+    </header>
+
+    <main id="main" class="setup-main">
+      <section class="setup-intro" aria-labelledby="setup-title">
+        <div>
+          <p class="setup-kicker">AWS operator workspace · v0.3.5</p>
+          <h1 id="setup-title">Plan your AWS lifecycle.</h1>
+          <p class="setup-lede">
+            Set the non-secret deployment context once. HayaSend turns it into
+            version-pinned, plan-first commands from bootstrap through removal.
+          </p>
+        </div>
+        <div class="local-boundary" aria-label="Privacy boundary">
+          <span class="boundary-signal" aria-hidden="true"></span>
+          <div>
+            <strong>No cloud connection</strong>
+            <p>
+              Your settings stay in this browser. This page cannot call AWS,
+              HayaSend, or any third party.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-context" aria-labelledby="context-title">
+        <div class="context-heading">
+          <div>
+            <p class="setup-label">Deployment context</p>
+            <h2 id="context-title">Where will HayaSend run?</h2>
+          </div>
+          <button class="text-button" id="reset-workspace" type="button">
+            Reset this browser
+          </button>
+        </div>
+
+        <div class="context-fields">
+          <label class="field field-account">
+            <span>Expected AWS account</span>
+            <input
+              id="aws-account"
+              name="aws-account"
+              type="text"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="12"
+              placeholder="123456789012"
+              aria-describedby="account-help account-validation"
+            />
+            <small id="account-help">Required by the CLI identity gate.</small>
+            <small id="account-validation" class="field-validation" aria-live="polite"></small>
+          </label>
+
+          <label class="field">
+            <span>AWS profile</span>
+            <input
+              id="aws-profile"
+              name="aws-profile"
+              type="text"
+              autocomplete="off"
+              maxlength="128"
+              placeholder="default"
+            />
+            <small>Leave empty to use your active AWS CLI session.</small>
+          </label>
+
+          <label class="field">
+            <span>Region</span>
+            <select id="aws-region" name="aws-region">
+              <option value="ap-northeast-1">Tokyo · ap-northeast-1</option>
+              <option value="us-east-1">N. Virginia · us-east-1</option>
+              <option value="us-west-2">Oregon · us-west-2</option>
+              <option value="eu-west-1">Ireland · eu-west-1</option>
+              <option value="ap-southeast-1">Singapore · ap-southeast-1</option>
+            </select>
+            <small>Use the same Region for SES and the stack.</small>
+          </label>
+
+          <label class="field">
+            <span>Stack name</span>
+            <input
+              id="stack-name"
+              name="stack-name"
+              type="text"
+              autocomplete="off"
+              maxlength="128"
+              value="hayasend"
+            />
+            <small>CloudFormation lifecycle boundary.</small>
+          </label>
+
+          <label class="field">
+            <span>Environment</span>
+            <select id="environment" name="environment">
+              <option value="proof">Proof</option>
+              <option value="staging">Staging</option>
+              <option value="production" selected>Production</option>
+            </select>
+            <small>Applied as a visible CloudFormation tag.</small>
+          </label>
+        </div>
+
+        <div class="context-options">
+          <label class="option-line">
+            <input id="restore-testing" type="checkbox" checked />
+            <span>
+              <strong>Weekly isolated restore testing</strong>
+              <small>Recommended for production; creates billable AWS Backup restore jobs.</small>
+            </span>
+          </label>
+          <p class="context-status" id="context-status" role="status" aria-live="polite">
+            Add the expected AWS account to generate runnable commands.
+          </p>
+        </div>
+      </section>
+
+      <div class="workspace">
+        <aside class="workspace-index" aria-label="Lifecycle progress">
+          <div class="progress-copy">
+            <span>Readiness</span>
+            <strong id="progress-count">0 / 7</strong>
+          </div>
+          <div
+            class="progress-track"
+            role="progressbar"
+            aria-label="Setup completion"
+            aria-valuemin="0"
+            aria-valuemax="7"
+            aria-valuenow="0"
+          >
+            <span id="progress-value"></span>
+          </div>
+          <ol class="step-index">
+            <li><a href="#identity">Identity</a></li>
+            <li><a href="#deploy">Deploy</a></li>
+            <li><a href="#access">Access</a></li>
+            <li><a href="#verify">Verify</a></li>
+            <li><a href="#operate">Operate</a></li>
+            <li><a href="#update">Update</a></li>
+            <li><a href="#remove">Remove</a></li>
+          </ol>
+          <a
+            class="index-link"
+            href="https://github.com/haya-inc/hayasend/blob/main/docs/aws-quickstart.md"
+          >
+            Full AWS guide ↗
+          </a>
+        </aside>
+
+        <section class="lifecycle" aria-label="AWS lifecycle steps">
+          <article class="lifecycle-step" id="identity" data-step="identity">
+            <header class="step-header">
+              <span class="step-number">01</span>
+              <div>
+                <p class="step-kind">One-time trust boundary</p>
+                <h2>Confirm identity. Bootstrap least privilege.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="identity" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              The CLI checks the authenticated account before it reads SES or
+              CloudFormation. Bootstrap creates a service role, artifact bucket,
+              and scoped operator policy; it does not attach the policy for you.
+            </p>
+            <div class="command-block">
+              <div class="command-heading">
+                <span>Plan · no AWS writes</span>
+                <button type="button" data-copy-target="bootstrap-plan-command">Copy</button>
+              </div>
+              <pre><code id="bootstrap-plan-command"></code></pre>
+              <p class="command-status" role="status" aria-live="polite"></p>
+            </div>
+            <details class="apply-details">
+              <summary>Show the reviewed bootstrap apply command</summary>
+              <div class="command-block command-apply">
+                <div class="command-heading">
+                  <span>Apply · creates IAM and S3 resources</span>
+                  <button type="button" data-copy-target="bootstrap-apply-command">Copy</button>
+                </div>
+                <pre><code id="bootstrap-apply-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+            </details>
+          </article>
+
+          <article class="lifecycle-step" id="deploy" data-step="deploy">
+            <header class="step-header">
+              <span class="step-number">02</span>
+              <div>
+                <p class="step-kind">CloudFormation + SAM</p>
+                <h2>Review the stack before creating it.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="deploy" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Plan mode validates tools, identity, SES, the packaged template,
+              and the exact change set. Apply enables termination protection and
+              a retained-resource stack policy after deployment.
+            </p>
+            <div class="command-grid">
+              <div class="command-block">
+                <div class="command-heading">
+                  <span>Plan · no AWS writes</span>
+                  <button type="button" data-copy-target="deploy-plan-command">Copy</button>
+                </div>
+                <pre><code id="deploy-plan-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="command-block command-apply">
+                <div class="command-heading">
+                  <span>Apply · executes reviewed change set</span>
+                  <button type="button" data-copy-target="deploy-apply-command">Copy</button>
+                </div>
+                <pre><code id="deploy-apply-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </article>
+
+          <article class="lifecycle-step" id="access" data-step="access">
+            <header class="step-header">
+              <span class="step-number">03</span>
+              <div>
+                <p class="step-kind">Domain + scoped credentials</p>
+                <h2>Give applications only what they need.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="access" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Read the bootstrap token from an approved secret manager. Create
+              a dedicated sending subdomain, publish the returned DKIM records,
+              then issue an expiring application key with only
+              <code>emails:send</code> and <code>emails:read</code>.
+            </p>
+            <div class="instruction-lines">
+              <div><span>1</span><p>Export <code>HAYASEND_BASE_URL</code> and an administrator key in your shell—never paste either into this page.</p></div>
+              <div><span>2</span><p>Run <code>hayasend domains create</code>, publish DNS, then run <code>domains verify</code>.</p></div>
+              <div><span>3</span><p>Run <code>hayasend keys create</code> with a mode-0600 token file and move it to your secret manager.</p></div>
+            </div>
+            <div class="access-settings" aria-label="Sending access settings">
+              <label>
+                <span>Sending domain</span>
+                <input
+                  id="sending-domain"
+                  name="sending-domain"
+                  type="text"
+                  autocomplete="off"
+                  maxlength="253"
+                  value="mail.example.com"
+                />
+              </label>
+              <label>
+                <span>Application key name</span>
+                <input
+                  id="application-key-name"
+                  name="application-key-name"
+                  type="text"
+                  autocomplete="off"
+                  maxlength="64"
+                  value="production-transactional"
+                />
+              </label>
+            </div>
+            <div class="command-grid">
+              <div class="command-block">
+                <div class="command-heading">
+                  <span>Register · does not edit DNS</span>
+                  <button type="button" data-copy-target="domain-command">Copy</button>
+                </div>
+                <pre><code id="domain-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="command-block command-apply">
+                <div class="command-heading">
+                  <span>Create · writes token once to mode 0600</span>
+                  <button type="button" data-copy-target="key-command">Copy</button>
+                </div>
+                <pre><code id="key-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div class="step-links">
+              <a href="https://github.com/haya-inc/hayasend/blob/main/docs/domain-onboarding.md">Domain onboarding ↗</a>
+              <a href="https://github.com/haya-inc/hayasend/blob/main/docs/cli.md#manage-least-privilege-api-keys">API key guide ↗</a>
+            </div>
+          </article>
+
+          <article class="lifecycle-step" id="verify" data-step="verify">
+            <header class="step-header">
+              <span class="step-number">04</span>
+              <div>
+                <p class="step-kind">Real evidence</p>
+                <h2>Prove delivery, not just acceptance.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="verify" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Use a controlled mailbox. Confirm the recipient ledger reaches a
+              terminal state, the mailbox receives the message, alarms remain
+              OK, and the job, DLQ, and scheduler DLQ return to zero.
+            </p>
+            <div class="evidence-line" aria-label="Required delivery evidence">
+              <span>API accepted</span>
+              <span>SES accepted</span>
+              <span>Recipient delivered</span>
+              <span>Mailbox received</span>
+              <span>Queues empty</span>
+            </div>
+            <div class="command-block">
+              <div class="command-heading">
+                <span>Read-only deployment diagnostics</span>
+                <button type="button" data-copy-target="doctor-command">Copy</button>
+              </div>
+              <pre><code id="doctor-command"></code></pre>
+              <p class="command-status" role="status" aria-live="polite"></p>
+            </div>
+            <p class="safety-note">
+              The CLI <code>test</code> command sends real email against an AWS
+              deployment. Choose the sender and controlled recipient in your
+              terminal; this page intentionally does not collect them.
+            </p>
+          </article>
+
+          <article class="lifecycle-step" id="operate" data-step="operate">
+            <header class="step-header">
+              <span class="step-number">05</span>
+              <div>
+                <p class="step-kind">Routine operating loop</p>
+                <h2>Check health, drift, alarms, and sending readiness.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="operate" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Run a fresh drift check after deployment, updates, and AWS
+              incidents. The status result separates infrastructure health from
+              SES send readiness and links the generated CloudWatch dashboard.
+            </p>
+            <div class="command-block">
+              <div class="command-heading">
+                <span>Read-only except fresh drift detection</span>
+                <button type="button" data-copy-target="status-command">Copy</button>
+              </div>
+              <pre><code id="status-command"></code></pre>
+              <p class="command-status" role="status" aria-live="polite"></p>
+            </div>
+            <div class="step-links">
+              <a href="https://github.com/haya-inc/hayasend/blob/main/docs/operations.md">Operations runbook ↗</a>
+              <a href="https://github.com/haya-inc/hayasend/blob/main/docs/aws-costs.md">AWS cost model ↗</a>
+            </div>
+          </article>
+
+          <article class="lifecycle-step" id="update" data-step="update">
+            <header class="step-header">
+              <span class="step-number">06</span>
+              <div>
+                <p class="step-kind">Safe change</p>
+                <h2>Plan every upgrade. Let alarms stop a bad rollout.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="update" />
+                <span>Complete</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Ordinary upgrades are plan-first and reject removals or possible
+              replacements. Apply uses the configured canary strategy and rolls
+              Lambda traffic back when deployment alarms fire.
+            </p>
+            <div class="command-grid">
+              <div class="command-block">
+                <div class="command-heading">
+                  <span>Plan · no AWS writes</span>
+                  <button type="button" data-copy-target="upgrade-plan-command">Copy</button>
+                </div>
+                <pre><code id="upgrade-plan-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="command-block command-apply">
+                <div class="command-heading">
+                  <span>Apply · canary protected</span>
+                  <button type="button" data-copy-target="upgrade-apply-command">Copy</button>
+                </div>
+                <pre><code id="upgrade-apply-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+          </article>
+
+          <article class="lifecycle-step removal-step" id="remove" data-step="remove">
+            <header class="step-header">
+              <span class="step-number">07</span>
+              <div>
+                <p class="step-kind">Guarded removal</p>
+                <h2>See what remains before deleting the stack.</h2>
+              </div>
+              <label class="completion-control">
+                <input type="checkbox" data-step-complete="remove" />
+                <span>Reviewed</span>
+              </label>
+            </header>
+            <p class="step-copy">
+              Cleanup first prints a deletion plan and every retained data
+              resource. The browser cannot execute it. CloudFormation deletion
+              still requires the exact stack name and a separate termination
+              protection acknowledgement.
+            </p>
+            <div class="command-block">
+              <div class="command-heading">
+                <span>Plan · no AWS writes</span>
+                <button type="button" data-copy-target="cleanup-plan-command">Copy</button>
+              </div>
+              <pre><code id="cleanup-plan-command"></code></pre>
+              <p class="command-status" role="status" aria-live="polite"></p>
+            </div>
+            <details class="danger-details">
+              <summary>Reveal the destructive stack-removal command</summary>
+              <p>
+                This removes the running CloudFormation stack. Retained tables,
+                buckets, keys, and backup recovery points have a separate data
+                lifecycle and are not purged automatically.
+              </p>
+              <div class="command-block command-danger">
+                <div class="command-heading">
+                  <span>Destructive · exact confirmations required</span>
+                  <button type="button" data-copy-target="cleanup-apply-command">Copy</button>
+                </div>
+                <pre><code id="cleanup-apply-command"></code></pre>
+                <p class="command-status" role="status" aria-live="polite"></p>
+              </div>
+            </details>
+          </article>
+        </section>
+      </div>
+
+      <section class="setup-close" aria-labelledby="support-title">
+        <p class="setup-label">Need an accountable operator?</p>
+        <h2 id="support-title">Keep the infrastructure. Add support when it matters.</h2>
+        <p>
+          Haya can review migration, AWS hardening, deliverability, upgrades,
+          rollback, and failure drills without moving message content into a
+          Haya-hosted send path.
+        </p>
+        <div>
+          <a class="button button-primary" href="https://www.haya.company/contact">Contact Haya ↗</a>
+          <a class="text-link" href="https://github.com/haya-inc/hayasend/blob/main/docs/support-service-levels.md">Service levels ↗</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="setup-footer">
+      <a class="brand brand-footer" href="./">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M7 9h7v9h12V9h7v22h-7v-7H14v7H7z" />
+          <path class="brand-spark" d="m30 3 2 4 4 2-4 2-2 4-2-4-4-2 4-2z" />
+        </svg>
+        <span>HayaSend</span>
+      </a>
+      <p>Local-only setup companion. It executes no cloud action.</p>
+      <div>
+        <a href="./">Home</a>
+        <a href="./api-reference.html">API</a>
+        <a href="https://github.com/haya-inc/hayasend">Source</a>
+      </div>
+    </footer>
+
+    <script src="./setup.js" defer></script>
+  </body>
+</html>
