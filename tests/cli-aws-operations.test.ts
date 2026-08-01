@@ -213,7 +213,7 @@ function awsRunner(
       return result("", 0, "aws-cli/2.36.10 Python/3.13");
     }
     if (command === "sam" && args[0] === "--version") {
-      return result("SAM CLI, version 1.164.0");
+      return result("SAM CLI, version 1.165.0");
     }
     if (command === "npm" && args[0] === "--version") {
       return result("12.0.2");
@@ -307,7 +307,7 @@ describe("AWS lifecycle operations", () => {
       Response.json({
         ok: true,
         service: "hayasend",
-        version: "0.3.5",
+        version: "0.3.6",
       }),
     );
 
@@ -429,7 +429,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.5",
+          version: "0.3.6",
         }),
       ),
     });
@@ -568,7 +568,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.5",
+          version: "0.3.6",
         }),
       ),
     });
@@ -617,7 +617,7 @@ describe("AWS lifecycle operations", () => {
         Response.json({
           ok: true,
           service: "hayasend",
-          version: "0.3.5",
+          version: "0.3.6",
         }),
       ),
     });

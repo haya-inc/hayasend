@@ -86,7 +86,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24.18.0
+          node-version: 24.18.1
           cache: npm
 
       - name: Install npm and dependencies
@@ -221,7 +221,7 @@ jobs:
             | tee "$RUNNER_TEMP/railway-portable-proof.json"
           jq --exit-status \
             '.object == "portable_hosted_semantic_proof" and
-              .hayasend_version == "0.3.5" and
+              .hayasend_version == "0.3.6" and
               .database.major_version == 18 and
               .checks.scheduled_horizon_seconds == 2592000 and
               .checks.atomic_delivery_commit == true and
