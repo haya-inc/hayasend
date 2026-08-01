@@ -112,7 +112,7 @@ paths:
                       data:
                         type: array
                         items:
-                          oneOf:
+                          anyOf:
                             - $ref: "#/components/schemas/Email"
                             - $ref: "#/components/schemas/EmailSummary"
   /emails/batch:
