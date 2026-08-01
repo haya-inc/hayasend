@@ -38,7 +38,7 @@ jobs:
           ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24.18.0
+          node-version: 24.18.1
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
@@ -47,7 +47,7 @@ jobs:
           cache: true
       - uses: aws-actions/setup-sam@89ddb14d60e682855e3fea4be85b3c56485de310 # v3
         with:
-          version: 1.164.0
+          version: 1.165.0
       - name: Pin release npm
         run: npm install --global --ignore-scripts npm@12.0.2
 
@@ -117,7 +117,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Validate CloudFormation
         run: |
-          python -m pip install --disable-pip-version-check cfn-lint==1.53.2
+          python -m pip install --disable-pip-version-check cfn-lint==1.53.3
           cfn-lint template.yaml
       - name: Validate OpenAPI
         run: npm run lint:openapi

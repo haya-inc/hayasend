@@ -44,7 +44,7 @@ describe("Vercel hosted lifecycle workflow", () => {
     expect(workflow).toContain(
       "VERCEL_CLI_INTEGRITY: sha512-IaveydZepbxIciXIskd032O31cVKjI+8YFD4Y9EuvNLNnIltsYL+0hE0AIhol5wEPDBGm3zKtYA8GKrQNAJ12w==",
     );
-    expect(workflow).toContain("node-version: 24.18.0");
+    expect(workflow).toContain("node-version: 24.18.1");
     expect(workflow).toContain("npm@12.0.2");
     expect(workflow).toContain(
       "ref: e6a4cdabe5e699bfd8fc509484e3ed14a00091da",
@@ -53,7 +53,7 @@ describe("Vercel hosted lifecycle workflow", () => {
       '.version == "0.3.1"',
     );
     expect(workflow).toContain(
-      '.version == "0.3.5"',
+      '.version == "0.3.6"',
     );
     expect(workflow).toContain(
       "add_plain HAYASEND_RUNTIME_PROFILE vercel-serverless",

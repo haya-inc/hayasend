@@ -122,7 +122,7 @@ elif [[ "\${1:-} \${2:-}" == "machine status" ]]; then
     "Machine ID: 1234567890abcd" \
     "exit_code=0,oom_killed=false,requested_stop=false"
 elif [[ "\${1:-}" == "logs" ]]; then
-  printf '%s\\n' '{"level":"info","instance":"1234567890abcd","message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.5\\",\\"database\\":{\\"major_version\\":17},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","region":"nrt","timestamp":"2026-07-29T00:00:00Z"}'
+  printf '%s\\n' '{"level":"info","instance":"1234567890abcd","message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.6\\",\\"database\\":{\\"major_version\\":17},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","region":"nrt","timestamp":"2026-07-29T00:00:00Z"}'
 elif [[ "\${1:-} \${2:-}" == "machine exec" ]]; then
   printf '%s\\n' '{"exit_code":0,"stdout":"{\\"object\\":\\"hayasend_flyio_bucket_inventory\\",\\"bucket\\":\\"'"$HAYASEND_FLY_BUCKET"'\\",\\"object_count\\":0,\\"empty\\":true}\\n"}'
 elif [[ "\${1:-} \${2:-}" == "machine destroy" ]]; then

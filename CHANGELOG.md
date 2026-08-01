@@ -6,6 +6,8 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.6 - 2026-08-02
+
 - Add a deployment-local authenticated operator console for delivery health,
   searchable message history and recipient state, sandboxed HTML/text/source
   inspection, domain/webhook/suppression/API-key visibility, and scoped test
@@ -14,6 +16,8 @@ minor releases before v1.0.
   endpoint while preserving the existing full email-list response by default.
 - Keep cloud lifecycle mutations in the reviewed CLI path and document the
   exact least-privilege console key setup for AWS deployments.
+- Refresh the release toolchain to Node.js 24.18.1, AWS SAM CLI 1.165.0,
+  cfn-lint 1.53.3, while retaining current npm 12.0.2 and Deno 2.9.4 pins.
 
 ## 0.3.5 - 2026-07-30
 

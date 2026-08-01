@@ -43,7 +43,7 @@ describe("AWS SES dogfood workflow", () => {
       /aws-actions\/configure-aws-credentials@[0-9a-f]{40}/,
     );
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
-    expect(workflow).toContain("node-version: 24.18.0");
+    expect(workflow).toContain("node-version: 24.18.1");
     expect(workflow).toContain("npm@12.0.2");
     expect(workflow).toContain("retention-days: 90");
   });
