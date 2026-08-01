@@ -1,0 +1,436 @@
+name: AWS SES dogfood
+
+on:
+  schedule:
+    - cron: "17 0 * * *"
+    - cron: "17 6 * * *"
+    - cron: "17 12 * * *"
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+    inputs:
+      confirm_account:
+        description: Exact approved general-purpose AWS test account ID
+        type: string
+        required: true
+      dogfood_date:
+        description: UTC campaign date (defaults to today)
+        type: string
+        required: false
+      slot:
+        description: Six-hour UTC slot (auto uses the current UTC hour)
+        type: choice
+        required: false
+        default: auto
+        options:
+          - auto
+          - "0"
+          - "1"
+          - "2"
+          - "3"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hayasend-aws-dogfood
+  cancel-in-progress: false
+
+jobs:
+  dogfood:
+    name: Send and measure controlled notifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: aws-integration
+    env:
+      AWS_REGION: ${{ vars.AWS_TEST_REGION }}
+      AWS_TEST_ACCOUNT_ID: ${{ vars.AWS_TEST_ACCOUNT_ID }}
+      AWS_TEST_ACCOUNT_KIND: ${{ vars.AWS_TEST_ACCOUNT_KIND }}
+      AWS_TEST_ROLE_ARN: ${{ vars.AWS_TEST_ROLE_ARN }}
+      AWS_DOGFOOD_ENABLED: ${{ vars.AWS_DOGFOOD_ENABLED }}
+      AWS_DOGFOOD_START_DATE: ${{ vars.AWS_DOGFOOD_START_DATE }}
+      AWS_DOGFOOD_IDENTITY: ${{ vars.AWS_TERMINAL_IDENTITY }}
+      AWS_DOGFOOD_FROM: ${{ vars.AWS_TERMINAL_FROM }}
+      AWS_DOGFOOD_TO: ${{ vars.AWS_TERMINAL_TO }}
+      CONFIRM_ACCOUNT: ${{ inputs.confirm_account }}
+      REQUESTED_DATE: ${{ inputs.dogfood_date }}
+      REQUESTED_SLOT: ${{ inputs.slot }}
+      EVENT_SCHEDULE: ${{ github.event.schedule }}
+      STACK_NAME: hayasend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate immutable campaign boundary
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          if [[ "$AWS_DOGFOOD_ENABLED" != "true" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "The AWS dogfood kill switch is disabled; no AWS credentials or sends were used." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test "$AWS_TEST_ACCOUNT_KIND" = "general-purpose-test"
+          test "$AWS_TEST_ACCOUNT_ID" = "330599756148"
+          test "$AWS_REGION" = "ap-northeast-1"
+          test "$STACK_NAME" = "hayasend"
+          test "$AWS_DOGFOOD_IDENTITY" = "hayasend.com"
+          test -n "$AWS_DOGFOOD_START_DATE"
+          test -n "$AWS_DOGFOOD_FROM"
+          test -n "$AWS_DOGFOOD_TO"
+          if [[ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]]; then
+            test "$CONFIRM_ACCOUNT" = "$AWS_TEST_ACCOUNT_ID"
+          fi
+          expected_prefix="arn:aws:iam::${AWS_TEST_ACCOUNT_ID}:role/"
+          if [[ "$AWS_TEST_ROLE_ARN" != "$expected_prefix"* ]]; then
+            echo "::error::AWS_TEST_ROLE_ARN must name a role in the approved test account."
+            exit 1
+          fi
+          case "${EVENT_SCHEDULE:-}" in
+            "17 0 * * *") slot=0 ;;
+            "17 6 * * *") slot=1 ;;
+            "17 12 * * *") slot=2 ;;
+            "17 18 * * *") slot=3 ;;
+            "")
+              if [[ -z "${REQUESTED_SLOT:-}" || "$REQUESTED_SLOT" = "auto" ]]; then
+                slot=$((10#$(date -u +%H) / 6))
+              else
+                slot="$REQUESTED_SLOT"
+              fi
+              ;;
+            *)
+              echo "::error::The scheduled expression is not a reviewed dogfood slot."
+              exit 1
+              ;;
+          esac
+          run_date="${REQUESTED_DATE:-$(date -u +%F)}"
+          if [[ ! "$run_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "::error::dogfood_date must use YYYY-MM-DD."
+            exit 1
+          fi
+          if [[ ! "$slot" =~ ^[0-3]$ ]]; then
+            echo "::error::slot must be 0, 1, 2, or 3."
+            exit 1
+          fi
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            const identity = process.env.AWS_DOGFOOD_IDENTITY.toLowerCase();
+            const from = process.env.AWS_DOGFOOD_FROM;
+            const to = process.env.AWS_DOGFOOD_TO;
+            const fromAddress = (/<([^<>]+)>$/.exec(from)?.[1] ?? from).trim().toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+$/.test(fromAddress) || !/^[^\s@]+@[^\s@]+$/.test(to)) {
+              throw new Error("Dogfood sender or recipient is invalid.");
+            }
+            if (!fromAddress.endsWith(`@${identity}`)) {
+              throw new Error("Dogfood sender must use the verified identity.");
+            }
+            if (fromAddress === to.toLowerCase()) {
+              throw new Error("Dogfood sender and recipient must differ.");
+            }
+          '
+          {
+            echo "AWS_DOGFOOD_RUN_DATE=$run_date"
+            echo "AWS_DOGFOOD_SLOT=$slot"
+          } >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "validated=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ steps.guard.outputs.enabled == 'true' }}
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - name: Install current pinned toolchain
+        if: ${{ steps.guard.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts npm@12.0.2
+          npm ci
+          {
+            node --version
+            npm --version
+            aws --version
+          } 2>&1 | tee "$RUNNER_TEMP/aws-dogfood-tool-versions.txt"
+
+      - name: Plan the deterministic campaign slot
+        if: ${{ steps.guard.outputs.enabled == 'true' }}
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE' > "$RUNNER_TEMP/aws-dogfood-plan.json"
+          import {
+            planDogfoodRun,
+            requireDogfoodRetryWindow,
+          } from "./scripts/aws-dogfood-plan.mjs";
+          const plan = planDogfoodRun({
+            startDate: process.env.AWS_DOGFOOD_START_DATE,
+            runDate: process.env.AWS_DOGFOOD_RUN_DATE,
+            slot: Number.parseInt(process.env.AWS_DOGFOOD_SLOT, 10),
+          });
+          if (plan.active) {
+            plan.retry_window = requireDogfoodRetryWindow(plan);
+          }
+          console.log(JSON.stringify(plan));
+          NODE
+          active="$(jq -r '.active' "$RUNNER_TEMP/aws-dogfood-plan.json")"
+          echo "active=$active" >> "$GITHUB_OUTPUT"
+          if [[ "$active" != "true" ]]; then
+            echo "Campaign window is inactive for $AWS_DOGFOOD_RUN_DATE." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Configure short-lived AWS credentials
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        id: aws-credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ env.AWS_TEST_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_TEST_ACCOUNT_ID }}
+          role-session-name: HayaSend-dogfood-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Require the protected production-capable stack
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_account="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual_account" = "$AWS_TEST_ACCOUNT_ID"
+          aws sesv2 get-account \
+            --region "$AWS_REGION" \
+            > "$RUNNER_TEMP/aws-dogfood-ses-account.raw.json"
+          aws sesv2 get-email-identity \
+            --email-identity "$AWS_DOGFOOD_IDENTITY" \
+            --region "$AWS_REGION" \
+            > "$RUNNER_TEMP/aws-dogfood-ses-identity.raw.json"
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            > "$RUNNER_TEMP/aws-dogfood-stack.raw.json"
+          jq --exit-status '
+            .Stacks[0]
+            | .StackStatus == "UPDATE_COMPLETE" and
+              .EnableTerminationProtection == true and
+              .DriftInformation.StackDriftStatus == "IN_SYNC" and
+              any(.Tags[]?; .Key == "Project" and .Value == "HayaSend") and
+              any(.Tags[]?; .Key == "ManagedBy" and .Value == "HayaSendCLI")
+          ' "$RUNNER_TEMP/aws-dogfood-stack.raw.json" >/dev/null
+          jq --exit-status '
+            .ProductionAccessEnabled == true and .SendingEnabled == true
+          ' "$RUNNER_TEMP/aws-dogfood-ses-account.raw.json" >/dev/null
+          jq --exit-status '
+            .VerificationStatus == "SUCCESS" and .VerifiedForSendingStatus == true
+          ' "$RUNNER_TEMP/aws-dogfood-ses-identity.raw.json" >/dev/null
+          stack_output() {
+            jq -r \
+              --arg key "$1" \
+              '.Stacks[0].Outputs[] | select(.OutputKey == $key) | .OutputValue' \
+              "$RUNNER_TEMP/aws-dogfood-stack.raw.json"
+          }
+          API_BASE_URL="$(stack_output ApiBaseUrl)"
+          BOOTSTRAP_SECRET_ARN="$(stack_output BootstrapSecretArn)"
+          DATA_TABLE="$(stack_output TableName)"
+          HTTP_API_ID="$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?LogicalResourceId=='HttpApi'].PhysicalResourceId | [0]" \
+              --output text
+          )"
+          for value in \
+            "$API_BASE_URL" \
+            "$BOOTSTRAP_SECRET_ARN" \
+            "$DATA_TABLE" \
+            "$HTTP_API_ID"; do
+            if [[ -z "$value" || "$value" = "None" ]]; then
+              echo "::error::A required long-lived stack resource is missing."
+              exit 1
+            fi
+          done
+          {
+            echo "API_BASE_URL=$API_BASE_URL"
+            echo "BOOTSTRAP_SECRET_ARN=$BOOTSTRAP_SECRET_ARN"
+            echo "DATA_TABLE=$DATA_TABLE"
+            echo "HTTP_API_ID=$HTTP_API_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Capture pre-send status and alarms
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HAYASEND_AWS_ACCOUNT_ID="$AWS_TEST_ACCOUNT_ID" \
+          npm run --silent cli -- status aws \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --region "$AWS_REGION" \
+            --stack "$STACK_NAME" \
+            > "$RUNNER_TEMP/aws-dogfood-status-before.raw.json"
+          jq --exit-status \
+            --arg account "$AWS_TEST_ACCOUNT_ID" \
+            --arg region "$AWS_REGION" \
+            --arg stack "$STACK_NAME" '
+              .object == "aws_status" and
+              .identity.account == $account and
+              .region == $region and
+              .stack.name == $stack and
+              .stack.termination_protection == true and
+              .stack.drift.status == "IN_SYNC" and
+              .operational == true and
+              .send_ready == true and
+              .alarms.alarm == 0 and
+              .alarms.insufficient_data == 0 and
+              .public_health.ok == true
+            ' "$RUNNER_TEMP/aws-dogfood-status-before.raw.json" >/dev/null
+
+      - name: Send the controlled notification slot
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_key="$(
+            aws secretsmanager get-secret-value \
+              --secret-id "$BOOTSTRAP_SECRET_ARN" \
+              --region "$AWS_REGION" \
+              --query SecretString \
+              --output text
+          )"
+          echo "::add-mask::$bootstrap_key"
+          HAYASEND_BASE_URL="$API_BASE_URL" \
+          HAYASEND_EXPECTED_API_ID="$HTTP_API_ID" \
+          HAYASEND_BOOTSTRAP_KEY="$bootstrap_key" \
+          node scripts/aws-dogfood.mjs \
+            | tee "$RUNNER_TEMP/aws-dogfood-observations.raw.jsonl"
+          tail -n 1 "$RUNNER_TEMP/aws-dogfood-observations.raw.jsonl" \
+            > "$RUNNER_TEMP/aws-dogfood-delivery.raw.json"
+          jq --exit-status '
+            .object == "aws_ses_dogfood_delivery_proof" and
+            .campaign.batch_size == 18 and
+            .submitted == 18 and
+            .delivered == 18 and
+            .unique_email_ids == 18 and
+            .scoped_api_key_revoked == true and
+            .terminal == true
+          ' "$RUNNER_TEMP/aws-dogfood-delivery.raw.json" >/dev/null
+
+      - name: Correlate recipient ledgers and latency
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HAYASEND_TABLE_NAME="$DATA_TABLE" \
+          HAYASEND_DOGFOOD_DELIVERY_FILE="$RUNNER_TEMP/aws-dogfood-delivery.raw.json" \
+          node scripts/aws-dogfood-ledger.mjs \
+            > "$RUNNER_TEMP/aws-dogfood-ledger.raw.json"
+          jq --exit-status '
+            .submitted == 18 and
+            .delivered == 18 and
+            .unexplained_loss == 0 and
+            .duplicate_email_ids == 0 and
+            .duplicate_terminal_events == 0 and
+            .provider_id_correlated == true and
+            .exact_recipient_correlated == true and
+            .terminal == true
+          ' "$RUNNER_TEMP/aws-dogfood-ledger.raw.json" >/dev/null
+
+      - name: Capture post-send status and build metadata-only evidence
+        if: ${{ steps.plan.outputs.active == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          HAYASEND_AWS_ACCOUNT_ID="$AWS_TEST_ACCOUNT_ID" \
+          npm run --silent cli -- status aws \
+            --account "$AWS_TEST_ACCOUNT_ID" \
+            --region "$AWS_REGION" \
+            --stack "$STACK_NAME" \
+            > "$RUNNER_TEMP/aws-dogfood-status-after.raw.json"
+          jq --exit-status '
+            .operational == true and
+            .send_ready == true and
+            .alarms.alarm == 0 and
+            .alarms.insufficient_data == 0 and
+            .public_health.ok == true
+          ' "$RUNNER_TEMP/aws-dogfood-status-after.raw.json" >/dev/null
+          node --input-type=module - \
+            "$RUNNER_TEMP/aws-dogfood-plan.json" \
+            "$RUNNER_TEMP/aws-dogfood-delivery.raw.json" \
+            "$RUNNER_TEMP/aws-dogfood-ledger.raw.json" \
+            "$RUNNER_TEMP/aws-dogfood-status-before.raw.json" \
+            "$RUNNER_TEMP/aws-dogfood-status-after.raw.json" \
+            "$RUNNER_TEMP/aws-dogfood-evidence.json" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const [planPath, deliveryPath, ledgerPath, beforePath, afterPath, outputPath] = process.argv.slice(2);
+          const read = (path) => JSON.parse(readFileSync(path, "utf8"));
+          const plan = read(planPath);
+          const delivery = read(deliveryPath);
+          const ledger = read(ledgerPath);
+          const status = (value) => ({
+            operational: value.operational,
+            send_ready: value.send_ready,
+            stack_status: value.stack.status,
+            termination_protection: value.stack.termination_protection,
+            drift: value.stack.drift,
+            alarms: value.alarms,
+            public_health: value.public_health,
+            ses: value.ses,
+          });
+          writeFileSync(outputPath, `${JSON.stringify({
+            object: "aws_ses_dogfood_evidence",
+            generated_at: new Date().toISOString(),
+            source: {
+              repository: process.env.GITHUB_REPOSITORY,
+              commit: process.env.GITHUB_SHA,
+              workflow_run_id: process.env.GITHUB_RUN_ID,
+              workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+            campaign: plan,
+            notification_counts: delivery.notification_counts,
+            sample_subject: delivery.sample_subject,
+            delivery: {
+              submitted: delivery.submitted,
+              delivered: delivery.delivered,
+              unique_email_ids: delivery.unique_email_ids,
+              email_id_sha256: delivery.email_id_sha256,
+              send_attempts: delivery.send_attempts,
+              send_transient_failures: delivery.send_transient_failures,
+              poll_requests: delivery.poll_requests,
+              poll_transient_failures: delivery.poll_transient_failures,
+              scoped_api_key_revoked: delivery.scoped_api_key_revoked,
+              operator_runtime_ms: delivery.operator_runtime_ms,
+              terminal: delivery.terminal,
+            },
+            ledger,
+            status_before: status(read(beforePath)),
+            status_after: status(read(afterPath)),
+          })}\n`, { mode: 0o600 });
+          NODE
+          {
+            echo "### AWS SES dogfood slot"
+            echo
+            echo "- Campaign day: $(jq -r '.campaign.day_number' "$RUNNER_TEMP/aws-dogfood-evidence.json")/14"
+            echo "- UTC date / slot: $AWS_DOGFOOD_RUN_DATE / $AWS_DOGFOOD_SLOT"
+            echo "- Terminal deliveries: 18/18"
+            echo "- Unexplained loss: 0"
+            echo "- Alarm states: OK"
+            echo "- Scoped API key revoked: yes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload metadata-only dogfood evidence
+        if: ${{ always() && steps.guard.outputs.validated == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aws-dogfood-${{ env.AWS_DOGFOOD_RUN_DATE }}-s${{ env.AWS_DOGFOOD_SLOT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/aws-dogfood-plan.json
+            ${{ runner.temp }}/aws-dogfood-evidence.json
+            ${{ runner.temp }}/aws-dogfood-tool-versions.txt
+          if-no-files-found: error
+          retention-days: 90

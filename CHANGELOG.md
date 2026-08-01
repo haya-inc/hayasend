@@ -6,6 +6,15 @@ minor releases before v1.0.
 
 ## Unreleased
 
+- Add a deployment-local authenticated operator console for delivery health,
+  searchable message history and recipient state, sandboxed HTML/text/source
+  inspection, domain/webhook/suppression/API-key visibility, and scoped test
+  sends without introducing a separate control-plane credential store.
+- Add a privacy-reduced email summary view and authenticated session metadata
+  endpoint while preserving the existing full email-list response by default.
+- Keep cloud lifecycle mutations in the reviewed CLI path and document the
+  exact least-privilege console key setup for AWS deployments.
+
 ## 0.3.5 - 2026-07-30
 
 - Add a deployable Supabase Auth Send Email Hook that verifies the signed raw

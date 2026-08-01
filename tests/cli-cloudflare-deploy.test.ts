@@ -61,7 +61,7 @@ describe("plan-first Cloudflare lifecycle", () => {
       mode: "deploy",
       account: ACCOUNT,
       toolchain: {
-        wrangler: "4.115.0",
+        wrangler: "4.118.0",
         compatibility_date: "2026-07-27",
       },
       production_ready: false,

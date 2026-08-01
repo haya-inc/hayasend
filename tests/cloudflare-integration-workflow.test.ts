@@ -55,7 +55,7 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
-    expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
+    expect(workflow).toContain("WRANGLER_VERSION: 4.118.0");
     expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
     expect(workflow).toContain("npm@12.0.2");
@@ -105,7 +105,7 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/);
     expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
-    expect(workflow).toContain("WRANGLER_VERSION: 4.115.0");
+    expect(workflow).toContain("WRANGLER_VERSION: 4.118.0");
     expect(workflow).toContain("wrangler@$WRANGLER_VERSION");
     expect(workflow).toContain("node-version: 26.5.0");
     expect(workflow).toContain("npm@12.0.2");

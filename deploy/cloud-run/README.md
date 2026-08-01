@@ -64,7 +64,7 @@ The pack was validated on 2026-07-29 with:
   and
 - the Cloud Run v2 Service, Job, and Worker Pool resources.
 
-The optional wake-up adapter uses `google-auth-library` 10.9.1 and the current
+The optional wake-up adapter uses `google-auth-library` 11.0.0 and the current
 Pub/Sub v1 REST publish/pull/acknowledge contract. The latest
 `@google-cloud/pubsub` 5.3.1 package was evaluated but not adopted because its
 then-current dependency graph introduced known audit findings. HayaSend keeps

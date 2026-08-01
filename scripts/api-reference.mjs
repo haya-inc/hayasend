@@ -22,12 +22,15 @@ const websiteAssets = Object.freeze([
   "CNAME",
   "favicon.svg",
   "index.html",
+  "setup.css",
+  "setup.html",
+  "setup.js",
   "robots.txt",
   "sitemap.xml",
   "styles.css",
 ]);
 
-export const REDOCLY_CLI_VERSION = "2.41.2";
+export const REDOCLY_CLI_VERSION = "2.43.2";
 export const REDOC_VERSION = "2.5.3";
 export const REDOC_BUNDLE_URL = `https://cdn.redocly.com/redoc/v${REDOC_VERSION}/bundles/redoc.standalone.js`;
 export const REDOC_BUNDLE_SHA256 =

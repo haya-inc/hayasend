@@ -44,7 +44,7 @@ jobs:
       HAYASEND_CLOUDFLARE_API_KEY: ${{ secrets.HAYASEND_CLOUDFLARE_API_KEY }}
       DEPLOYMENT_NAME: ${{ inputs.deployment_name }}
       DEPLOYMENT_ID: terminal-${{ inputs.deployment_name }}
-      WRANGLER_VERSION: 4.115.0
+      WRANGLER_VERSION: 4.118.0
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

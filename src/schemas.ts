@@ -183,6 +183,10 @@ export const paginationSchema = z.object({
   after: z.string().min(1).optional(),
 });
 
+export const emailPaginationSchema = paginationSchema.extend({
+  view: z.enum(["full", "summary"]).default("full"),
+});
+
 export const templatePaginationSchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(100).default(20),

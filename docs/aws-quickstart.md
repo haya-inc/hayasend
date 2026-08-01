@@ -161,6 +161,42 @@ The result includes SES quota, only problematic resource and alarm details,
 the CloudWatch dashboard URL, and exact update, cleanup, and deep-diagnostics
 commands. It does not read the bootstrap secret or API keys.
 
+### Open the deployment-local Operator Console
+
+Append `/console` to the HayaSend API endpoint reported by the stack. The
+browser shell is public, but every email, recipient, diagnostic, domain,
+webhook, suppression, template, API-key, and test-send request uses the normal
+Bearer API and its existing scope enforcement. Infrastructure changes remain
+in the plan-first CLI.
+
+Create a dedicated console key rather than using the bootstrap administrator
+for routine work:
+
+```bash
+export HAYASEND_BASE_URL=https://your-api.example
+HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
+  npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" keys create \
+    --name "production operator console" \
+    --scope emails:read \
+    --scope diagnostics:read \
+    --scope templates:read \
+    --scope domains:read \
+    --scope webhooks:read \
+    --scope suppressions:read \
+    --scope api_keys:read \
+    --token-out ./hayasend-console.token
+```
+
+Add `emails:send` only if the operator may perform a controlled test send. Add
+`templates:write`, `domains:write`, `webhooks:write`, or
+`suppressions:write` only for resources that operator is responsible for.
+Reserve `api_keys:write` for a credential administrator: it can create new
+keys with any scope already held by the current key and revoke existing keys.
+Import the one-time token file into an approved password or secret manager,
+delete the local copy, and paste the token into the console. It remains in
+tab-scoped session storage until disconnect or tab close. The console makes no
+direct AWS calls and sends the key only to the same HayaSend API origin.
+
 For authenticated application and queue diagnostics, set a scoped key locally
 and run:
 
@@ -172,6 +208,12 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 
 Keep the key in an approved secret manager and out of command arguments,
 transcripts, and issue reports.
+
+For the repository-maintained 14-day/1,000-message production evidence gate,
+use the [controlled AWS SES dogfood campaign](aws-dogfood.md). It runs only in
+the dedicated test account, keeps customer traffic on its current provider,
+and records terminal recipient, latency, duplicate, alarm, and operator-time
+evidence from the protected long-lived stack.
 
 ## 6. Update safely
 
