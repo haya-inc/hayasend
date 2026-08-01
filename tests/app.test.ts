@@ -175,6 +175,42 @@ describe("HTTP API", () => {
     expect(unauthorized.status).toBe(401);
   });
 
+  it("serves a public console shell while keeping session and data routes authenticated", async () => {
+    const { app, request } = fixture();
+
+    const consolePage = await app.request("/console");
+    expect(consolePage.status).toBe(200);
+    expect(consolePage.headers.get("content-security-policy")).toContain(
+      "connect-src 'self'",
+    );
+    expect(consolePage.headers.get("content-security-policy")).toContain(
+      "form-action 'none'",
+    );
+    expect(consolePage.headers.get("x-frame-options")).toBe("DENY");
+    expect(await consolePage.text()).toContain("Operator Console · HayaSend");
+
+    const script = await app.request("/console/app.js");
+    expect(script.status).toBe(200);
+    expect(script.headers.get("content-type")).toContain(
+      "text/javascript",
+    );
+
+    const anonymousSession = await app.request("/auth/session");
+    expect(anonymousSession.status).toBe(401);
+
+    const session = await request("/auth/session");
+    expect(session.status).toBe(200);
+    await expect(session.json()).resolves.toEqual({
+      object: "authenticated_session",
+      principal: {
+        id: "bootstrap",
+        name: "Bootstrap administrator",
+        scopes: ["*"],
+        bootstrap: true,
+      },
+    });
+  });
+
   it("protects Azure Event Grid ingress with an independent secret and returns validation", async () => {
     const receive = vi.fn(async () => ({
       validation_response: "validation-code",
@@ -786,6 +822,40 @@ describe("HTTP API", () => {
         {
           id,
           message_id: `provider_${id}`,
+        },
+      ],
+    });
+  });
+
+  it("lists lightweight email summaries without transferring stored content", async () => {
+    const { request } = fixture();
+    const created = await request("/emails", {
+      method: "POST",
+      body: JSON.stringify({
+        ...email,
+        html: "<p>private-list-body</p>",
+        text: "private-list-text",
+        headers: { "x-private-list-header": "private-list-value" },
+      }),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    const response = await request("/emails?limit=100&view=summary");
+    expect(response.status).toBe(200);
+    const responseText = await response.text();
+    expect(responseText).not.toContain("private-list-body");
+    expect(responseText).not.toContain("private-list-text");
+    expect(responseText).not.toContain("private-list-header");
+    expect(responseText).not.toContain("private-list-value");
+    expect(JSON.parse(responseText)).toMatchObject({
+      object: "list",
+      data: [
+        {
+          id,
+          subject: "Hello",
+          has_html: true,
+          has_text: true,
+          attachment_count: 0,
         },
       ],
     });
