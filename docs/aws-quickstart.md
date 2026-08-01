@@ -173,6 +173,12 @@ npx --yes "@haya-inc/hayasend@${HAYASEND_VERSION}" doctor
 Keep the key in an approved secret manager and out of command arguments,
 transcripts, and issue reports.
 
+For the repository-maintained 14-day/1,000-message production evidence gate,
+use the [controlled AWS SES dogfood campaign](aws-dogfood.md). It runs only in
+the dedicated test account, keeps customer traffic on its current provider,
+and records terminal recipient, latency, duplicate, alarm, and operator-time
+evidence from the protected long-lived stack.
+
 ## 6. Update safely
 
 Plan an update to the existing stack:

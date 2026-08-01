@@ -57,7 +57,7 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "fsevents": false,
-    "workerd@1.20260722.1": true
+    "workerd@1.20260730.1": true
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -95,15 +95,15 @@
     "validate:vercel": "node scripts/validate-vercel-config.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudwatch-logs": "3.1098.0",
-    "@aws-sdk/client-dynamodb": "3.1098.0",
-    "@aws-sdk/client-s3": "3.1098.0",
-    "@aws-sdk/client-scheduler": "3.1098.0",
-    "@aws-sdk/client-secrets-manager": "3.1098.0",
-    "@aws-sdk/client-sesv2": "3.1098.0",
-    "@aws-sdk/client-sqs": "3.1098.0",
-    "@aws-sdk/lib-dynamodb": "3.1098.0",
-    "@aws-sdk/s3-request-presigner": "3.1098.0",
+    "@aws-sdk/client-cloudwatch-logs": "3.1101.0",
+    "@aws-sdk/client-dynamodb": "3.1101.0",
+    "@aws-sdk/client-s3": "3.1101.0",
+    "@aws-sdk/client-scheduler": "3.1101.0",
+    "@aws-sdk/client-secrets-manager": "3.1101.0",
+    "@aws-sdk/client-sesv2": "3.1101.0",
+    "@aws-sdk/client-sqs": "3.1101.0",
+    "@aws-sdk/lib-dynamodb": "3.1101.0",
+    "@aws-sdk/s3-request-presigner": "3.1101.0",
     "@azure/arm-communication": "5.0.0",
     "@azure/communication-email": "1.1.0",
     "@azure/identity": "4.13.1",
@@ -117,8 +117,8 @@
     "@vercel/functions": "3.7.6",
     "@vercel/queue": "0.4.0",
     "esbuild": "0.28.1",
-    "google-auth-library": "10.9.1",
-    "hono": "4.12.32",
+    "google-auth-library": "11.0.0",
+    "hono": "4.12.33",
     "html-to-text": "10.0.0",
     "pg": "8.22.0",
     "postal-mime": "2.7.5",
@@ -126,14 +126,14 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.19.0",
+    "@cloudflare/vitest-pool-workers": "0.20.1",
     "@react-email/render": "2.1.0",
-    "@redocly/cli": "2.41.2",
+    "@redocly/cli": "2.43.2",
     "@types/aws-lambda": "8.10.162",
     "@types/html-to-text": "9.0.4",
     "@types/node": "26.1.2",
-    "@types/pg": "8.20.0",
-    "@types/react": "19.2.17",
+    "@types/pg": "8.20.3",
+    "@types/react": "19.2.18",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "react": "19.2.8",
@@ -142,7 +142,7 @@
     "tsx": "4.23.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
-    "wrangler": "4.115.0",
+    "wrangler": "4.118.0",
     "yaml": "2.9.0"
   },
   "overrides": {
