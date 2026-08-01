@@ -165,8 +165,9 @@ commands. It does not read the bootstrap secret or API keys.
 
 Append `/console` to the HayaSend API endpoint reported by the stack. The
 browser shell is public, but every email, recipient, diagnostic, domain,
-webhook, suppression, API-key, and test-send request uses the normal Bearer
-API and its existing scope enforcement.
+webhook, suppression, template, API-key, and test-send request uses the normal
+Bearer API and its existing scope enforcement. Infrastructure changes remain
+in the plan-first CLI.
 
 Create a dedicated console key rather than using the bootstrap administrator
 for routine work:
@@ -178,6 +179,7 @@ HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
     --name "production operator console" \
     --scope emails:read \
     --scope diagnostics:read \
+    --scope templates:read \
     --scope domains:read \
     --scope webhooks:read \
     --scope suppressions:read \
@@ -185,7 +187,11 @@ HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
     --token-out ./hayasend-console.token
 ```
 
-Add `emails:send` only if the operator may perform a controlled test send.
+Add `emails:send` only if the operator may perform a controlled test send. Add
+`templates:write`, `domains:write`, `webhooks:write`, or
+`suppressions:write` only for resources that operator is responsible for.
+Reserve `api_keys:write` for a credential administrator: it can create new
+keys with any scope already held by the current key and revoke existing keys.
 Import the one-time token file into an approved password or secret manager,
 delete the local copy, and paste the token into the console. It remains in
 tab-scoped session storage until disconnect or tab close. The console makes no

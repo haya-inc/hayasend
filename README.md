@@ -229,7 +229,12 @@ Open [http://localhost:8787/console](http://localhost:8787/console) for the
 same authenticated operator workspace that ships with hosted deployments. In
 source-development mode, connect with `re_hayasend_dev`. The console keeps the
 key in tab-scoped session storage, calls only its own HayaSend API origin, and
-uses the normal API scope checks for every view and action.
+uses the normal API scope checks for every view and action. It covers sent and
+received message inspection, safe HTML previews, hosted-template authoring and
+immutable publication history, domain DNS verification, signed webhooks and
+delivery replay, suppressions, scoped API-key lifecycle, and controlled test
+sends. Generated API keys and webhook signing secrets are displayed once and
+are removed from the page when the dialog closes.
 
 The image runs as the unprivileged `node` user with all Linux capabilities
 dropped and binds only to `127.0.0.1:8787`. To run it directly:
@@ -498,10 +503,13 @@ for a separate retention or destruction decision. See the copy-paste
 
 The deployed API also serves its customer-owned Operator Console at
 `<ApiEndpoint>/console`. Create a dedicated key with only the views and actions
-the operator needs; use `emails:read` and `diagnostics:read` for
-the core delivery workspace, and add `emails:send` only when that operator may
-use the test-send dialog. The console never receives AWS credentials and does
-not copy message data to `hayasend.com` or another Haya-managed service.
+the operator needs; use `emails:read`, `diagnostics:read`, and the relevant
+resource `:read` scopes for a read-only workspace. Add the matching `:write`
+scope only for resources that operator manages, and add `emails:send` only when
+they may use the test-send dialog. Infrastructure drift, deployment, rollback,
+and cleanup remain plan-first CLI operations. The console never receives AWS
+credentials and does not copy message data to `hayasend.com` or another
+Haya-managed service.
 
 The first apply creates versioned `live` Lambda aliases. Apply the returned
 `upgrade aws` command once to enable the default 10%-for-5-minutes canary and

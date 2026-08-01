@@ -61,8 +61,8 @@ describe("npm CLI distribution", () => {
     ) as { scripts?: Record<string, string> };
 
     expect(workflow).toContain(".entryCount <= 627");
-    expect(workflow).toContain(".size < 870000");
-    expect(workflow).toContain(".unpackedSize < 4420000");
+    expect(workflow).toContain(".size < 900000");
+    expect(workflow).toContain(".unpackedSize < 4600000");
     expect(workflow).toContain(
       'index("dist/cli-resend-migration.js") != null',
     );

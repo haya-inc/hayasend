@@ -46,19 +46,30 @@ describe("authenticated operator console", () => {
     expect(OPERATOR_CONSOLE_JS).not.toContain("eval(");
   });
 
-  it("uses standard scoped APIs and hardens untrusted HTML preview", () => {
+  it("uses standard scoped APIs for complete daily operations", () => {
     for (const expected of [
       'api("/diagnostics/recovery")',
       'api("/emails?limit=100&view=summary")',
-      'endpoint: "/domains?limit=100"',
-      'endpoint: "/webhooks?limit=100"',
-      'endpoint: "/suppressions?limit=100"',
-      'endpoint: "/api-keys?limit=100"',
+      'loadRows("received", "/emails/receiving?limit=100")',
+      'loadRows("templates", "/templates?limit=100")',
+      'loadRows("domains", "/domains?limit=100")',
+      'loadRows("webhooks", "/webhooks?limit=100")',
+      'loadRows("suppressions", "/suppressions?limit=100")',
+      'loadRows("api-keys", "/api-keys?limit=100")',
       'api("/emails", { method: "POST"',
       '"idempotency-key": "console_" + crypto.randomUUID()',
+      'method: "PATCH"',
+      'method: "DELETE"',
+      '"if-match": "\\\"" + template.current_version_id + "\\\""',
     ]) {
       expect(OPERATOR_CONSOLE_JS).toContain(expected);
     }
+    expect(OPERATOR_CONSOLE_HTML).toContain('data-view="received"');
+    expect(OPERATOR_CONSOLE_HTML).toContain('data-view="templates"');
+    expect(OPERATOR_CONSOLE_HTML).toContain('id="confirm-dialog"');
+  });
+
+  it("hardens previews and handles generated secrets as one-time values", () => {
     expect(OPERATOR_CONSOLE_JS).toContain("safePreviewDocument");
     expect(OPERATOR_CONSOLE_JS).toContain(
       'script, iframe, object, embed, form, base, link, meta[http-equiv]',
@@ -68,6 +79,19 @@ describe("authenticated operator console", () => {
     expect(OPERATOR_CONSOLE_JS).toContain("form-action 'none'");
     expect(OPERATOR_CONSOLE_JS).toContain(
       'frame.setAttribute("sandbox", "")',
+    );
+    expect(OPERATOR_CONSOLE_JS).toContain("showOneTimeSecret");
+    expect(OPERATOR_CONSOLE_JS).toContain(
+      "Only its prefix will remain after this dialog closes.",
+    );
+    expect(OPERATOR_CONSOLE_JS).not.toContain(
+      "sessionStorage.setItem(\"webhook",
+    );
+    expect(OPERATOR_CONSOLE_JS).not.toContain(
+      "sessionStorage.setItem(\"api-key",
+    );
+    expect(OPERATOR_CONSOLE_JS).toContain(
+      "The confirmation value does not match.",
     );
   });
 });
