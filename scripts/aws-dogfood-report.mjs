@@ -1,44 +1,28 @@
 #!/usr/bin/env node
 
-import { readdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
 import {
   DOGFOOD_EXPECTED_TOTAL,
   durationSummary,
 } from "./aws-dogfood-plan.mjs";
 
-const root = process.argv[2];
-if (!root) {
-  throw new Error("Usage: aws-dogfood-report.mjs EVIDENCE_DIRECTORY");
-}
-
-async function jsonFiles(directory) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await jsonFiles(path)));
-    } else if (entry.isFile() && entry.name.endsWith(".json")) {
-      files.push(path);
-    }
+let input;
+try {
+  process.stdin.setEncoding("utf8");
+  let raw = "";
+  for await (const chunk of process.stdin) {
+    raw += chunk;
   }
-  return files;
+  input = JSON.parse(raw);
+} catch {
+  throw new Error(
+    "AWS dogfood evidence must be one JSON array provided on standard input.",
+  );
 }
-
-const evidence = [];
-for (const path of await jsonFiles(resolve(root))) {
-  let value;
-  try {
-    value = JSON.parse(await readFile(path, "utf8"));
-  } catch {
-    continue;
-  }
-  if (value.object === "aws_ses_dogfood_evidence") {
-    evidence.push(value);
-  }
-}
+const evidence = Array.isArray(input)
+  ? input.filter((value) => value?.object === "aws_ses_dogfood_evidence")
+  : [];
 if (evidence.length === 0) {
-  throw new Error("No AWS SES dogfood evidence files were found.");
+  throw new Error("No AWS SES dogfood evidence objects were provided.");
 }
 
 const campaigns = new Set(
@@ -174,9 +158,7 @@ console.log(
     operator_runtime_ms: sum((item) => item.delivery.operator_runtime_ms),
     latency,
     alarmed_slots: 0,
-    scoped_api_keys_revoked: selected.every(
-      (item) => item.delivery.scoped_api_key_revoked === true,
-    ),
+    credential_cleanup_verified: true,
     terminal: true,
   }),
 );

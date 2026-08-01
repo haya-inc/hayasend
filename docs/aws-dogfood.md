@@ -87,7 +87,11 @@ ephemeral GitHub runner and is not uploaded. Add the first successful run to
 After downloading and extracting all successful artifacts, reconcile them:
 
 ```bash
-node scripts/aws-dogfood-report.mjs /secure/path/to/extracted-artifacts
+find /secure/path/to/extracted-artifacts \
+  -name aws-dogfood-evidence.json \
+  -print0 \
+  | xargs -0 jq --slurp --compact-output \
+  | node scripts/aws-dogfood-report.mjs
 ```
 
 The report refuses mixed windows, missing slots, divergent re-runs, incomplete

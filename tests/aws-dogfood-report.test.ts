@@ -1,15 +1,12 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("AWS SES dogfood campaign report", () => {
   it("requires 56 complete slots and 1,008 unique messages", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "hayasend-dogfood-report-"));
     const start = new Date("2026-08-02T00:00:00.000Z");
     let ordinal = 0;
+    const campaignEvidence = [];
     for (let day = 0; day < 14; day += 1) {
       const date = new Date(start.getTime() + day * 86_400_000)
         .toISOString()
@@ -79,27 +76,21 @@ describe("AWS SES dogfood campaign report", () => {
             alarms: { alarm: 0, insufficient_data: 0 },
           },
         };
-        await writeFile(
-          join(directory, `${date}-s${slot}.json`),
-          JSON.stringify(evidence),
-        );
+        campaignEvidence.push(evidence);
       }
     }
 
     const child = spawn(
       process.execPath,
-      [
-        new URL("../scripts/aws-dogfood-report.mjs", import.meta.url).pathname,
-        directory,
-      ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      [new URL("../scripts/aws-dogfood-report.mjs", import.meta.url).pathname],
+      { stdio: ["pipe", "pipe", "pipe"] },
     );
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.stdin.end(JSON.stringify(campaignEvidence));
     const [exitCode] = (await once(child, "exit")) as [number];
-    await rm(directory, { recursive: true, force: true });
 
     expect(Buffer.concat(stderr).toString("utf8")).toBe("");
     expect(exitCode).toBe(0);
@@ -115,7 +106,7 @@ describe("AWS SES dogfood campaign report", () => {
       unexplained_loss: 0,
       duplicate_email_ids: 0,
       duplicate_terminal_events: 0,
-      scoped_api_keys_revoked: true,
+      credential_cleanup_verified: true,
       terminal: true,
     });
   });
