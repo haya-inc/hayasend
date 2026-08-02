@@ -11,7 +11,7 @@ Parameters:
   ConsoleAuthOrigin:
     Type: String
     Default: ""
-    AllowedPattern: '^$|^https://[^/[:space:]]+$'
+    AllowedPattern: '^$|^https://[^/\s]+$'
     Description: Public HTTPS origin serving the console. Leave all console auth parameters empty to retain API-key-only access.
   ConsoleAuthGoogleClientId:
     Type: String
@@ -21,7 +21,7 @@ Parameters:
   ConsoleAuthAllowedEmails:
     Type: String
     Default: ""
-    AllowedPattern: '^$|^[^,[:space:]@]+@[^,[:space:]@]+(?:,[^,[:space:]@]+@[^,[:space:]@]+){0,49}$'
+    AllowedPattern: '^$|^[^,\s@]+@[^,\s@]+(?:,[^,\s@]+@[^,\s@]+){0,49}$'
     Description: Comma-separated Google account email allowlist for full console administration.
   ConsoleAuthSecretArn:
     Type: String
