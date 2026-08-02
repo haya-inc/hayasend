@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0.0",
   "deployment": "azure-container-apps-acs",
-  "adapter_version": "0.3.7",
+  "adapter_version": "0.3.8",
   "checked_at": "2026-07-29",
   "runtime": {
     "profile": "portable-postgres",
-    "adapter_version": "0.3.7",
+    "adapter_version": "0.3.8",
     "capability_document": "conformance/runtimes/portable-postgres.v1.json"
   },
   "transport": {
     "provider": "azure-communication-services",
-    "adapter_version": "0.3.7",
+    "adapter_version": "0.3.8",
     "capability_document": "conformance/providers/azure-communication-services.v1.json"
   },
   "maturity": {
