@@ -7,6 +7,8 @@ import {
   OPERATOR_CONSOLE_CSS,
   OPERATOR_CONSOLE_HTML,
   OPERATOR_CONSOLE_JS,
+  OPERATOR_CONSOLE_PREVIEW_HTML,
+  OPERATOR_CONSOLE_PREVIEW_JS,
 } from "./operator-console.js";
 import {
   AppError,
@@ -331,11 +333,12 @@ function setOperatorConsoleSecurityHeaders(
     header(name: string, value: string): void;
   },
   contentSecurityPolicy?: string,
+  frameOptions = "DENY",
 ) {
   context.header("cross-origin-opener-policy", "same-origin");
   context.header("cross-origin-resource-policy", "same-origin");
   context.header("referrer-policy", "no-referrer");
-  context.header("x-frame-options", "DENY");
+  context.header("x-frame-options", frameOptions);
   if (contentSecurityPolicy) {
     context.header("content-security-policy", contentSecurityPolicy);
   }
@@ -368,6 +371,8 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         "/console/",
         "/console/app.css",
         "/console/app.js",
+        "/console/preview",
+        "/console/preview.js",
       ].includes(context.req.path);
     const providerEventPath =
       ((options.providerEventIngress !== undefined &&
@@ -455,6 +460,24 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   app.get("/console/app.js", (context) => {
     setOperatorConsoleSecurityHeaders(context);
     return context.body(OPERATOR_CONSOLE_JS, 200, {
+      "content-type": "text/javascript; charset=utf-8",
+    });
+  });
+
+  app.get("/console/preview", (context) => {
+    setOperatorConsoleSecurityHeaders(
+      context,
+      "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+        "connect-src 'none'; img-src data: cid:; font-src 'none'; media-src 'none'; " +
+        "frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+      "SAMEORIGIN",
+    );
+    return context.html(OPERATOR_CONSOLE_PREVIEW_HTML);
+  });
+
+  app.get("/console/preview.js", (context) => {
+    setOperatorConsoleSecurityHeaders(context);
+    return context.body(OPERATOR_CONSOLE_PREVIEW_JS, 200, {
       "content-type": "text/javascript; charset=utf-8",
     });
   });
