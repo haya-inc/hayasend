@@ -1430,6 +1430,10 @@ async function deployCommand(
       "cloudformation-role-arn",
       "artifact-bucket",
       "bootstrap-secret-arn",
+      "console-auth-origin",
+      "console-auth-google-client-id",
+      "console-auth-allowed-emails",
+      "console-auth-secret-arn",
       "api-rate-limit",
       "api-burst-limit",
       "log-retention-days",
@@ -1456,6 +1460,7 @@ async function deployCommand(
       "disable-backups",
       "enable-restore-testing",
       "disable-restore-testing",
+      "disable-console-auth",
     ],
     repeatable: ["tag"],
   });
@@ -1492,6 +1497,16 @@ async function deployCommand(
   const cloudformationRoleArn = flag(args, "cloudformation-role-arn");
   const artifactBucket = flag(args, "artifact-bucket");
   const bootstrapSecretArn = flag(args, "bootstrap-secret-arn");
+  const consoleAuthOrigin = flag(args, "console-auth-origin");
+  const consoleAuthGoogleClientId = flag(
+    args,
+    "console-auth-google-client-id",
+  );
+  const consoleAuthAllowedEmails = flag(
+    args,
+    "console-auth-allowed-emails",
+  );
+  const consoleAuthSecretArn = flag(args, "console-auth-secret-arn");
   const apiRateLimit = flag(args, "api-rate-limit");
   const apiBurstLimit = flag(args, "api-burst-limit");
   const logRetentionDays = flag(args, "log-retention-days");
@@ -1531,6 +1546,13 @@ async function deployCommand(
           ? { enableInbound: false }
           : {}),
       ...(bootstrapSecretArn ? { bootstrapSecretArn } : {}),
+      ...(consoleAuthOrigin ? { consoleAuthOrigin } : {}),
+      ...(consoleAuthGoogleClientId ? { consoleAuthGoogleClientId } : {}),
+      ...(consoleAuthAllowedEmails ? { consoleAuthAllowedEmails } : {}),
+      ...(consoleAuthSecretArn ? { consoleAuthSecretArn } : {}),
+      ...(hasFlag(args, "disable-console-auth")
+        ? { disableConsoleAuth: true }
+        : {}),
       ...(apiRateLimit ? { apiRateLimit } : {}),
       ...(apiBurstLimit ? { apiBurstLimit } : {}),
       ...(logRetentionDays ? { logRetentionDays } : {}),

@@ -19,6 +19,11 @@ export interface Config {
   mode: "local" | "aws" | "portable";
   apiKey?: string;
   apiKeySecretArn?: string;
+  consoleAuthOrigin?: string;
+  consoleAuthGoogleClientId?: string;
+  consoleAuthAllowedEmails?: string[];
+  consoleAuthCredentials?: string;
+  consoleAuthSecretArn?: string;
   host: string;
   port: number;
   region: string;
@@ -284,6 +289,34 @@ function secureServiceEndpoint(value: string, name: string) {
   return endpoint.origin;
 }
 
+function consoleAuthEmails(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const emails = [
+    ...new Set(
+      value
+        .split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+  if (
+    emails.length === 0 ||
+    emails.length > 50 ||
+    emails.some(
+      (email) =>
+        email.length > 254 ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+    )
+  ) {
+    throw new ValidationError(
+      "HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS must contain 1 to 50 comma-separated email addresses.",
+    );
+  }
+  return emails;
+}
+
 export function loadConfig(env = process.env): Config {
   const requestedMode = env.HAYASEND_MODE ?? "local";
   if (!["local", "aws", "portable"].includes(requestedMode)) {
@@ -305,6 +338,65 @@ export function loadConfig(env = process.env): Config {
   if (mode === "aws" && apiKey) {
     throw new ValidationError(
       "HAYASEND_API_KEY is not supported in AWS mode; use Secrets Manager.",
+    );
+  }
+  const consoleAuthOriginValue = env.HAYASEND_CONSOLE_AUTH_ORIGIN;
+  const consoleAuthOrigin = consoleAuthOriginValue
+    ? secureServiceEndpoint(
+        consoleAuthOriginValue,
+        "HAYASEND_CONSOLE_AUTH_ORIGIN",
+      )
+    : undefined;
+  const consoleAuthGoogleClientId =
+    env.HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID?.trim();
+  const consoleAuthAllowedEmails = consoleAuthEmails(
+    env.HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS,
+  );
+  const consoleAuthCredentials = secretSetting(
+    env,
+    "HAYASEND_CONSOLE_AUTH_CREDENTIALS",
+  );
+  const consoleAuthSecretArn = env.HAYASEND_CONSOLE_AUTH_SECRET_ARN;
+  if (consoleAuthCredentials && consoleAuthSecretArn) {
+    throw new ValidationError(
+      "HAYASEND_CONSOLE_AUTH_CREDENTIALS and HAYASEND_CONSOLE_AUTH_SECRET_ARN may not both be set.",
+    );
+  }
+  const consoleAuthConfigured = Boolean(
+    consoleAuthOrigin ||
+      consoleAuthGoogleClientId ||
+      consoleAuthAllowedEmails ||
+      consoleAuthCredentials ||
+      consoleAuthSecretArn,
+  );
+  if (
+    consoleAuthConfigured &&
+    (!consoleAuthOrigin ||
+      !consoleAuthGoogleClientId ||
+      !consoleAuthAllowedEmails ||
+      (!consoleAuthCredentials && !consoleAuthSecretArn))
+  ) {
+    throw new ValidationError(
+      "Console authentication requires HAYASEND_CONSOLE_AUTH_ORIGIN, HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID, HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS, and one credentials source.",
+    );
+  }
+  if (
+    consoleAuthGoogleClientId &&
+    (consoleAuthGoogleClientId.length > 512 ||
+      /[\s\r\n\0]/.test(consoleAuthGoogleClientId))
+  ) {
+    throw new ValidationError(
+      "HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID must be a valid OAuth client ID.",
+    );
+  }
+  if (mode === "aws" && consoleAuthCredentials) {
+    throw new ValidationError(
+      "HAYASEND_CONSOLE_AUTH_CREDENTIALS is not supported in AWS mode; use Secrets Manager.",
+    );
+  }
+  if (mode !== "aws" && consoleAuthSecretArn) {
+    throw new ValidationError(
+      "HAYASEND_CONSOLE_AUTH_SECRET_ARN is supported only in AWS mode.",
     );
   }
   const databaseUrl = secretSetting(env, "HAYASEND_DATABASE_URL");
@@ -893,6 +985,11 @@ export function loadConfig(env = process.env): Config {
       : {}),
     ...portableSettings,
     ...(apiKeySecretArn ? { apiKeySecretArn } : {}),
+    ...(consoleAuthOrigin ? { consoleAuthOrigin } : {}),
+    ...(consoleAuthGoogleClientId ? { consoleAuthGoogleClientId } : {}),
+    ...(consoleAuthAllowedEmails ? { consoleAuthAllowedEmails } : {}),
+    ...(consoleAuthCredentials ? { consoleAuthCredentials } : {}),
+    ...(consoleAuthSecretArn ? { consoleAuthSecretArn } : {}),
     ...(env.HAYASEND_TABLE_NAME
       ? { tableName: env.HAYASEND_TABLE_NAME }
       : {}),

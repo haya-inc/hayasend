@@ -44,6 +44,10 @@ const PACKAGED_VERSION = (() => {
 
 const TEMPLATE_DEFAULTS: Record<string, string> = {
   BootstrapSecretArn: "",
+  ConsoleAuthOrigin: "",
+  ConsoleAuthGoogleClientId: "",
+  ConsoleAuthAllowedEmails: "",
+  ConsoleAuthSecretArn: "",
   ApiThrottlingRateLimit: "10",
   ApiThrottlingBurstLimit: "20",
   LogRetentionDays: "30",
@@ -75,6 +79,7 @@ const LEGACY_STACK_DEFAULTS: Record<string, string> = {
 
 const OUTPUT_KEYS = [
   "ApiBaseUrl",
+  "ConsoleAuthCallbackUrl",
   "BootstrapSecretArn",
   "AlarmTopicArn",
   "OperationsDashboardName",
@@ -184,6 +189,11 @@ export interface AwsDeployOptions {
   allowDestructiveChanges: boolean;
   enableInbound?: boolean;
   bootstrapSecretArn?: string;
+  consoleAuthOrigin?: string;
+  consoleAuthGoogleClientId?: string;
+  consoleAuthAllowedEmails?: string;
+  consoleAuthSecretArn?: string;
+  disableConsoleAuth?: boolean;
   apiRateLimit?: string;
   apiBurstLimit?: string;
   logRetentionDays?: string;
@@ -618,6 +628,69 @@ function normalizeOptions(
   const explicitParameters: Record<string, string> = {};
   if (options.bootstrapSecretArn !== undefined) {
     explicitParameters.BootstrapSecretArn = options.bootstrapSecretArn;
+  }
+  const consoleAuthValues = [
+    options.consoleAuthOrigin,
+    options.consoleAuthGoogleClientId,
+    options.consoleAuthAllowedEmails,
+    options.consoleAuthSecretArn,
+  ];
+  if (
+    options.disableConsoleAuth &&
+    consoleAuthValues.some((value) => value !== undefined)
+  ) {
+    throw new Error(
+      "--disable-console-auth cannot be combined with console authentication values.",
+    );
+  }
+  if (
+    !options.disableConsoleAuth &&
+    consoleAuthValues.some((value) => value !== undefined) &&
+    consoleAuthValues.some((value) => value === undefined)
+  ) {
+    throw new Error(
+      "Console authentication requires --console-auth-origin, --console-auth-google-client-id, --console-auth-allowed-emails, and --console-auth-secret-arn together.",
+    );
+  }
+  if (options.disableConsoleAuth) {
+    explicitParameters.ConsoleAuthOrigin = "";
+    explicitParameters.ConsoleAuthGoogleClientId = "";
+    explicitParameters.ConsoleAuthAllowedEmails = "";
+    explicitParameters.ConsoleAuthSecretArn = "";
+  } else if (options.consoleAuthOrigin) {
+    let origin: URL;
+    try {
+      origin = new URL(options.consoleAuthOrigin);
+    } catch {
+      throw new Error("--console-auth-origin must be an HTTPS origin.");
+    }
+    if (
+      origin.protocol !== "https:" ||
+      origin.origin !== options.consoleAuthOrigin ||
+      origin.username ||
+      origin.password
+    ) {
+      throw new Error("--console-auth-origin must be an HTTPS origin.");
+    }
+    const emails = options.consoleAuthAllowedEmails
+      ?.split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+    if (
+      !emails ||
+      emails.length === 0 ||
+      emails.length > 50 ||
+      emails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    ) {
+      throw new Error(
+        "--console-auth-allowed-emails must contain 1 to 50 comma-separated email addresses.",
+      );
+    }
+    explicitParameters.ConsoleAuthOrigin = origin.origin;
+    explicitParameters.ConsoleAuthGoogleClientId =
+      options.consoleAuthGoogleClientId!;
+    explicitParameters.ConsoleAuthAllowedEmails = [...new Set(emails)].join(",");
+    explicitParameters.ConsoleAuthSecretArn = options.consoleAuthSecretArn!;
   }
   const apiRateLimit = requireNumber(
     options.apiRateLimit,
@@ -1896,6 +1969,26 @@ function validateBootstrapSecret(value: string, options: NormalizedOptions) {
   }
 }
 
+function validateConsoleAuthSecret(value: string, options: NormalizedOptions) {
+  if (value === "") {
+    return;
+  }
+  const match =
+    /^arn:(?:aws|aws-us-gov|aws-cn):secretsmanager:([^:]+):(\d{12}):secret:[A-Za-z0-9/_+=.@-]+$/.exec(
+      value,
+    );
+  if (
+    !match ||
+    match[1] !== options.region ||
+    match[2] !== options.account ||
+    !value.startsWith(`arn:${expectedPartition(options.region)}:`)
+  ) {
+    throw new Error(
+      "ConsoleAuthSecretArn must name a Secrets Manager secret in the expected account, Region, and partition.",
+    );
+  }
+}
+
 function availableLambdaAliases(resources: StackResource[]) {
   return new Set(
     resources
@@ -1954,6 +2047,7 @@ function effectiveParameters(
       requiredAliases.every((logicalId) => readyAliases.has(logicalId)),
   );
   validateBootstrapSecret(parameters.BootstrapSecretArn ?? "", options);
+  validateConsoleAuthSecret(parameters.ConsoleAuthSecretArn ?? "", options);
   if (parameters.EnableInbound === "true") {
     const suffixes = (parameters.InboundRecipientSuffixes ?? "").split(",");
     if (
@@ -2054,6 +2148,18 @@ function applyCommand(
     ...(parameters.BootstrapSecretArn
       ? ["--bootstrap-secret-arn", parameters.BootstrapSecretArn]
       : []),
+    ...(parameters.ConsoleAuthSecretArn
+      ? [
+          "--console-auth-origin",
+          parameters.ConsoleAuthOrigin ?? "",
+          "--console-auth-google-client-id",
+          parameters.ConsoleAuthGoogleClientId ?? "",
+          "--console-auth-allowed-emails",
+          parameters.ConsoleAuthAllowedEmails ?? "",
+          "--console-auth-secret-arn",
+          parameters.ConsoleAuthSecretArn,
+        ]
+      : ["--disable-console-auth"]),
     ...tags.flatMap(({ key, value }) =>
       key === "Project" || key === "ManagedBy"
         ? []

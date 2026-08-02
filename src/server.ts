@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { createPortableAttachmentStorage } from "./adapters/portable-attachment-storage.js";
 import { createSecretValueProvider } from "./adapters/secrets-manager.js";
 import { createApp } from "./app.js";
+import { createConsoleAuthProvider } from "./console-auth-runtime.js";
 import {
   assertApiServerConfig,
   loadConfig,
@@ -24,6 +25,18 @@ export async function startServer(config: Config = loadConfig()) {
       ? createPortableAttachmentStorage(config)
       : undefined,
   );
+  const consoleAuth =
+    config.consoleAuthOrigin &&
+    config.consoleAuthGoogleClientId &&
+    config.consoleAuthAllowedEmails &&
+    config.consoleAuthCredentials
+      ? createConsoleAuthProvider({
+          origin: config.consoleAuthOrigin,
+          googleClientId: config.consoleAuthGoogleClientId,
+          allowedEmails: config.consoleAuthAllowedEmails,
+          credentials: async () => config.consoleAuthCredentials!,
+        })
+      : undefined;
   try {
     await runtime.checkReadiness();
   } catch (error) {
@@ -31,6 +44,7 @@ export async function startServer(config: Config = loadConfig()) {
     throw error;
   }
   const app = createApp(runtime, {
+    ...(consoleAuth ? { consoleAuth } : {}),
     localPreview: config.mode === "local",
     readiness: () => runtime.checkReadiness(),
     ...(runtime.transportEventIngress && config.azureEventGridSecret

@@ -295,6 +295,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   font-weight: 720;
   letter-spacing: -0.02em;
 }
+.brand-link { color: inherit; text-decoration: none; }
 .brand-mark {
   display: grid;
   width: 29px;
@@ -352,6 +353,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   line-height: 1.65;
 }
 .auth-form { display: grid; gap: 12px; }
+.auth-provider-action { width: 100%; }
+.auth-fallback {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.auth-fallback summary {
+  width: max-content;
+  margin-bottom: 14px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.auth-fallback[open] summary { color: var(--ink); }
+.auth-key-action { justify-self: start; }
 .auth-form > label, .dialog-grid label {
   color: var(--ink);
   font-size: 11px;
@@ -763,6 +778,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   const state = {
     token: "",
     principal: null,
+    authentication: "api-key",
+    identity: null,
     view: "overview",
     health: null,
     diagnostics: null,
@@ -844,7 +861,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   async function api(path, init = {}) {
     if (!path.startsWith("/") || path.startsWith("//")) throw new Error("Console requests must stay on the deployment origin.");
     const headers = new Headers(init.headers || {});
-    headers.set("authorization", "Bearer " + state.token);
+    if (state.token) headers.set("authorization", "Bearer " + state.token);
     headers.set("accept", "application/json");
     if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
     const response = await fetch(path, { ...init, headers, credentials: "same-origin", redirect: "error" });
@@ -913,27 +930,41 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     body.append(section);
   }
 
-  async function connect(token) {
-    state.token = token;
+  async function activateSession(token = "") {
     const session = await api("/auth/session");
     if (!session || session.object !== "authenticated_session" || !session.principal) throw new Error("HayaSend returned an invalid console session.");
     state.principal = session.principal;
-    sessionStorage.setItem(SESSION_KEY, token);
+    state.authentication = session.authentication === "better-auth" ? "better-auth" : "api-key";
+    state.identity = session.identity || null;
+    if (token) sessionStorage.setItem(SESSION_KEY, token);
+    else sessionStorage.removeItem(SESSION_KEY);
     byId("auth-screen").hidden = true;
     byId("console-shell").hidden = false;
     const name = state.principal.name || "Operator";
     setText("account-name", name);
     setText("account-initial", name.slice(0, 1).toUpperCase());
-    setText("account-detail", name + " · " + state.principal.scopes.join(", "));
+    setText("account-detail", (state.identity && state.identity.email ? state.identity.email : name) + " · " + state.principal.scopes.join(", "));
     byId("open-send").hidden = !hasScope("emails:send");
     await checkHealth();
     await selectView("overview");
+  }
+
+  async function connect(token) {
+    state.token = token;
+    return activateSession(token);
+  }
+
+  async function resumeBetterAuthSession() {
+    state.token = "";
+    return activateSession();
   }
 
   function disconnect(showMessage = true) {
     sessionStorage.removeItem(SESSION_KEY);
     state.token = "";
     state.principal = null;
+    state.authentication = "api-key";
+    state.identity = null;
     state.resources.clear();
     state.emails = [];
     byId("console-shell").hidden = true;
@@ -941,7 +972,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     byId("api-key").value = "";
     byId("account-popover").hidden = true;
     if (showMessage) setText("auth-error", "Disconnected from the deployment.");
-    byId("api-key").focus();
+    const target = document.documentElement.dataset.consoleAuth === "better-auth" ? byId("google-sign-in") : byId("api-key");
+    target.focus();
   }
 
   async function checkHealth() {
@@ -1738,8 +1770,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     const evidence = document.createElement("div");
     const evidenceHead = document.createElement("div"); evidenceHead.className = "section-heading"; evidenceHead.innerHTML = "<h2>Session boundary</h2><p>current key</p>";
     const list = document.createElement("div"); list.className = "signal-list";
-    list.append(signal("Principal", state.principal.bootstrap ? "bootstrap administrator" : "scoped API key", state.principal.name, false));
-    list.append(signal("Credential storage", "removed when this browser tab closes", "session only", true));
+    list.append(signal("Principal", state.authentication === "better-auth" ? "Better Auth workspace session" : (state.principal.bootstrap ? "bootstrap administrator" : "scoped API key"), state.principal.name, false));
+    list.append(signal("Credential storage", state.authentication === "better-auth" ? "signed, encrypted, host-only session cookie" : "removed when this browser tab closes", state.authentication === "better-auth" ? "Better Auth" : "session only", true));
     list.append(signal("Cloud access", "no AWS credentials or SDK calls in the browser", "none", true));
     list.append(signal("Content boundary", "served by and read from this deployment", "customer owned", true));
     evidence.append(evidenceHead, list);
@@ -1762,13 +1794,43 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     return api("/emails", { method: "POST", headers: { "idempotency-key": "console_" + crypto.randomUUID() }, body: JSON.stringify(payload) });
   }
 
+  async function betterAuthRequest(path, body) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "accept": "application/json", "content-type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "same-origin",
+      redirect: "error",
+    });
+    const text = await response.text();
+    let payload = null;
+    if (text) {
+      try { payload = JSON.parse(text); } catch { payload = null; }
+    }
+    if (!response.ok) {
+      throw new Error(payload && typeof payload.message === "string" ? payload.message : "Authentication failed with HTTP " + response.status + ".");
+    }
+    return payload;
+  }
+
   byId("deployment-origin").textContent = "Same-origin only · " + location.origin;
+  byId("google-sign-in").addEventListener("click", async () => {
+    const button = byId("google-sign-in"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Opening Google…";
+    try {
+      const result = await betterAuthRequest("/api/auth/sign-in/social", { provider: "google", callbackURL: location.origin + "/console" });
+      const target = new URL(result && result.url ? result.url : "", location.origin);
+      if (target.protocol !== "https:") throw new Error("The identity provider returned an unsafe redirect.");
+      location.assign(target.href);
+    } catch (reason) {
+      error.textContent = reason instanceof Error ? reason.message : "Sign-in failed."; error.hidden = false; button.disabled = false; button.textContent = "Continue with Google";
+    }
+  });
   byId("auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = byId("connect"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Connecting…";
     try { await connect(byId("api-key").value.trim()); }
     catch (reason) { state.token = ""; sessionStorage.removeItem(SESSION_KEY); error.textContent = reason instanceof Error ? reason.message : "Connection failed."; error.hidden = false; }
-    finally { button.disabled = false; button.textContent = "Connect to this deployment"; }
+    finally { button.disabled = false; button.textContent = "Connect with API key"; }
   });
   byId("toggle-secret").addEventListener("click", () => {
     const input = byId("api-key"); const visible = input.type === "text"; input.type = visible ? "password" : "text"; byId("toggle-secret").textContent = visible ? "Show" : "Hide"; byId("toggle-secret").setAttribute("aria-label", visible ? "Show API key" : "Hide API key");
@@ -1776,7 +1838,13 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
   byId("refresh-view").addEventListener("click", async () => { state.resources.delete(state.view); if (state.view === "emails" || state.view === "overview") state.emails = []; await checkHealth(); await selectView(state.view); });
   byId("account-menu").addEventListener("click", () => { const popover = byId("account-popover"); popover.hidden = !popover.hidden; byId("account-menu").setAttribute("aria-expanded", popover.hidden ? "false" : "true"); });
-  byId("sign-out").addEventListener("click", () => disconnect());
+  byId("sign-out").addEventListener("click", async () => {
+    if (state.authentication === "better-auth") {
+      try { await betterAuthRequest("/api/auth/sign-out", {}); }
+      catch (reason) { showToast(reason instanceof Error ? reason.message : "Sign-out failed."); return; }
+    }
+    disconnect();
+  });
   byId("open-send").addEventListener("click", () => { byId("send-error").hidden = true; byId("send-dialog").showModal(); });
   byId("close-send").addEventListener("click", () => byId("send-dialog").close());
   byId("cancel-send").addEventListener("click", () => byId("send-dialog").close());
@@ -1811,11 +1879,19 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     finally { button.disabled = false; button.textContent = original; }
   });
 
-  const storedToken = sessionStorage.getItem(SESSION_KEY);
-  if (storedToken) {
-    connect(storedToken).catch(() => disconnect(false));
-  } else {
-    byId("api-key").focus();
+  async function boot() {
+    if (document.documentElement.dataset.consoleAuth === "better-auth") {
+      try { await resumeBetterAuthSession(); return; }
+      catch { state.token = ""; state.principal = null; }
+    }
+    const storedToken = sessionStorage.getItem(SESSION_KEY);
+    if (storedToken) {
+      try { await connect(storedToken); return; }
+      catch { disconnect(false); return; }
+    }
+    const target = document.documentElement.dataset.consoleAuth === "better-auth" ? byId("google-sign-in") : byId("api-key");
+    target.focus();
   }
+  boot().catch(() => disconnect(false));
 })();
 `;

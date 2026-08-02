@@ -222,6 +222,57 @@ describe("plan-first AWS deployment CLI", () => {
     ];
   }
 
+  it("plans Better Auth console parameters without exposing credential values", async () => {
+    const capture = capturingIo();
+    const secretArn =
+      "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:hayasend-console-auth";
+
+    await runCli(
+      deployArgs([
+        "--console-auth-origin",
+        "https://console.example.com",
+        "--console-auth-google-client-id",
+        "client.apps.googleusercontent.com",
+        "--console-auth-allowed-emails",
+        "Operator@Example.com,operator@example.com",
+        "--console-auth-secret-arn",
+        secretArn,
+      ]),
+      {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: baseRunner(),
+      },
+    );
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    expect(plan.parameters).toMatchObject({
+      ConsoleAuthOrigin: "https://console.example.com",
+      ConsoleAuthGoogleClientId: "client.apps.googleusercontent.com",
+      ConsoleAuthAllowedEmails: "operator@example.com",
+      ConsoleAuthSecretArn: secretArn,
+    });
+    expect(JSON.stringify(plan)).not.toContain("google_client_secret");
+    expect(JSON.stringify(plan)).not.toContain("better_auth_secret");
+  });
+
+  it("requires the complete Better Auth console configuration", async () => {
+    await expect(
+      runCli(deployArgs([
+        "--console-auth-origin",
+        "https://console.example.com",
+      ]), {
+        cwd: process.cwd(),
+        env: {},
+        io: capturingIo().io,
+        runCommand: baseRunner(),
+      }),
+    ).rejects.toThrow(
+      "Console authentication requires --console-auth-origin",
+    );
+  });
+
   it("refuses a reservation the account can never satisfy before touching CloudFormation", async () => {
     const capture = capturingIo();
     const runner = lambdaAccountRunner(10);
