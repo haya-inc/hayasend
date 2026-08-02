@@ -35,11 +35,12 @@ paths:
                     type: string
   /auth/session:
     get:
-      summary: Inspect the authenticated API-key session
+      summary: Inspect the authenticated operator session
       description: >-
         Returns the authenticated principal and effective scopes without
-        returning or rotating the credential. Used by deployment-local
-        operator surfaces to adapt to least-privilege keys.
+        returning or rotating the credential. Authentication can come from a
+        bearer API key or an enabled Better Auth console session. Used by
+        deployment-local operator surfaces to adapt to the active identity.
       operationId: getAuthenticatedSession
       responses:
         default:
@@ -2484,10 +2485,24 @@ components:
     AuthenticatedSession:
       type: object
       additionalProperties: false
-      required: [object, principal]
+      required: [object, authentication, principal]
       properties:
         object:
           const: authenticated_session
+        authentication:
+          enum: [api-key, better-auth]
+        identity:
+          type: object
+          additionalProperties: false
+          required: [email]
+          properties:
+            email:
+              type: string
+              format: email
+            image:
+              type: string
+              format: uri
+          description: Present for Better Auth console sessions.
         principal:
           type: object
           additionalProperties: false
