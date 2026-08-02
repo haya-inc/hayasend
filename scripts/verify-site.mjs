@@ -50,7 +50,7 @@ async function verifySite() {
     requireText(setup, expected, "Setup console");
   }
   for (const expected of [
-    `const PACKAGE_VERSION = "0.3.6"`,
+    `const PACKAGE_VERSION = "0.3.7"`,
     `@haya-inc/hayasend@\${PACKAGE_VERSION}`,
     `"bootstrap"`,
     `targetTokens(placeholderState, "deploy")`,
@@ -77,7 +77,7 @@ async function verifySite() {
   for (const expected of [
     "<title>HayaSend API Reference</title>",
     "HayaSend API",
-    "0.3.6",
+    "0.3.7",
     '"operationId":"sendEmail"',
     '"operationId":"createDomain"',
     '"operationId":"replayWebhookDelivery"',

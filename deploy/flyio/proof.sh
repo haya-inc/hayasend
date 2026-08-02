@@ -142,7 +142,7 @@ fi
 
 jq --exit-status \
   '.object == "portable_hosted_semantic_proof" and
-    .hayasend_version == "0.3.6" and
+    .hayasend_version == "0.3.7" and
     .database.major_version == 17 and
     .checks.scheduled_horizon_seconds == 2592000 and
     .checks.atomic_delivery_commit == true and

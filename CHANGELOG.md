@@ -6,6 +6,15 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.7 - 2026-08-02
+
+- Keep operator-console State and Actions columns readable at constrained
+  widths, reduce page-title scale, and replace accent-line selections with
+  quieter background and weight states.
+- Render stored email and template CSS inside a dedicated deployment-local
+  preview document while retaining sandbox isolation, double sanitization,
+  blocked network access, and the parent console's strict CSP.
+
 ## 0.3.6 - 2026-08-02
 
 - Add a deployment-local authenticated operator console for delivery health,

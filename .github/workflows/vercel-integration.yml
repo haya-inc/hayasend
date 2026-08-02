@@ -361,7 +361,7 @@ jobs:
             | tee "$RUNNER_TEMP/vercel-current-deployment.txt"
           health="$(curl --fail --silent --show-error "$HAYASEND_VERCEL_API_URL/healthz")"
           jq --exit-status \
-            '.ok == true and .service == "hayasend" and .version == "0.3.6"' \
+            '.ok == true and .service == "hayasend" and .version == "0.3.7"' \
             <<<"$health" >/dev/null
           echo "validated=true" >> "$GITHUB_OUTPUT"
 
@@ -381,7 +381,7 @@ jobs:
               > "$RUNNER_TEMP/vercel-portable-proof.json"
           jq --exit-status '
             .object == "portable_hosted_semantic_proof" and
-            .hayasend_version == "0.3.6" and
+            .hayasend_version == "0.3.7" and
             .database.major_version == 18 and
             .checks.scheduled_horizon_seconds == 2592000 and
             .checks.schedule_exceeds_seven_days == true and
