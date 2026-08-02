@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createApp, type AppOptions } from "../src/app.js";
+import type { ConsoleAuthProvider } from "../src/console-auth.js";
 import { MemoryAttachmentStorage } from "../src/adapters/attachment-storage.js";
 import { MemoryInboundStorage } from "../src/adapters/inbound-storage.js";
 import { LocalDomainProvider } from "../src/adapters/ses-domain-provider.js";
@@ -225,6 +226,7 @@ describe("HTTP API", () => {
     expect(session.status).toBe(200);
     await expect(session.json()).resolves.toEqual({
       object: "authenticated_session",
+      authentication: "api-key",
       principal: {
         id: "bootstrap",
         name: "Bootstrap administrator",
@@ -232,6 +234,70 @@ describe("HTTP API", () => {
         bootstrap: true,
       },
     });
+  });
+
+  it("accepts Better Auth console sessions without weakening API-key or CSRF boundaries", async () => {
+    const authHandler = vi.fn(async () =>
+      Response.json({ object: "better_auth_handler" }),
+    );
+    const consoleAuth: ConsoleAuthProvider = async () => ({
+      provider: "google",
+      handler: authHandler,
+      getSession: async (headers) =>
+        headers.get("cookie")?.includes("console_session=valid")
+          ? {
+              principal: {
+                id: "user:operator",
+                name: "Yusuke operator",
+                scopes: ["*"],
+                bootstrap: false,
+              },
+              email: "yusuke@haya.company",
+            }
+          : null,
+    });
+    const { app } = fixture({ consoleAuth });
+
+    const consolePage = await app.request("/console");
+    expect(await consolePage.text()).toContain(
+      'data-console-auth="better-auth"',
+    );
+
+    const authResponse = await app.request("/api/auth/get-session");
+    expect(authResponse.status).toBe(200);
+    expect(authHandler).toHaveBeenCalledOnce();
+
+    const session = await app.request("/auth/session", {
+      headers: { cookie: "console_session=valid" },
+    });
+    expect(session.status).toBe(200);
+    await expect(session.json()).resolves.toMatchObject({
+      authentication: "better-auth",
+      identity: { email: "yusuke@haya.company" },
+      principal: { id: "user:operator", scopes: ["*"] },
+    });
+
+    const crossSiteMutation = await app.request("/emails", {
+      method: "POST",
+      headers: {
+        cookie: "console_session=valid",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(email),
+    });
+    expect(crossSiteMutation.status).toBe(403);
+
+    const sameOriginMutation = await app.request("/emails", {
+      method: "POST",
+      headers: {
+        cookie: "console_session=valid",
+        "content-type": "application/json",
+        origin: "http://localhost",
+        "sec-fetch-site": "same-origin",
+      },
+      body: JSON.stringify(email),
+    });
+    expect(sameOriginMutation.status).toBe(200);
   });
 
   it("protects Azure Event Grid ingress with an independent secret and returns validation", async () => {

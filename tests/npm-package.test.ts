@@ -60,7 +60,7 @@ describe("npm CLI distribution", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(workflow).toContain(".entryCount <= 627");
+    expect(workflow).toContain(".entryCount <= 639");
     expect(workflow).toContain(".size < 900000");
     expect(workflow).toContain(".unpackedSize < 4600000");
     expect(workflow).toContain(
@@ -72,6 +72,14 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain('index("dist/cli-aws-bootstrap.js") != null');
     expect(workflow).toContain('index("dist/operator-console.js") != null');
     expect(workflow).toContain('index("src/operator-console.ts") != null');
+    expect(workflow).toContain(
+      'index("dist/operator-console-view.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("src/operator-console-view.tsx") != null',
+    );
+    expect(workflow).toContain('index("dist/console-auth.js") != null');
+    expect(workflow).toContain('index("src/console-auth.ts") != null');
     expect(workflow).toContain(
       'index("deploy/aws-cloudformation-bootstrap.yaml") != null',
     );

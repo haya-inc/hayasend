@@ -2,14 +2,15 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import type { ConsoleAuthProvider } from "./console-auth.js";
 import { PREVIEW_CSS, PREVIEW_HTML, PREVIEW_JS } from "./preview.js";
 import {
   OPERATOR_CONSOLE_CSS,
-  OPERATOR_CONSOLE_HTML,
   OPERATOR_CONSOLE_JS,
   OPERATOR_CONSOLE_PREVIEW_HTML,
   OPERATOR_CONSOLE_PREVIEW_JS,
 } from "./operator-console.js";
+import { renderOperatorConsole } from "./operator-console-view.js";
 import {
   AppError,
   ForbiddenError,
@@ -61,6 +62,9 @@ interface AppEnv {
   Variables: {
     principal: AuthenticatedPrincipal;
     requestId: string;
+    consoleIdentity:
+      | { email: string; image?: string | undefined }
+      | undefined;
   };
 }
 
@@ -77,6 +81,7 @@ export interface AppServices {
 }
 
 export interface AppOptions {
+  consoleAuth?: ConsoleAuthProvider | undefined;
   localPreview?: boolean;
   readiness?: (() => Promise<void>) | undefined;
   providerEventIngress?:
@@ -344,6 +349,20 @@ function setOperatorConsoleSecurityHeaders(
   }
 }
 
+function requireSameOrigin(request: Request) {
+  const origin = request.headers.get("origin");
+  const requestOrigin = new URL(request.url).origin;
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (
+    origin !== requestOrigin ||
+    (fetchSite !== null && fetchSite !== "same-origin")
+  ) {
+    throw new ForbiddenError(
+      "Cookie-authenticated console mutations require a same-origin request.",
+    );
+  }
+}
+
 export function createApp(services: AppServices, options: AppOptions = {}) {
   const app = new Hono<AppEnv>();
   const localPreview = options.localPreview === true;
@@ -374,6 +393,9 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         "/console/preview",
         "/console/preview.js",
       ].includes(context.req.path);
+    const consoleAuthPath =
+      options.consoleAuth !== undefined &&
+      context.req.path.startsWith("/api/auth/");
     const providerEventPath =
       ((options.providerEventIngress !== undefined &&
         context.req.path === "/events/azure-email") ||
@@ -384,6 +406,7 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
       context.req.path === "/healthz" ||
       context.req.path === "/readyz" ||
       operatorConsolePath ||
+      consoleAuthPath ||
       localPreviewPath ||
       providerEventPath ||
       (attachmentUploadPath && ["PUT", "OPTIONS"].includes(context.req.method))
@@ -396,11 +419,29 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     const key = authorization?.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length)
       : "";
-    if (!key) {
-      throw new UnauthorizedError();
+    if (key) {
+      context.set("principal", await services.apiKeyService.authenticate(key));
+      await next();
+      return;
     }
-    context.set("principal", await services.apiKeyService.authenticate(key));
-    await next();
+    if (options.consoleAuth) {
+      const session = await (await options.consoleAuth()).getSession(
+        context.req.raw.headers,
+      );
+      if (session) {
+        if (!["GET", "HEAD", "OPTIONS"].includes(context.req.method)) {
+          requireSameOrigin(context.req.raw);
+        }
+        context.set("principal", session.principal);
+        context.set("consoleIdentity", {
+          email: session.email,
+          ...(session.image ? { image: session.image } : {}),
+        });
+        await next();
+        return;
+      }
+    }
+    throw new UnauthorizedError();
   });
 
   app.get("/healthz", (context) =>
@@ -445,7 +486,11 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         "connect-src 'self'; img-src 'self' data:; frame-src 'self'; " +
         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     );
-    return context.html(OPERATOR_CONSOLE_HTML);
+    return context.html(
+      renderOperatorConsole({
+        betterAuthEnabled: options.consoleAuth !== undefined,
+      }),
+    );
   });
 
   app.get("/console/", (context) => context.redirect("/console", 308));
@@ -482,8 +527,16 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
     });
   });
 
+  if (options.consoleAuth) {
+    const consoleAuth = options.consoleAuth;
+    app.on(["GET", "POST"], "/api/auth/*", async (context) =>
+      (await consoleAuth()).handler(context.req.raw),
+    );
+  }
+
   app.get("/auth/session", (context) => {
     const principal = context.get("principal");
+    const identity = context.get("consoleIdentity");
     return context.json({
       object: "authenticated_session",
       principal: {
@@ -492,6 +545,9 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         scopes: principal.scopes,
         bootstrap: principal.bootstrap,
       },
+      ...(identity
+        ? { authentication: "better-auth", identity }
+        : { authentication: "api-key" }),
     });
   });
 

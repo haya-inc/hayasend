@@ -685,6 +685,11 @@ command explicitly overrides them. Parameters removed from the current
 template are not replayed. Supported overrides are:
 
 - `--bootstrap-secret-arn ARN`;
+- `--console-auth-origin https://mail.example.com`,
+  `--console-auth-google-client-id ID`,
+  `--console-auth-allowed-emails operator@example.com`, and
+  `--console-auth-secret-arn ARN` together to enable Better Auth Google login;
+- `--disable-console-auth` to return to API-key-only console access;
 - `--cloudformation-role-arn ARN` (or
   `HAYASEND_AWS_CLOUDFORMATION_ROLE_ARN`);
 - `--artifact-bucket NAME` (or `HAYASEND_AWS_ARTIFACT_BUCKET`);
@@ -713,6 +718,24 @@ template are not replayed. Supported overrides are:
 - `--payload-noncurrent-version-retention-days 1..30`;
 - `--enable-restore-testing` or `--disable-restore-testing`;
 - repeatable `--tag KEY=VALUE`.
+
+The console authentication secret is a Secrets Manager JSON value. Keep it
+outside command history and source control:
+
+```json
+{
+  "better_auth_secret": "at-least-32-random-characters",
+  "google_client_secret": "the-google-oauth-client-secret"
+}
+```
+
+Register `<console-auth-origin>/api/auth/callback/google` as an authorized
+Google OAuth redirect URI. The exact allowed-email list and Google's verified
+email claim are enforced while the Google profile is mapped, and the allowlist
+is checked again whenever a Better Auth session is accepted. Console sessions
+are encrypted, stateless, and expire after eight hours. Rotating
+`better_auth_secret` invalidates every active console session; API-key sessions
+remain independent.
 
 Enabling inbound receiving requires explicit non-`.invalid` recipient
 suffixes. An existing bootstrap secret ARN must belong to the expected account

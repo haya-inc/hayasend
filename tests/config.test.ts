@@ -61,6 +61,66 @@ describe("loadConfig", () => {
     expect(config.apiKey).toBeUndefined();
   });
 
+  it("loads complete Better Auth console settings and rejects partial or plaintext AWS credentials", () => {
+    const awsBase = {
+      HAYASEND_MODE: "aws",
+      HAYASEND_API_KEY_SECRET_ARN:
+        "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:bootstrap",
+      HAYASEND_CONSOLE_AUTH_ORIGIN: "https://mail.example.com",
+      HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID:
+        "client.apps.googleusercontent.com",
+      HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS:
+        "Operator@Example.com,second@example.com",
+      HAYASEND_CONSOLE_AUTH_SECRET_ARN:
+        "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:console-auth",
+    };
+    expect(loadConfig(awsBase)).toMatchObject({
+      consoleAuthOrigin: "https://mail.example.com",
+      consoleAuthGoogleClientId: "client.apps.googleusercontent.com",
+      consoleAuthAllowedEmails: [
+        "operator@example.com",
+        "second@example.com",
+      ],
+      consoleAuthSecretArn:
+        "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:console-auth",
+    });
+
+    expect(() =>
+      loadConfig({
+        ...awsBase,
+        HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS: undefined,
+      }),
+    ).toThrow("Console authentication requires");
+    expect(() =>
+      loadConfig({
+        ...awsBase,
+        HAYASEND_CONSOLE_AUTH_SECRET_ARN: undefined,
+        HAYASEND_CONSOLE_AUTH_CREDENTIALS: JSON.stringify({
+          better_auth_secret: "x".repeat(48),
+          google_client_secret: "google-secret",
+        }),
+      }),
+    ).toThrow("not supported in AWS mode");
+  });
+
+  it("supports mounted Better Auth credentials outside AWS", () => {
+    expect(
+      loadConfig({
+        HAYASEND_CONSOLE_AUTH_ORIGIN: "http://127.0.0.1:8787",
+        HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID:
+          "client.apps.googleusercontent.com",
+        HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS: "operator@example.com",
+        HAYASEND_CONSOLE_AUTH_CREDENTIALS: JSON.stringify({
+          better_auth_secret: "x".repeat(48),
+          google_client_secret: "google-secret",
+        }),
+      }),
+    ).toMatchObject({
+      consoleAuthOrigin: "http://127.0.0.1:8787",
+      consoleAuthAllowedEmails: ["operator@example.com"],
+    });
+  });
+
   it("loads optional AWS queue diagnostic targets", () => {
     const config = loadConfig({
       HAYASEND_MODE: "aws",

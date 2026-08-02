@@ -744,7 +744,7 @@ jobs:
           jq '{entryCount, size, unpackedSize, filename}' \
             "$RUNNER_TEMP/npm-pack-metadata.json"
           jq --exit-status '
-            .entryCount <= 627 and
+            .entryCount <= 639 and
             .size < 900000 and
             .unpackedSize < 4600000 and
             ([.files[].path] | index("dist/cli.js") != null) and
@@ -756,6 +756,14 @@ jobs:
               index("dist/operator-console.js") != null) and
             ([.files[].path] |
               index("src/operator-console.ts") != null) and
+            ([.files[].path] |
+              index("dist/operator-console-view.js") != null) and
+            ([.files[].path] |
+              index("src/operator-console-view.tsx") != null) and
+            ([.files[].path] |
+              index("dist/console-auth.js") != null) and
+            ([.files[].path] |
+              index("src/console-auth.ts") != null) and
             ([.files[].path] |
               index("deploy/aws-cloudformation-bootstrap.yaml") != null) and
             ([.files[].path] | index("NOTICE") != null) and

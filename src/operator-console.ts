@@ -1,190 +1,3 @@
-export const OPERATOR_CONSOLE_HTML = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
-    <meta name="robots" content="noindex, nofollow">
-    <title>Operator Console · HayaSend</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171917'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-family='Georgia' font-size='22' font-style='italic' fill='%23fffaf2'%3EH%3C/text%3E%3C/svg%3E">
-    <link rel="stylesheet" href="/console/app.css">
-    <script defer src="/console/app.js"></script>
-  </head>
-  <body>
-    <a class="skip-link" href="#workspace-main">Skip to workspace</a>
-
-    <section id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
-      <div class="auth-brand" aria-label="HayaSend">
-        <span class="brand-mark" aria-hidden="true">H</span>
-        <span>HayaSend</span>
-      </div>
-      <div class="auth-panel">
-        <p class="eyebrow">Deployment-local console</p>
-        <h1 id="auth-title">Operate the mail you own.</h1>
-        <p class="auth-copy">Connect with a scoped HayaSend API key. The key stays in this browser tab and is sent only to this deployment.</p>
-        <form id="auth-form" class="auth-form">
-          <label for="api-key">API key</label>
-          <div class="secret-field">
-            <input id="api-key" name="api-key" type="password" autocomplete="current-password" spellcheck="false" required placeholder="re_hs_key_…">
-            <button id="toggle-secret" class="field-action" type="button" aria-label="Show API key">Show</button>
-          </div>
-          <button id="connect" class="primary-action" type="submit">Connect to this deployment</button>
-          <p id="auth-error" class="form-error" role="alert" hidden></p>
-        </form>
-        <div class="auth-boundary">
-          <span class="boundary-dot" aria-hidden="true"></span>
-          <span id="deployment-origin">Same-origin connection</span>
-        </div>
-      </div>
-      <p class="auth-foot">No Haya-managed message store · No analytics · No cloud credentials</p>
-    </section>
-
-    <div id="console-shell" class="console-shell" hidden>
-      <header class="topbar">
-        <a class="brand" href="/console" aria-label="HayaSend Operator Console">
-          <span class="brand-mark" aria-hidden="true">H</span>
-          <span>HayaSend</span>
-        </a>
-        <div class="deployment-state">
-          <span id="health-dot" class="health-dot" aria-hidden="true"></span>
-          <span id="deployment-label">Checking deployment</span>
-        </div>
-        <div class="topbar-actions">
-          <button id="refresh-view" class="quiet-action" type="button">Refresh</button>
-          <button id="open-send" class="primary-action compact" type="button">Send test</button>
-          <button id="account-menu" class="account-button" type="button" aria-expanded="false" aria-controls="account-popover">
-            <span id="account-initial">O</span>
-            <span id="account-name">Operator</span>
-          </button>
-        </div>
-        <div id="account-popover" class="account-popover" hidden>
-          <p id="account-detail"></p>
-          <button id="sign-out" type="button">Disconnect</button>
-        </div>
-      </header>
-
-      <div class="app-grid">
-        <nav class="side-nav" aria-label="Console navigation">
-          <div class="nav-primary">
-            <button class="nav-item is-active" type="button" data-view="overview" aria-label="Overview" aria-current="page">
-              <span class="nav-glyph" aria-hidden="true">⌁</span><span>Overview</span>
-            </button>
-            <button class="nav-item" type="button" data-view="emails" aria-label="Emails">
-              <span class="nav-glyph" aria-hidden="true">↗</span><span>Emails</span>
-              <span id="nav-email-count" class="nav-count"></span>
-            </button>
-            <button class="nav-item" type="button" data-view="received" aria-label="Received emails">
-              <span class="nav-glyph" aria-hidden="true">↙</span><span>Received</span>
-            </button>
-            <button class="nav-item" type="button" data-view="templates" aria-label="Templates">
-              <span class="nav-glyph" aria-hidden="true">◇</span><span>Templates</span>
-            </button>
-            <button class="nav-item" type="button" data-view="domains" aria-label="Domains">
-              <span class="nav-glyph" aria-hidden="true">◎</span><span>Domains</span>
-            </button>
-            <button class="nav-item" type="button" data-view="webhooks" aria-label="Webhooks">
-              <span class="nav-glyph" aria-hidden="true">⌘</span><span>Webhooks</span>
-            </button>
-            <button class="nav-item" type="button" data-view="suppressions" aria-label="Suppressions">
-              <span class="nav-glyph" aria-hidden="true">⊘</span><span>Suppressions</span>
-            </button>
-            <button class="nav-item" type="button" data-view="api-keys" aria-label="API keys">
-              <span class="nav-glyph" aria-hidden="true">⌁</span><span>API keys</span>
-            </button>
-          </div>
-          <div class="nav-secondary">
-            <button class="nav-item" type="button" data-view="operations" aria-label="Operations">
-              <span class="nav-glyph" aria-hidden="true">↺</span><span>Operations</span>
-            </button>
-            <a class="nav-item" href="https://hayasend.com/api-reference.html" rel="noreferrer">
-              <span class="nav-glyph" aria-hidden="true">↗</span><span>API reference</span>
-            </a>
-          </div>
-        </nav>
-
-        <main id="workspace-main" class="workspace-main" tabindex="-1">
-          <header class="view-heading">
-            <div>
-              <p id="view-eyebrow" class="eyebrow">Current deployment</p>
-              <h1 id="view-title">Overview</h1>
-              <p id="view-description" class="view-description">Delivery health and recovery signals from this HayaSend deployment.</p>
-            </div>
-            <time id="freshness" class="freshness"></time>
-          </header>
-          <div id="view-body" class="view-body" aria-live="polite"></div>
-        </main>
-      </div>
-    </div>
-
-    <dialog id="send-dialog" class="send-dialog" aria-labelledby="send-title">
-      <form id="send-form" method="dialog">
-        <header class="dialog-heading">
-          <div>
-            <p class="eyebrow">Scoped test send</p>
-            <h2 id="send-title">Send one transactional email</h2>
-          </div>
-          <button id="close-send" class="icon-action" type="button" aria-label="Close">×</button>
-        </header>
-        <div class="dialog-grid">
-          <label>From <input name="from" type="text" autocomplete="off" placeholder="HayaSend &lt;hello@example.com&gt;"></label>
-          <label>To <input name="to" type="email" autocomplete="off" required placeholder="recipient@example.com"></label>
-          <label class="wide">Subject <input name="subject" type="text" required maxlength="998" placeholder="Delivery verification"></label>
-          <label class="wide">HTML <textarea name="html" rows="7" placeholder="&lt;h1&gt;Hello&lt;/h1&gt;"></textarea></label>
-          <label class="wide">Plain text <textarea name="text" rows="5" placeholder="Hello"></textarea></label>
-        </div>
-        <p class="dialog-note">A fresh idempotency key is attached. HayaSend still applies all recipient, budget, and provider policies.</p>
-        <p id="send-error" class="form-error" role="alert" hidden></p>
-        <footer class="dialog-actions">
-          <button id="cancel-send" class="quiet-action" type="button">Cancel</button>
-          <button id="submit-send" class="primary-action" type="submit">Send email</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="resource-dialog" class="send-dialog resource-dialog" aria-labelledby="resource-dialog-title">
-      <form id="resource-form">
-        <header class="dialog-heading">
-          <div>
-            <p id="resource-dialog-eyebrow" class="eyebrow">Deployment resource</p>
-            <h2 id="resource-dialog-title">Configure resource</h2>
-          </div>
-          <button id="close-resource-dialog" class="icon-action" type="button" aria-label="Close">×</button>
-        </header>
-        <div id="resource-dialog-body" class="resource-dialog-body"></div>
-        <p id="resource-dialog-error" class="form-error" role="alert" hidden></p>
-        <footer id="resource-dialog-actions" class="dialog-actions">
-          <button id="cancel-resource-dialog" class="quiet-action" type="button">Cancel</button>
-          <button id="submit-resource-dialog" class="primary-action" type="submit">Save</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="confirm-dialog" class="send-dialog confirm-dialog" aria-labelledby="confirm-dialog-title">
-      <form id="confirm-form">
-        <header class="dialog-heading">
-          <div>
-            <p id="confirm-dialog-eyebrow" class="eyebrow">Explicit confirmation</p>
-            <h2 id="confirm-dialog-title">Confirm operation</h2>
-          </div>
-          <button id="close-confirm-dialog" class="icon-action" type="button" aria-label="Close">×</button>
-        </header>
-        <div class="confirm-copy">
-          <p id="confirm-dialog-copy"></p>
-          <label id="confirm-input-label" for="confirm-input">Type the requested value to continue</label>
-          <input id="confirm-input" name="confirmation" type="text" autocomplete="off" spellcheck="false" required>
-        </div>
-        <p id="confirm-dialog-error" class="form-error" role="alert" hidden></p>
-        <footer class="dialog-actions">
-          <button id="cancel-confirm-dialog" class="quiet-action" type="button">Cancel</button>
-          <button id="submit-confirm-dialog" class="danger-action" type="submit">Confirm</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  </body>
-</html>`;
-
 export const OPERATOR_CONSOLE_PREVIEW_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -295,6 +108,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   font-weight: 720;
   letter-spacing: -0.02em;
 }
+.brand-link { color: inherit; text-decoration: none; }
 .brand-mark {
   display: grid;
   width: 29px;
@@ -352,6 +166,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   line-height: 1.65;
 }
 .auth-form { display: grid; gap: 12px; }
+.auth-provider-action { width: 100%; }
+.auth-fallback {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.auth-fallback summary {
+  width: max-content;
+  margin-bottom: 14px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.auth-fallback[open] summary { color: var(--ink); }
+.auth-key-action { justify-self: start; }
 .auth-form > label, .dialog-grid label {
   color: var(--ink);
   font-size: 11px;
@@ -763,6 +591,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   const state = {
     token: "",
     principal: null,
+    authentication: "api-key",
+    identity: null,
     view: "overview",
     health: null,
     diagnostics: null,
@@ -844,7 +674,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   async function api(path, init = {}) {
     if (!path.startsWith("/") || path.startsWith("//")) throw new Error("Console requests must stay on the deployment origin.");
     const headers = new Headers(init.headers || {});
-    headers.set("authorization", "Bearer " + state.token);
+    if (state.token) headers.set("authorization", "Bearer " + state.token);
     headers.set("accept", "application/json");
     if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
     const response = await fetch(path, { ...init, headers, credentials: "same-origin", redirect: "error" });
@@ -913,27 +743,41 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     body.append(section);
   }
 
-  async function connect(token) {
-    state.token = token;
+  async function activateSession(token = "") {
     const session = await api("/auth/session");
     if (!session || session.object !== "authenticated_session" || !session.principal) throw new Error("HayaSend returned an invalid console session.");
     state.principal = session.principal;
-    sessionStorage.setItem(SESSION_KEY, token);
+    state.authentication = session.authentication === "better-auth" ? "better-auth" : "api-key";
+    state.identity = session.identity || null;
+    if (token) sessionStorage.setItem(SESSION_KEY, token);
+    else sessionStorage.removeItem(SESSION_KEY);
     byId("auth-screen").hidden = true;
     byId("console-shell").hidden = false;
     const name = state.principal.name || "Operator";
     setText("account-name", name);
     setText("account-initial", name.slice(0, 1).toUpperCase());
-    setText("account-detail", name + " · " + state.principal.scopes.join(", "));
+    setText("account-detail", (state.identity && state.identity.email ? state.identity.email : name) + " · " + state.principal.scopes.join(", "));
     byId("open-send").hidden = !hasScope("emails:send");
     await checkHealth();
     await selectView("overview");
+  }
+
+  async function connect(token) {
+    state.token = token;
+    return activateSession(token);
+  }
+
+  async function resumeBetterAuthSession() {
+    state.token = "";
+    return activateSession();
   }
 
   function disconnect(showMessage = true) {
     sessionStorage.removeItem(SESSION_KEY);
     state.token = "";
     state.principal = null;
+    state.authentication = "api-key";
+    state.identity = null;
     state.resources.clear();
     state.emails = [];
     byId("console-shell").hidden = true;
@@ -941,7 +785,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     byId("api-key").value = "";
     byId("account-popover").hidden = true;
     if (showMessage) setText("auth-error", "Disconnected from the deployment.");
-    byId("api-key").focus();
+    const target = document.documentElement.dataset.consoleAuth === "better-auth" ? byId("google-sign-in") : byId("api-key");
+    target.focus();
   }
 
   async function checkHealth() {
@@ -1738,8 +1583,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     const evidence = document.createElement("div");
     const evidenceHead = document.createElement("div"); evidenceHead.className = "section-heading"; evidenceHead.innerHTML = "<h2>Session boundary</h2><p>current key</p>";
     const list = document.createElement("div"); list.className = "signal-list";
-    list.append(signal("Principal", state.principal.bootstrap ? "bootstrap administrator" : "scoped API key", state.principal.name, false));
-    list.append(signal("Credential storage", "removed when this browser tab closes", "session only", true));
+    list.append(signal("Principal", state.authentication === "better-auth" ? "Better Auth workspace session" : (state.principal.bootstrap ? "bootstrap administrator" : "scoped API key"), state.principal.name, false));
+    list.append(signal("Credential storage", state.authentication === "better-auth" ? "signed, encrypted, host-only session cookie" : "removed when this browser tab closes", state.authentication === "better-auth" ? "Better Auth" : "session only", true));
     list.append(signal("Cloud access", "no AWS credentials or SDK calls in the browser", "none", true));
     list.append(signal("Content boundary", "served by and read from this deployment", "customer owned", true));
     evidence.append(evidenceHead, list);
@@ -1762,13 +1607,43 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     return api("/emails", { method: "POST", headers: { "idempotency-key": "console_" + crypto.randomUUID() }, body: JSON.stringify(payload) });
   }
 
+  async function betterAuthRequest(path, body) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "accept": "application/json", "content-type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "same-origin",
+      redirect: "error",
+    });
+    const text = await response.text();
+    let payload = null;
+    if (text) {
+      try { payload = JSON.parse(text); } catch { payload = null; }
+    }
+    if (!response.ok) {
+      throw new Error(payload && typeof payload.message === "string" ? payload.message : "Authentication failed with HTTP " + response.status + ".");
+    }
+    return payload;
+  }
+
   byId("deployment-origin").textContent = "Same-origin only · " + location.origin;
+  byId("google-sign-in").addEventListener("click", async () => {
+    const button = byId("google-sign-in"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Opening Google…";
+    try {
+      const result = await betterAuthRequest("/api/auth/sign-in/social", { provider: "google", callbackURL: location.origin + "/console" });
+      const target = new URL(result && result.url ? result.url : "", location.origin);
+      if (target.protocol !== "https:") throw new Error("The identity provider returned an unsafe redirect.");
+      location.assign(target.href);
+    } catch (reason) {
+      error.textContent = reason instanceof Error ? reason.message : "Sign-in failed."; error.hidden = false; button.disabled = false; button.textContent = "Continue with Google";
+    }
+  });
   byId("auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = byId("connect"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Connecting…";
     try { await connect(byId("api-key").value.trim()); }
     catch (reason) { state.token = ""; sessionStorage.removeItem(SESSION_KEY); error.textContent = reason instanceof Error ? reason.message : "Connection failed."; error.hidden = false; }
-    finally { button.disabled = false; button.textContent = "Connect to this deployment"; }
+    finally { button.disabled = false; button.textContent = "Connect with API key"; }
   });
   byId("toggle-secret").addEventListener("click", () => {
     const input = byId("api-key"); const visible = input.type === "text"; input.type = visible ? "password" : "text"; byId("toggle-secret").textContent = visible ? "Show" : "Hide"; byId("toggle-secret").setAttribute("aria-label", visible ? "Show API key" : "Hide API key");
@@ -1776,7 +1651,13 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
   byId("refresh-view").addEventListener("click", async () => { state.resources.delete(state.view); if (state.view === "emails" || state.view === "overview") state.emails = []; await checkHealth(); await selectView(state.view); });
   byId("account-menu").addEventListener("click", () => { const popover = byId("account-popover"); popover.hidden = !popover.hidden; byId("account-menu").setAttribute("aria-expanded", popover.hidden ? "false" : "true"); });
-  byId("sign-out").addEventListener("click", () => disconnect());
+  byId("sign-out").addEventListener("click", async () => {
+    if (state.authentication === "better-auth") {
+      try { await betterAuthRequest("/api/auth/sign-out", {}); }
+      catch (reason) { showToast(reason instanceof Error ? reason.message : "Sign-out failed."); return; }
+    }
+    disconnect();
+  });
   byId("open-send").addEventListener("click", () => { byId("send-error").hidden = true; byId("send-dialog").showModal(); });
   byId("close-send").addEventListener("click", () => byId("send-dialog").close());
   byId("cancel-send").addEventListener("click", () => byId("send-dialog").close());
@@ -1811,11 +1692,19 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     finally { button.disabled = false; button.textContent = original; }
   });
 
-  const storedToken = sessionStorage.getItem(SESSION_KEY);
-  if (storedToken) {
-    connect(storedToken).catch(() => disconnect(false));
-  } else {
-    byId("api-key").focus();
+  async function boot() {
+    if (document.documentElement.dataset.consoleAuth === "better-auth") {
+      try { await resumeBetterAuthSession(); return; }
+      catch { state.token = ""; state.principal = null; }
+    }
+    const storedToken = sessionStorage.getItem(SESSION_KEY);
+    if (storedToken) {
+      try { await connect(storedToken); return; }
+      catch { disconnect(false); return; }
+    }
+    const target = document.documentElement.dataset.consoleAuth === "better-auth" ? byId("google-sign-in") : byId("api-key");
+    target.focus();
   }
+  boot().catch(() => disconnect(false));
 })();
 `;

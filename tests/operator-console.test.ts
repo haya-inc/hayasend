@@ -2,28 +2,32 @@ import { describe, expect, it } from "vitest";
 
 import {
   OPERATOR_CONSOLE_CSS,
-  OPERATOR_CONSOLE_HTML,
   OPERATOR_CONSOLE_JS,
   OPERATOR_CONSOLE_PREVIEW_HTML,
   OPERATOR_CONSOLE_PREVIEW_JS,
 } from "../src/operator-console.js";
+import { renderOperatorConsole } from "../src/operator-console-view.js";
 
 describe("authenticated operator console", () => {
   it("ships a restrained, accessible operations workspace without remote runtime assets", () => {
-    expect(OPERATOR_CONSOLE_HTML).toContain(
+    const html = renderOperatorConsole({ betterAuthEnabled: true });
+    expect(html).toContain(
       "<title>Operator Console · HayaSend</title>",
     );
-    expect(OPERATOR_CONSOLE_HTML).toContain('class="skip-link"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('<main id="workspace-main"');
-    expect(OPERATOR_CONSOLE_HTML).toContain(
+    expect(html).toContain('data-console-auth="better-auth"');
+    expect(html).toContain('id="google-sign-in"');
+    expect(html).toContain('id="api-key-fallback"');
+    expect(html).toContain('class="skip-link"');
+    expect(html).toContain('<main id="workspace-main"');
+    expect(html).toContain(
       'aria-label="Console navigation"',
     );
-    expect(OPERATOR_CONSOLE_HTML).toContain('role="status"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('autocomplete="current-password"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('href="/console/app.css"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('src="/console/app.js"');
-    expect(OPERATOR_CONSOLE_HTML).not.toMatch(/src="https:\/\//);
-    expect(OPERATOR_CONSOLE_HTML).not.toMatch(
+    expect(html).toContain('role="status"');
+    expect(html).toContain('autocomplete="current-password"');
+    expect(html).toContain('href="/console/app.css"');
+    expect(html).toContain('src="/console/app.js"');
+    expect(html).not.toMatch(/src="https:\/\//);
+    expect(html).not.toMatch(
       /<link\b[^>]*href="https:\/\//,
     );
     expect(OPERATOR_CONSOLE_CSS).toContain("prefers-reduced-motion");
@@ -80,9 +84,11 @@ describe("authenticated operator console", () => {
     ]) {
       expect(OPERATOR_CONSOLE_JS).toContain(expected);
     }
-    expect(OPERATOR_CONSOLE_HTML).toContain('data-view="received"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('data-view="templates"');
-    expect(OPERATOR_CONSOLE_HTML).toContain('id="confirm-dialog"');
+    const html = renderOperatorConsole({ betterAuthEnabled: false });
+    expect(html).toContain('data-console-auth="api-key"');
+    expect(html).toContain('data-view="received"');
+    expect(html).toContain('data-view="templates"');
+    expect(html).toContain('id="confirm-dialog"');
   });
 
   it("hardens previews and handles generated secrets as one-time values", () => {
