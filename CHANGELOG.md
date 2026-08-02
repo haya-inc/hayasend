@@ -6,6 +6,14 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.10 - 2026-08-03
+
+- Keep the SAM/esbuild Lambda bundle on Hono's explicit JSX factory so the
+  Better Auth operator console renders in AWS instead of calling an undefined
+  classic React factory.
+- Execute the Better Auth console route from the real SAM-built API bundle in
+  CI and release validation to prevent environment-specific SSR regressions.
+
 ## 0.3.9 - 2026-08-03
 
 - Fix the AWS console-auth CloudFormation parameter patterns to use

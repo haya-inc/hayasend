@@ -9,6 +9,12 @@ Object.assign(process.env, {
   HAYASEND_MODE: "aws",
   HAYASEND_API_KEY_SECRET_ARN:
     "arn:aws:secretsmanager:ap-northeast-1:000000000000:secret:test",
+  HAYASEND_CONSOLE_AUTH_ORIGIN: "https://console.example.com",
+  HAYASEND_CONSOLE_AUTH_GOOGLE_CLIENT_ID:
+    "test.apps.googleusercontent.com",
+  HAYASEND_CONSOLE_AUTH_ALLOWED_EMAILS: "operator@example.com",
+  HAYASEND_CONSOLE_AUTH_SECRET_ARN:
+    "arn:aws:secretsmanager:ap-northeast-1:000000000000:secret:console-auth",
   HAYASEND_TABLE_NAME: "hayasend-test",
   HAYASEND_QUEUE_URL:
     "https://sqs.ap-northeast-1.amazonaws.com/000000000000/hayasend-test",
@@ -33,10 +39,54 @@ const bundles = [
   ["LogRetentionFunction", "log-retention.cjs"],
 ];
 
+const loadedBundles = new Map();
 for (const [functionName, fileName] of bundles) {
   const module = require(resolve(buildDirectory, functionName, fileName));
   if (typeof module.handler !== "function") {
     throw new TypeError(`${functionName} does not export a handler function.`);
   }
+  loadedBundles.set(functionName, module);
   process.stdout.write(`${functionName}: handler loaded\n`);
 }
+
+const consoleResponse = await loadedBundles.get("ApiFunction").handler(
+  {
+    version: "2.0",
+    routeKey: "GET /{proxy+}",
+    rawPath: "/console",
+    rawQueryString: "",
+    headers: {
+      host: "console.example.com",
+      "x-forwarded-proto": "https",
+    },
+    requestContext: {
+      accountId: "000000000000",
+      apiId: "test",
+      domainName: "console.example.com",
+      domainPrefix: "console",
+      http: {
+        method: "GET",
+        path: "/console",
+        protocol: "HTTP/1.1",
+        sourceIp: "127.0.0.1",
+        userAgent: "lambda-bundle-verifier",
+      },
+      requestId: "lambda-bundle-verifier",
+      routeKey: "GET /{proxy+}",
+      stage: "$default",
+      time: "01/Jan/2026:00:00:00 +0000",
+      timeEpoch: 1_767_225_600_000,
+    },
+    isBase64Encoded: false,
+  },
+  { awsRequestId: "lambda-bundle-verifier" },
+);
+
+if (
+  consoleResponse.statusCode !== 200 ||
+  !consoleResponse.body?.includes('data-console-auth="better-auth"') ||
+  !consoleResponse.body?.includes("Continue with Google")
+) {
+  throw new Error("The SAM-built operator console did not render correctly.");
+}
+process.stdout.write("ApiFunction: operator console rendered\n");

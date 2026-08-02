@@ -49,7 +49,7 @@ writes the one-time token to a new mode-`0600` file and never prints it:
 mkdir -m 700 .secrets
 
 HAYASEND_API_KEY="$HAYASEND_BOOTSTRAP_KEY" \
-  npx --yes @haya-inc/hayasend@0.3.9 keys create \
+  npx --yes @haya-inc/hayasend@0.3.10 keys create \
     --name "supabase-auth-send-email-hook" \
     --scope emails:send \
     --expires-at 2026-10-30T00:00:00Z \

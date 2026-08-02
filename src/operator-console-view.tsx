@@ -1,6 +1,12 @@
 /** @jsxImportSource hono/jsx */
+/** @jsx jsx */
 
-import type { FC } from "hono/jsx";
+import { jsx, type FC } from "hono/jsx";
+
+// SAM's esbuild integration currently emits classic JSX calls. The explicit
+// factory keeps the Lambda bundle on Hono JSX while TypeScript uses its JSX
+// runtime for type checking.
+void jsx;
 
 export interface OperatorConsoleViewOptions {
   betterAuthEnabled: boolean;
