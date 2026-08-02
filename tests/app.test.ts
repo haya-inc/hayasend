@@ -186,12 +186,35 @@ describe("HTTP API", () => {
     expect(consolePage.headers.get("content-security-policy")).toContain(
       "form-action 'none'",
     );
+    expect(consolePage.headers.get("content-security-policy")).not.toContain(
+      "style-src 'unsafe-inline'",
+    );
     expect(consolePage.headers.get("x-frame-options")).toBe("DENY");
     expect(await consolePage.text()).toContain("Operator Console · HayaSend");
 
     const script = await app.request("/console/app.js");
     expect(script.status).toBe(200);
     expect(script.headers.get("content-type")).toContain(
+      "text/javascript",
+    );
+
+    const emailPreview = await app.request("/console/preview");
+    expect(emailPreview.status).toBe(200);
+    expect(emailPreview.headers.get("content-security-policy")).toContain(
+      "style-src 'unsafe-inline'",
+    );
+    expect(emailPreview.headers.get("content-security-policy")).toContain(
+      "connect-src 'none'",
+    );
+    expect(emailPreview.headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'self'",
+    );
+    expect(emailPreview.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(await emailPreview.text()).toContain("HayaSend email preview");
+
+    const emailPreviewScript = await app.request("/console/preview.js");
+    expect(emailPreviewScript.status).toBe(200);
+    expect(emailPreviewScript.headers.get("content-type")).toContain(
       "text/javascript",
     );
 

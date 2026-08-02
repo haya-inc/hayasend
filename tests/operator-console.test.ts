@@ -4,6 +4,8 @@ import {
   OPERATOR_CONSOLE_CSS,
   OPERATOR_CONSOLE_HTML,
   OPERATOR_CONSOLE_JS,
+  OPERATOR_CONSOLE_PREVIEW_HTML,
+  OPERATOR_CONSOLE_PREVIEW_JS,
 } from "../src/operator-console.js";
 
 describe("authenticated operator console", () => {
@@ -26,6 +28,20 @@ describe("authenticated operator console", () => {
     );
     expect(OPERATOR_CONSOLE_CSS).toContain("prefers-reduced-motion");
     expect(OPERATOR_CONSOLE_CSS).toContain("grid-template-columns");
+    expect(OPERATOR_CONSOLE_CSS).toContain(
+      "font-size: clamp(28px,3vw,40px)",
+    );
+    expect(OPERATOR_CONSOLE_CSS).toContain(
+      ".resource-table .column-state { width: 84px; min-width: 84px; white-space: nowrap; }",
+    );
+    expect(OPERATOR_CONSOLE_CSS).toContain(
+      ".resource-table .column-actions { width: 88px; min-width: 88px; white-space: nowrap; }",
+    );
+    expect(OPERATOR_CONSOLE_CSS).not.toContain("box-shadow: inset 2px 0");
+    expect(OPERATOR_CONSOLE_CSS).not.toContain(
+      ".email-row.is-selected::before",
+    );
+    expect(OPERATOR_CONSOLE_JS).toContain("resource-table-scroll");
   });
 
   it("keeps credentials tab-scoped and every data request same-origin and authenticated", () => {
@@ -78,8 +94,26 @@ describe("authenticated operator console", () => {
     expect(OPERATOR_CONSOLE_JS).toContain("connect-src 'none'");
     expect(OPERATOR_CONSOLE_JS).toContain("form-action 'none'");
     expect(OPERATOR_CONSOLE_JS).toContain(
-      'frame.setAttribute("sandbox", "")',
+      'frame.setAttribute("sandbox", "allow-scripts")',
     );
+    expect(OPERATOR_CONSOLE_JS).toContain('frame.src = "/console/preview"');
+    expect(OPERATOR_CONSOLE_JS).toContain("frame.contentWindow?.postMessage");
+    expect(OPERATOR_CONSOLE_JS).not.toContain("frame.srcdoc =");
+    expect(OPERATOR_CONSOLE_PREVIEW_HTML).toContain(
+      'src="/console/preview.js"',
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "event.source !== window.parent",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      'script, iframe, object, embed, form, base, link, meta[http-equiv]',
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "style.dataset.emailPreviewStyle",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("fetch(");
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("sessionStorage");
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("localStorage");
     expect(OPERATOR_CONSOLE_JS).toContain("showOneTimeSecret");
     expect(OPERATOR_CONSOLE_JS).toContain(
       "Only its prefix will remain after this dialog closes.",

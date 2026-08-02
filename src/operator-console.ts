@@ -185,6 +185,60 @@ export const OPERATOR_CONSOLE_HTML = `<!doctype html>
   </body>
 </html>`;
 
+export const OPERATOR_CONSOLE_PREVIEW_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>HayaSend email preview</title>
+    <script defer src="/console/preview.js"></script>
+  </head>
+  <body></body>
+</html>`;
+
+export const OPERATOR_CONSOLE_PREVIEW_JS = String.raw`
+(() => {
+  "use strict";
+
+  const MESSAGE_TYPE = "hayasend.operator-console.preview.v1";
+  const MAX_MARKUP_BYTES = 2_000_000;
+
+  function sanitize(markup) {
+    const parsed = new DOMParser().parseFromString(String(markup || ""), "text/html");
+    parsed.querySelectorAll("script, iframe, object, embed, form, base, link, meta[http-equiv]").forEach((element) => element.remove());
+    parsed.querySelectorAll("*").forEach((element) => {
+      for (const attribute of [...element.attributes]) {
+        const name = attribute.name.toLowerCase();
+        const value = attribute.value.trim().toLowerCase();
+        if (name.startsWith("on") || name === "srcset" || name === "ping" || name === "target") element.removeAttribute(attribute.name);
+        if ((name === "src" || name === "href") && !(value.startsWith("data:") || value.startsWith("cid:") || value.startsWith("#"))) element.removeAttribute(attribute.name);
+      }
+    });
+    return parsed;
+  }
+
+  function render(markup) {
+    const parsed = sanitize(markup);
+    document.head.querySelectorAll("style[data-email-preview-style]").forEach((element) => element.remove());
+    parsed.head.querySelectorAll("style").forEach((source) => {
+      const style = document.createElement("style");
+      style.dataset.emailPreviewStyle = "";
+      style.textContent = source.textContent;
+      document.head.append(style);
+    });
+    document.body.replaceChildren(...[...parsed.body.childNodes].map((node) => document.importNode(node, true)));
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.type !== MESSAGE_TYPE || typeof data.markup !== "string" || data.markup.length > MAX_MARKUP_BYTES) return;
+    render(data.markup);
+  });
+})();
+`;
+
 export const OPERATOR_CONSOLE_CSS = String.raw`
 :root {
   --paper: #f2eee6;
@@ -466,7 +520,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
   font-size: 12px;
 }
 .nav-item:hover { color: var(--ink); background: rgba(255,255,255,.36); }
-.nav-item.is-active { color: var(--ink); background: var(--canvas); font-weight: 680; box-shadow: inset 2px 0 var(--accent); }
+.nav-item.is-active { color: var(--ink); background: var(--canvas); font-weight: 680; }
 .nav-glyph { color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; text-align: center; }
 .nav-count { color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; }
 
@@ -479,7 +533,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
   padding-bottom: 24px;
   border-bottom: 1px solid var(--line-strong);
 }
-.view-heading h1 { margin: 0; font-family: Georgia,"Times New Roman",serif; font-size: clamp(31px,4vw,48px); font-weight: 400; letter-spacing: -.045em; }
+.view-heading h1 { margin: 0; font-family: Georgia,"Times New Roman",serif; font-size: clamp(28px,3vw,40px); font-weight: 400; letter-spacing: -.04em; }
 .view-description { max-width: 620px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .freshness { color: var(--faint); font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 9px; white-space: nowrap; }
 .view-body { min-height: 500px; animation: view-in 240ms ease both; }
@@ -513,10 +567,9 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
 .toolbar-meta { color: var(--faint); font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 9px; }
 .email-workspace { min-height: 610px; display: grid; grid-template-columns: minmax(270px,36%) minmax(0,64%); border-bottom: 1px solid var(--line-strong); }
 .email-list { max-height: 720px; overflow: auto; border-right: 1px solid var(--line-strong); }
-.email-row { position: relative; width: 100%; display: grid; gap: 7px; padding: 16px 17px; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; text-align: left; cursor: pointer; transition: background 150ms ease,padding-left 150ms ease; }
+.email-row { position: relative; width: 100%; display: grid; gap: 7px; padding: 16px 17px; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; text-align: left; cursor: pointer; transition: background 150ms ease; }
 .email-row:hover { background: rgba(255,255,255,.34); }
-.email-row.is-selected { padding-left: 21px; background: var(--canvas); }
-.email-row.is-selected::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent); content: ""; }
+.email-row.is-selected { background: var(--canvas); }
 .email-row-head, .email-row-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .email-subject { overflow: hidden; font-size: 12px; font-weight: 670; text-overflow: ellipsis; white-space: nowrap; }
 .email-time { flex: 0 0 auto; color: var(--faint); font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size: 8px; }
@@ -549,6 +602,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
 .recipient-state { font-size: 10px; }
 .recipient-attempt { color: var(--faint); font-size: 8px; text-align: right; }
 
+.resource-table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
 .resource-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .resource-table th { padding: 13px 10px; border-bottom: 1px solid var(--line-strong); color: var(--faint); font-size: 9px; font-weight: 600; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
 .resource-table td { padding: 16px 10px; border-bottom: 1px solid var(--line); color: var(--muted); vertical-align: top; overflow-wrap: anywhere; }
@@ -556,7 +610,9 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
 .resource-table code { font-size: 9px; }
 .resource-table tr.is-actionable { cursor: pointer; }
 .resource-table tr.is-actionable:hover td { background: rgba(255,255,255,.35); }
-.resource-table .row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.resource-table .column-state { width: 84px; min-width: 84px; white-space: nowrap; }
+.resource-table .column-actions { width: 88px; min-width: 88px; white-space: nowrap; }
+.resource-table .row-actions { display: flex; flex-wrap: nowrap; gap: 6px; }
 .table-action { min-height: 29px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: transparent; cursor: pointer; font-size: 9px; }
 .table-action:hover { border-color: var(--line-strong); background: var(--canvas); }
 .table-action.danger { color: var(--danger); }
@@ -669,7 +725,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
   .email-workspace { display: block; }
   .email-list { max-height: 330px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
   .detail-empty { min-height: 350px; padding: 32px 22px; }
-  .resource-table { display: block; overflow-x: auto; }
+  .resource-table { min-width: 720px; }
   .resource-detail-layout { display: block; }
   .resource-list-panel { max-height: 280px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
   .resource-detail-head { display: block; padding-inline: 18px; }
@@ -1114,6 +1170,19 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     return "<!doctype html>" + parsed.documentElement.outerHTML;
   }
 
+  function createPreviewFrame(markup, title, className = "preview-frame") {
+    const frame = document.createElement("iframe");
+    frame.className = className;
+    frame.title = title;
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.src = "/console/preview";
+    const safeMarkup = safePreviewDocument(markup);
+    frame.addEventListener("load", () => {
+      frame.contentWindow?.postMessage({ type: "hayasend.operator-console.preview.v1", markup: safeMarkup }, "*");
+    }, { once: true });
+    return frame;
+  }
+
   function fact(label, value) {
     const row = document.createElement("div");
     const dt = document.createElement("dt"); dt.textContent = label;
@@ -1135,7 +1204,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     const tabs = document.createElement("div"); tabs.className = "detail-tabs"; tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Message representation");
     const views = ["HTML", "Text", "Source"];
     const viewer = document.createElement("div");
-    const frame = document.createElement("iframe"); frame.className = "preview-frame"; frame.title = "Sandboxed email HTML preview"; frame.setAttribute("sandbox", ""); frame.srcdoc = safePreviewDocument(email.html || "<p>No HTML body.</p>");
+    const frame = createPreviewFrame(email.html || "<p>No HTML body.</p>", "Sandboxed email HTML preview");
     const text = document.createElement("pre"); text.className = "text-preview"; text.hidden = true; text.textContent = email.text || "No plain-text body.";
     const source = document.createElement("pre"); source.className = "text-preview"; source.hidden = true; source.textContent = JSON.stringify(email, null, 2);
     viewer.append(frame, text, source);
@@ -1289,15 +1358,16 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   }
 
   function resourceTable(columns, rows) {
+    const scroll = document.createElement("div"); scroll.className = "resource-table-scroll"; scroll.tabIndex = 0; scroll.setAttribute("role", "region"); scroll.setAttribute("aria-label", "Scrollable data table");
     const table = document.createElement("table"); table.className = "resource-table";
     const head = document.createElement("thead"); const headRow = document.createElement("tr");
-    columns.forEach((column) => { const th = document.createElement("th"); th.scope = "col"; th.textContent = column.label; headRow.append(th); });
+    columns.forEach((column) => { const th = document.createElement("th"); th.scope = "col"; th.className = "column-" + column.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""); th.textContent = column.label; headRow.append(th); });
     head.append(headRow); table.append(head);
     const tableBody = document.createElement("tbody");
     rows.forEach((row) => {
       const tr = document.createElement("tr");
       columns.forEach((column) => {
-        const td = document.createElement("td");
+        const td = document.createElement("td"); td.className = "column-" + column.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""); td.dataset.label = column.label;
         const value = typeof column.value === "function" ? column.value(row) : row[column.value];
         if (column.render) column.render(td, row);
         else if (column.status) td.append(pill(value));
@@ -1306,7 +1376,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
       });
       tableBody.append(tr);
     });
-    table.append(tableBody); return table;
+    table.append(tableBody); scroll.append(table); return scroll;
   }
 
   function parseTemplateVariables(value) {
@@ -1382,7 +1452,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
         openResourceDialog({
           eyebrow: version ? "Rendered publication" : "Rendered draft", title: rendered.subject || template.name, readOnly: true,
           render: (content) => {
-            const frame = document.createElement("iframe"); frame.className = "preview-frame template-preview"; frame.title = "Sandboxed template preview"; frame.setAttribute("sandbox", ""); frame.srcdoc = safePreviewDocument(rendered.html || "<p>No HTML body.</p>");
+            const frame = createPreviewFrame(rendered.html || "<p>No HTML body.</p>", "Sandboxed template preview", "preview-frame template-preview");
             const text = document.createElement("pre"); text.className = "text-preview"; text.textContent = rendered.text || "No plain-text body.";
             content.append(frame, text);
           },
@@ -1443,7 +1513,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     container.replaceChildren();
     const head = document.createElement("header"); head.className = "message-head"; const line = document.createElement("div"); line.className = "message-head-line"; line.append(pill("received")); const copy = actionButton("Copy inbound ID", async () => { await navigator.clipboard.writeText(email.id); showToast("Inbound ID copied."); }); line.append(copy); const title = document.createElement("h2"); title.textContent = email.subject || "(no subject)"; const route = document.createElement("p"); route.className = "message-route-detail"; route.textContent = email.from + " → " + (email.received_for || email.to || []).join(", "); head.append(line, title, route);
     const tabs = document.createElement("div"); tabs.className = "detail-tabs"; tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Received message representation"); const viewer = document.createElement("div");
-    const frame = document.createElement("iframe"); frame.className = "preview-frame"; frame.title = "Sandboxed received email HTML preview"; frame.setAttribute("sandbox", ""); frame.srcdoc = safePreviewDocument(email.html || "<p>No HTML body.</p>");
+    const frame = createPreviewFrame(email.html || "<p>No HTML body.</p>", "Sandboxed received email HTML preview");
     const text = document.createElement("pre"); text.className = "text-preview"; text.hidden = true; text.textContent = email.text || "No plain-text body.";
     const headers = document.createElement("pre"); headers.className = "text-preview"; headers.hidden = true; headers.textContent = JSON.stringify(email.headers || {}, null, 2); viewer.append(frame, text, headers);
     ["HTML", "Text", "Headers"].forEach((name, index) => { const button = document.createElement("button"); button.className = "detail-tab" + (index === 0 ? " is-active" : ""); button.type = "button"; button.setAttribute("role", "tab"); button.setAttribute("aria-selected", index === 0 ? "true" : "false"); button.textContent = name; button.addEventListener("click", () => { tabs.querySelectorAll("button").forEach((candidate) => { candidate.classList.toggle("is-active", candidate === button); candidate.setAttribute("aria-selected", candidate === button ? "true" : "false"); }); frame.hidden = index !== 0; text.hidden = index !== 1; headers.hidden = index !== 2; }); tabs.append(button); });
