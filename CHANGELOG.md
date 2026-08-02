@@ -6,6 +6,14 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.9 - 2026-08-03
+
+- Fix the AWS console-auth CloudFormation parameter patterns to use
+  Java-compatible whitespace syntax, so canonical API Gateway HTTPS origins
+  and normalized operator email allowlists pass real change-set validation.
+- Add template contract coverage for the production API Gateway origin,
+  operator allowlists, and invalid path, protocol, and whitespace variants.
+
 ## 0.3.8 - 2026-08-02
 
 - Render the operator console with server-side Hono JSX components while
