@@ -1,4 +1,4 @@
-const PACKAGE_VERSION = "0.3.9";
+const PACKAGE_VERSION = "0.3.10";
 const STORAGE_KEY = "hayasend-operator-workspace-v1";
 const STEP_IDS = Object.freeze([
   "identity",

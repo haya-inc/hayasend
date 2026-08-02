@@ -342,14 +342,14 @@ docker run --rm \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   -p 127.0.0.1:8787:8787 \
-  ghcr.io/haya-inc/hayasend:0.3.9
+  ghcr.io/haya-inc/hayasend:0.3.10
 ```
 
 Verify that the image was built by this repository before deploying it:
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/haya-inc/hayasend:0.3.9 \
+  oci://ghcr.io/haya-inc/hayasend:0.3.10 \
   --repo haya-inc/hayasend
 ```
 
