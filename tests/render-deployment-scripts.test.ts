@@ -39,7 +39,7 @@ elif [[ "\${1:-} \${2:-}" == "jobs create" ]]; then
 elif [[ "\${1:-} \${2:-}" == "jobs list" ]]; then
   printf '%s\\n' '[{"id":"job-1234567890abcdefghij","createdAt":"2026-07-29T00:00:00Z","status":"succeeded"}]'
 elif [[ "\${1:-}" == "logs" ]]; then
-  printf '%s' '{"id":"log-proof","labels":[],"message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.6\\",\\"database\\":{\\"major_version\\":18},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","timestamp":"2026-07-29T00:00:01Z"}'
+  printf '%s' '{"id":"log-proof","labels":[],"message":"{\\"object\\":\\"portable_hosted_semantic_proof\\",\\"hayasend_version\\":\\"0.3.7\\",\\"database\\":{\\"major_version\\":18},\\"checks\\":{\\"scheduled_horizon_seconds\\":2592000,\\"atomic_delivery_commit\\":true,\\"idempotency_replay\\":true,\\"periodic_sweeper_recovered\\":true,\\"provider_acceptance_only\\":true,\\"terminal_delivery_claimed\\":false,\\"external_send_performed\\":false},\\"cleanup\\":{\\"complete\\":true,\\"fixture_rows_remaining\\":0}}","timestamp":"2026-07-29T00:00:01Z"}'
 elif [[ "\${1:-}" == "services" && "\${2:-}" == "--include-previews" ]]; then
   printf '%s\\n' '[]'
 elif [[ "\${1:-} \${2:-}" == "postgres list" ]]; then
