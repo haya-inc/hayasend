@@ -6,6 +6,17 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.8 - 2026-08-02
+
+- Render the operator console with server-side Hono JSX components while
+  preserving the existing deployment-local API-key workflow.
+- Add Better Auth Google login with a verified-email allowlist, encrypted
+  stateless eight-hour sessions, same-origin mutation checks, and an explicit
+  API-key fallback for operators and automation.
+- Keep Better Auth and Google credentials in AWS Secrets Manager with
+  least-privilege access limited to the API Lambda, and expose complete,
+  plan-first deployment settings for enabling or disabling console login.
+
 ## 0.3.7 - 2026-08-02
 
 - Keep operator-console State and Actions columns readable at constrained
