@@ -3,6 +3,8 @@
 
 import { jsx, type FC } from "hono/jsx";
 
+import { OPERATOR_CONSOLE_NAVIGATION } from "./operator-console-model.js";
+
 // SAM's esbuild integration currently emits classic JSX calls. The explicit
 // factory keeps the Lambda bundle on Hono JSX while TypeScript uses its JSX
 // runtime for type checking.
@@ -11,17 +13,6 @@ void jsx;
 export interface OperatorConsoleViewOptions {
   betterAuthEnabled: boolean;
 }
-
-const navigation = [
-  ["overview", "⌁", "Overview"],
-  ["emails", "↗", "Emails"],
-  ["received", "↙", "Received"],
-  ["templates", "◇", "Templates"],
-  ["domains", "◎", "Domains"],
-  ["webhooks", "⌘", "Webhooks"],
-  ["suppressions", "⊘", "Suppressions"],
-  ["api-keys", "⌁", "API keys"],
-] as const;
 
 const Brand: FC<{ compact?: boolean }> = ({ compact = false }) => (
   <span class={compact ? "brand" : "auth-brand"} aria-label="HayaSend">
@@ -107,7 +98,7 @@ const Topbar: FC = () => (
 const Navigation: FC = () => (
   <nav class="side-nav" aria-label="Console navigation">
     <div class="nav-primary">
-      {navigation.map(([view, glyph, label], index) => (
+      {OPERATOR_CONSOLE_NAVIGATION.map(([view, glyph, label], index) => (
         <button
           class={`nav-item${index === 0 ? " is-active" : ""}`}
           type="button"
