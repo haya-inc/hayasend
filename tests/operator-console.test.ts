@@ -123,7 +123,11 @@ describe("authenticated operator console", () => {
       'sandbox="allow-scripts"',
     );
     expect(operatorConsoleClientSource).toContain(
-      'src="/console/preview"',
+      'src={`/console/preview#${previewHash.toString()}`}',
+    );
+    expect(operatorConsoleClientSource).toContain('event.origin !== "null"');
+    expect(operatorConsoleClientSource).toContain(
+      "event.data.channel !== activePreview.channel",
     );
     expect(operatorConsoleClientSource).toContain(
       "(source as Window).postMessage",
@@ -137,6 +141,12 @@ describe("authenticated operator console", () => {
     );
     expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
       "event.source !== window.parent",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "event.origin !== parentOrigin",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "data.channel !== channel",
     );
     expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
       'script, iframe, object, embed, form, base, link, meta[http-equiv]',

@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx/dom */
 
-import { render, useState } from "hono/jsx/dom";
+import { render, useMemo, useState } from "hono/jsx/dom";
 
 import {
   OPERATOR_CONSOLE_NAVIGATION,
@@ -127,23 +127,29 @@ let navigationController: NavigationController | null = null;
 let emailBrowserController: EmailBrowserController | null = null;
 let authController: AuthController | null = null;
 let sendDialogController: SendDialogController | null = null;
-let activePreviewMarkup = "";
+let activePreview: { channel: string; markup: string } | null = null;
 
 const PREVIEW_MESSAGE_TYPE = "hayasend.operator-console.preview.v1";
 const PREVIEW_READY_TYPE = "hayasend.operator-console.preview-ready.v1";
 
 window.addEventListener("message", (event) => {
   if (
+    event.origin !== "null" ||
     !event.data ||
     event.data.type !== PREVIEW_READY_TYPE ||
-    !activePreviewMarkup
+    !activePreview ||
+    event.data.channel !== activePreview.channel
   ) {
     return;
   }
   const source = event.source;
   if (!source || !("postMessage" in source)) return;
   (source as Window).postMessage(
-    { type: PREVIEW_MESSAGE_TYPE, markup: activePreviewMarkup },
+    {
+      type: PREVIEW_MESSAGE_TYPE,
+      channel: activePreview.channel,
+      markup: activePreview.markup,
+    },
     "*",
   );
 });
@@ -553,7 +559,12 @@ function EmailDetail({
   );
   const tabs = ["html", "text", "source"] as const;
   const status = recipients.aggregate_status || email.status;
-  activePreviewMarkup = safeMarkup;
+  const previewChannel = useMemo(() => crypto.randomUUID(), [email.id]);
+  const previewHash = new URLSearchParams({
+    channel: previewChannel,
+    parentOrigin: location.origin,
+  });
+  activePreview = { channel: previewChannel, markup: safeMarkup };
 
   return (
     <>
@@ -595,7 +606,7 @@ function EmailDetail({
           class="preview-frame"
           title="Sandboxed email HTML preview"
           sandbox="allow-scripts"
-          src="/console/preview"
+          src={`/console/preview#${previewHash.toString()}`}
           hidden={activeTab !== "html"}
         ></iframe>
         <pre class="text-preview" hidden={activeTab !== "text"}>

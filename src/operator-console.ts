@@ -9,6 +9,16 @@ export const OPERATOR_CONSOLE_PREVIEW_JS = String.raw`
   const MESSAGE_TYPE = "hayasend.operator-console.preview.v1";
   const READY_TYPE = "hayasend.operator-console.preview-ready.v1";
   const MAX_MARKUP_BYTES = 2_000_000;
+  const CHANNEL_PATTERN = /^[0-9a-f-]{36}$/;
+  const previewParameters = new URLSearchParams(location.hash.slice(1));
+  const channel = previewParameters.get("channel") || "";
+  const parentOrigin = previewParameters.get("parentOrigin") || "";
+
+  try {
+    if (!CHANNEL_PATTERN.test(channel) || new URL(parentOrigin).origin !== parentOrigin) return;
+  } catch {
+    return;
+  }
 
   function sanitize(markup) {
     const parsed = new DOMParser().parseFromString(String(markup || ""), "text/html");
@@ -37,13 +47,13 @@ export const OPERATOR_CONSOLE_PREVIEW_JS = String.raw`
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window.parent) return;
+    if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const data = event.data;
-    if (!data || data.type !== MESSAGE_TYPE || typeof data.markup !== "string" || data.markup.length > MAX_MARKUP_BYTES) return;
+    if (!data || data.type !== MESSAGE_TYPE || data.channel !== channel || typeof data.markup !== "string" || data.markup.length > MAX_MARKUP_BYTES) return;
     render(data.markup);
   });
 
-  window.parent.postMessage({ type: READY_TYPE }, "*");
+  window.parent.postMessage({ type: READY_TYPE, channel }, parentOrigin);
 })();
 `;
 
