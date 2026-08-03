@@ -8,7 +8,7 @@ import {
   OPERATOR_CONSOLE_CSS,
   OPERATOR_CONSOLE_JS,
   OPERATOR_CONSOLE_PREVIEW_HTML,
-  OPERATOR_CONSOLE_PREVIEW_JS,
+  OPERATOR_CONSOLE_PREVIEW_NONCE,
 } from "./operator-console.js";
 import { renderOperatorConsole } from "./operator-console-view.js";
 import {
@@ -391,7 +391,6 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
         "/console/app.css",
         "/console/app.js",
         "/console/preview",
-        "/console/preview.js",
       ].includes(context.req.path);
     const consoleAuthPath =
       options.consoleAuth !== undefined &&
@@ -512,19 +511,12 @@ export function createApp(services: AppServices, options: AppOptions = {}) {
   app.get("/console/preview", (context) => {
     setOperatorConsoleSecurityHeaders(
       context,
-      "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+      `default-src 'none'; script-src 'nonce-${OPERATOR_CONSOLE_PREVIEW_NONCE}'; style-src 'unsafe-inline'; ` +
         "connect-src 'none'; img-src data: cid:; font-src 'none'; media-src 'none'; " +
         "frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
       "SAMEORIGIN",
     );
     return context.html(OPERATOR_CONSOLE_PREVIEW_HTML);
-  });
-
-  app.get("/console/preview.js", (context) => {
-    setOperatorConsoleSecurityHeaders(context);
-    return context.body(OPERATOR_CONSOLE_PREVIEW_JS, 200, {
-      "content-type": "text/javascript; charset=utf-8",
-    });
   });
 
   if (options.consoleAuth) {

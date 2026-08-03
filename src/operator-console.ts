@@ -1,21 +1,24 @@
-export const OPERATOR_CONSOLE_PREVIEW_HTML = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
-    <title>HayaSend email preview</title>
-    <script defer src="/console/preview.js"></script>
-  </head>
-  <body></body>
-</html>`;
+import { OPERATOR_CONSOLE_COMPONENTS_JS } from "./operator-console-client.generated.js";
+
+export const OPERATOR_CONSOLE_PREVIEW_NONCE = "hayasend-preview-v1";
 
 export const OPERATOR_CONSOLE_PREVIEW_JS = String.raw`
 (() => {
   "use strict";
 
   const MESSAGE_TYPE = "hayasend.operator-console.preview.v1";
+  const READY_TYPE = "hayasend.operator-console.preview-ready.v1";
   const MAX_MARKUP_BYTES = 2_000_000;
+  const CHANNEL_PATTERN = /^[0-9a-f-]{36}$/;
+  const previewParameters = new URLSearchParams(location.hash.slice(1));
+  const channel = previewParameters.get("channel") || "";
+  const parentOrigin = previewParameters.get("parentOrigin") || "";
+
+  try {
+    if (!CHANNEL_PATTERN.test(channel) || new URL(parentOrigin).origin !== parentOrigin) return;
+  } catch {
+    return;
+  }
 
   function sanitize(markup) {
     const parsed = new DOMParser().parseFromString(String(markup || ""), "text/html");
@@ -44,13 +47,27 @@ export const OPERATOR_CONSOLE_PREVIEW_JS = String.raw`
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window.parent) return;
+    if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const data = event.data;
-    if (!data || data.type !== MESSAGE_TYPE || typeof data.markup !== "string" || data.markup.length > MAX_MARKUP_BYTES) return;
+    if (!data || data.type !== MESSAGE_TYPE || data.channel !== channel || typeof data.markup !== "string" || data.markup.length > MAX_MARKUP_BYTES) return;
     render(data.markup);
   });
+
+  window.parent.postMessage({ type: READY_TYPE, channel }, parentOrigin);
 })();
 `;
+
+export const OPERATOR_CONSOLE_PREVIEW_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>HayaSend email preview</title>
+    <script nonce="${OPERATOR_CONSOLE_PREVIEW_NONCE}">${OPERATOR_CONSOLE_PREVIEW_JS}</script>
+  </head>
+  <body></body>
+</html>`;
 
 export const OPERATOR_CONSOLE_CSS = String.raw`
 :root {
@@ -476,6 +493,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
 .secret-output code { padding: 12px; overflow-wrap: anywhere; color: var(--ink); background: white; font-size: 10px; line-height: 1.5; user-select: all; }
 .secret-warning { margin: 0; color: var(--danger); font-size: 10px; line-height: 1.5; }
 .empty-resource, .permission-state, .loading-state, .error-state { min-height: 390px; display: grid; place-content: center; justify-items: start; padding: 54px 0; }
+.email-list-empty { min-height: 0; padding: 32px 18px; }
 .empty-resource h2, .permission-state h2, .error-state h2 { margin: 0 0 8px; font-family: Georgia,"Times New Roman",serif; font-size: 29px; font-weight: 400; letter-spacing: -.035em; }
 .empty-resource p, .permission-state p, .error-state p { max-width: 520px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .loading-line { width: min(520px,70vw); height: 1px; overflow: hidden; background: var(--line); }
@@ -572,7 +590,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: var(--can
 }
 `;
 
-export const OPERATOR_CONSOLE_JS = String.raw`
+const OPERATOR_CONSOLE_LEGACY_JS = String.raw`
 (() => {
   "use strict";
 
@@ -613,6 +631,11 @@ export const OPERATOR_CONSOLE_JS = String.raw`
 
   const byId = (id) => document.getElementById(id);
   const body = byId("view-body");
+
+  function consoleUI() {
+    if (!window.HayaSendConsoleUI) throw new Error("The Hono JSX console client did not initialize.");
+    return window.HayaSendConsoleUI;
+  }
 
   class ApiError extends Error {
     constructor(status, message) {
@@ -782,9 +805,8 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     state.emails = [];
     byId("console-shell").hidden = true;
     byId("auth-screen").hidden = false;
-    byId("api-key").value = "";
     byId("account-popover").hidden = true;
-    if (showMessage) setText("auth-error", "Disconnected from the deployment.");
+    consoleUI().resetAuth(showMessage ? "Disconnected from the deployment." : "");
     const target = document.documentElement.dataset.consoleAuth === "better-auth" ? byId("google-sign-in") : byId("api-key");
     target.focus();
   }
@@ -806,11 +828,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     setText("view-eyebrow", meta[0]);
     setText("view-title", meta[1]);
     setText("view-description", meta[2]);
-    document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
-      const selected = item.dataset.view === view;
-      item.classList.toggle("is-active", selected);
-      if (selected) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
-    });
+    consoleUI().setActiveView(view);
   }
 
   async function selectView(view) {
@@ -914,86 +932,41 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   }
 
   async function loadEmailList(force) {
-    if (!force && state.emails.length) return;
+    if (!force && state.emails.length) {
+      consoleUI().setEmailCount(state.emails.length);
+      return;
+    }
     const page = await api("/emails?limit=100&view=summary");
     state.emails = Array.isArray(page.data) ? page.data : [];
-    setText("nav-email-count", state.emails.length || "");
-  }
-
-  function renderEmailRows(container, query) {
-    container.replaceChildren();
-    const normalized = query.trim().toLowerCase();
-    const records = state.emails.filter((email) => {
-      if (!normalized) return true;
-      return [email.subject, email.from, ...(email.to || []), email.id, email.status].some((value) => String(value || "").toLowerCase().includes(normalized));
-    });
-    for (const email of records) {
-      const button = document.createElement("button"); button.className = "email-row"; button.type = "button"; button.dataset.emailId = email.id;
-      button.setAttribute("role", "option");
-      if (state.selectedEmailId === email.id) { button.classList.add("is-selected"); button.setAttribute("aria-selected", "true"); }
-      const head = document.createElement("span"); head.className = "email-row-head";
-      const subject = document.createElement("span"); subject.className = "email-subject"; subject.textContent = email.subject || "(no subject)";
-      const time = document.createElement("time"); time.className = "email-time"; time.textContent = relativeTime(email.created_at);
-      head.append(subject, time);
-      const foot = document.createElement("span"); foot.className = "email-row-foot";
-      const route = document.createElement("span"); route.className = "email-route"; route.textContent = (email.to || []).join(", ") || "No recipient";
-      foot.append(route, pill(email.status));
-      button.append(head, foot);
-      button.addEventListener("click", () => selectEmail(email.id, container, normalized));
-      container.append(button);
-    }
-    if (!records.length) {
-      const empty = document.createElement("div"); empty.className = "empty-resource"; empty.style.padding = "32px 18px";
-      const title = document.createElement("h2"); title.textContent = normalized ? "No matching email." : "No emails yet.";
-      const copy = document.createElement("p"); copy.textContent = normalized ? "Try a recipient, subject, status, or HayaSend message ID." : "Send through the API, an official Resend SDK, or the scoped test-send action.";
-      empty.append(title, copy); container.append(empty);
-    }
-    setText("email-visible-count", records.length + " shown");
+    consoleUI().setEmailCount(state.emails.length);
   }
 
   async function renderEmails() {
     if (!hasScope("emails:read")) { showPermission("emails:read"); return; }
     await loadEmailList(false);
-    body.replaceChildren();
-    const toolbar = document.createElement("div"); toolbar.className = "toolbar";
-    const search = document.createElement("label"); search.className = "search-field"; search.innerHTML = "<span aria-hidden=\"true\">⌕</span><input type=\"search\" autocomplete=\"off\" placeholder=\"Search subject, recipient, status, or ID\" aria-label=\"Search emails\">";
-    const meta = document.createElement("span"); meta.id = "email-visible-count"; meta.className = "toolbar-meta";
-    toolbar.append(search, meta);
-    const workspace = document.createElement("section"); workspace.className = "email-workspace";
-    const list = document.createElement("div"); list.className = "email-list"; list.setAttribute("role", "listbox"); list.setAttribute("aria-label", "Sent emails");
-    const detail = document.createElement("article"); detail.id = "email-detail"; detail.className = "email-detail";
-    workspace.append(list, detail); body.append(toolbar, workspace);
-    search.querySelector("input").addEventListener("input", (event) => renderEmailRows(list, event.target.value));
-    renderEmailRows(list, "");
-    if (state.selectedEmailId && state.emails.some((email) => email.id === state.selectedEmailId)) await selectEmail(state.selectedEmailId, list, "");
-    else renderEmailEmpty(detail);
+    consoleUI().renderEmails({
+      emails: state.emails,
+      selectedId: state.selectedEmailId,
+      onSelect: (id) => { void selectEmail(id); },
+      onCopyMessageId: async (id) => {
+        await navigator.clipboard.writeText(id);
+        showToast("Message ID copied.");
+      },
+    });
+    if (state.selectedEmailId && state.emails.some((email) => email.id === state.selectedEmailId)) await selectEmail(state.selectedEmailId);
+    else consoleUI().showEmailEmpty();
   }
 
-  function renderEmailEmpty(container) {
-    container.replaceChildren();
-    const empty = document.createElement("div"); empty.className = "detail-empty";
-    const eye = document.createElement("p"); eye.className = "eyebrow"; eye.textContent = "Message inspector";
-    const title = document.createElement("h2"); title.textContent = "Select an email to inspect its delivery truth.";
-    const copy = document.createElement("p"); copy.textContent = "Content stays in this deployment. Recipient summaries expose terminal state and recovery attention without duplicating addresses.";
-    empty.append(eye, title, copy); container.append(empty);
-  }
-
-  async function selectEmail(id, list, query) {
+  async function selectEmail(id) {
     state.selectedEmailId = id;
-    renderEmailRows(list, query);
-    const detail = byId("email-detail");
-    detail.replaceChildren();
-    const loading = document.createElement("div"); loading.className = "loading-state"; loading.innerHTML = "<div class=\"loading-line\"></div>"; detail.append(loading);
+    consoleUI().setSelectedEmail(id);
+    consoleUI().showEmailLoading();
     try {
       const [email, recipients] = await Promise.all([api("/emails/" + encodeURIComponent(id)), api("/emails/" + encodeURIComponent(id) + "/recipients?limit=100")]);
       state.selectedEmail = email; state.recipients = recipients;
-      renderEmailDetail(detail, email, recipients);
+      consoleUI().showEmailDetail(email, recipients, safePreviewDocument(email.html || "<p>No HTML body.</p>"));
     } catch (error) {
-      detail.replaceChildren();
-      const failure = document.createElement("div"); failure.className = "error-state";
-      const title = document.createElement("h2"); title.textContent = "This email could not be loaded.";
-      const copy = document.createElement("p"); copy.textContent = error instanceof Error ? error.message : "Unexpected error.";
-      failure.append(title, copy); detail.append(failure);
+      consoleUI().showEmailError(error instanceof Error ? error.message : "Unexpected error.");
     }
   }
 
@@ -1013,75 +986,6 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     csp.setAttribute("content", "default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src 'none'; media-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'");
     parsed.head.prepend(csp);
     return "<!doctype html>" + parsed.documentElement.outerHTML;
-  }
-
-  function createPreviewFrame(markup, title, className = "preview-frame") {
-    const frame = document.createElement("iframe");
-    frame.className = className;
-    frame.title = title;
-    frame.setAttribute("sandbox", "allow-scripts");
-    frame.src = "/console/preview";
-    const safeMarkup = safePreviewDocument(markup);
-    frame.addEventListener("load", () => {
-      frame.contentWindow?.postMessage({ type: "hayasend.operator-console.preview.v1", markup: safeMarkup }, "*");
-    }, { once: true });
-    return frame;
-  }
-
-  function fact(label, value) {
-    const row = document.createElement("div");
-    const dt = document.createElement("dt"); dt.textContent = label;
-    const dd = document.createElement("dd"); dd.textContent = value == null || value === "" ? "—" : String(value);
-    row.append(dt, dd); return row;
-  }
-
-  function renderEmailDetail(container, email, recipients) {
-    container.replaceChildren();
-    const head = document.createElement("header"); head.className = "message-head";
-    const line = document.createElement("div"); line.className = "message-head-line"; line.append(pill(recipients.aggregate_status || email.status));
-    const copyId = document.createElement("button"); copyId.className = "copy-link"; copyId.type = "button"; copyId.textContent = "Copy message ID";
-    copyId.addEventListener("click", async () => { await navigator.clipboard.writeText(email.id); showToast("Message ID copied."); });
-    line.append(copyId);
-    const title = document.createElement("h2"); title.textContent = email.subject || "(no subject)";
-    const route = document.createElement("p"); route.className = "message-route-detail"; route.textContent = email.from + " → " + (email.to || []).join(", ");
-    head.append(line, title, route);
-
-    const tabs = document.createElement("div"); tabs.className = "detail-tabs"; tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Message representation");
-    const views = ["HTML", "Text", "Source"];
-    const viewer = document.createElement("div");
-    const frame = createPreviewFrame(email.html || "<p>No HTML body.</p>", "Sandboxed email HTML preview");
-    const text = document.createElement("pre"); text.className = "text-preview"; text.hidden = true; text.textContent = email.text || "No plain-text body.";
-    const source = document.createElement("pre"); source.className = "text-preview"; source.hidden = true; source.textContent = JSON.stringify(email, null, 2);
-    viewer.append(frame, text, source);
-    views.forEach((name, index) => {
-      const button = document.createElement("button"); button.className = "detail-tab" + (index === 0 ? " is-active" : ""); button.type = "button"; button.setAttribute("role", "tab"); button.setAttribute("aria-selected", index === 0 ? "true" : "false"); button.textContent = name;
-      button.addEventListener("click", () => {
-        tabs.querySelectorAll("button").forEach((candidate) => { candidate.classList.toggle("is-active", candidate === button); candidate.setAttribute("aria-selected", candidate === button ? "true" : "false"); });
-        frame.hidden = index !== 0; text.hidden = index !== 1; source.hidden = index !== 2;
-      });
-      tabs.append(button);
-    });
-
-    const lower = document.createElement("div"); lower.className = "detail-lower";
-    const factsPanel = document.createElement("section"); factsPanel.className = "detail-panel";
-    const factsTitle = document.createElement("h3"); factsTitle.textContent = "Message facts";
-    const facts = document.createElement("dl"); facts.className = "fact-list";
-    facts.append(fact("Created", formatDate(email.created_at, true)), fact("Last event", email.last_event), fact("Provider ID", email.message_id || email.provider_id), fact("Recipients", recipients.recipient_count), fact("Attachments", (email.attachments || []).length), fact("Message ID", email.id));
-    factsPanel.append(factsTitle, facts);
-    const recipientPanel = document.createElement("section"); recipientPanel.className = "detail-panel";
-    const recipientTitle = document.createElement("h3"); recipientTitle.textContent = "Recipient ledger";
-    const recipientList = document.createElement("div"); recipientList.className = "recipient-list";
-    for (const recipient of recipients.data || []) {
-      const row = document.createElement("div"); row.className = "recipient-row";
-      const index = document.createElement("span"); index.className = "recipient-index"; index.textContent = recipient.role + " " + (recipient.ordinal + 1);
-      const status = document.createElement("span"); status.className = "recipient-state"; status.append(pill(recipient.status));
-      const attempt = document.createElement("span"); attempt.className = "recipient-attempt"; attempt.textContent = recipient.latest_attempt ? "attempt " + recipient.latest_attempt.sequence + " · " + recipient.recovery_state : recipient.recovery_state;
-      row.append(index, status, attempt); recipientList.append(row);
-    }
-    if (!(recipients.data || []).length) { const none = document.createElement("p"); none.className = "signal-detail"; none.textContent = "No recipient summaries available."; recipientList.append(none); }
-    recipientPanel.append(recipientTitle, recipientList);
-    lower.append(factsPanel, recipientPanel);
-    container.append(head, tabs, viewer, lower);
   }
 
   function actionButton(label, handler, options = {}) {
@@ -1626,29 +1530,36 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     return payload;
   }
 
-  byId("deployment-origin").textContent = "Same-origin only · " + location.origin;
-  byId("google-sign-in").addEventListener("click", async () => {
-    const button = byId("google-sign-in"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Opening Google…";
-    try {
+  consoleUI().mountAuth({
+    betterAuthEnabled: document.documentElement.dataset.consoleAuth === "better-auth",
+    onGoogleSignIn: async () => {
       const result = await betterAuthRequest("/api/auth/sign-in/social", { provider: "google", callbackURL: location.origin + "/console" });
       const target = new URL(result && result.url ? result.url : "", location.origin);
       if (target.protocol !== "https:") throw new Error("The identity provider returned an unsafe redirect.");
       location.assign(target.href);
-    } catch (reason) {
-      error.textContent = reason instanceof Error ? reason.message : "Sign-in failed."; error.hidden = false; button.disabled = false; button.textContent = "Continue with Google";
-    }
+    },
+    onConnect: async (token) => {
+      try { await connect(token); }
+      catch (reason) {
+        state.token = "";
+        sessionStorage.removeItem(SESSION_KEY);
+        throw reason;
+      }
+    },
   });
-  byId("auth-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const button = byId("connect"); const error = byId("auth-error"); error.hidden = true; button.disabled = true; button.textContent = "Connecting…";
-    try { await connect(byId("api-key").value.trim()); }
-    catch (reason) { state.token = ""; sessionStorage.removeItem(SESSION_KEY); error.textContent = reason instanceof Error ? reason.message : "Connection failed."; error.hidden = false; }
-    finally { button.disabled = false; button.textContent = "Connect with API key"; }
+  consoleUI().mountNavigation({
+    initialView: "overview",
+    onNavigate: (view) => { void selectView(view); },
   });
-  byId("toggle-secret").addEventListener("click", () => {
-    const input = byId("api-key"); const visible = input.type === "text"; input.type = visible ? "password" : "text"; byId("toggle-secret").textContent = visible ? "Show" : "Hide"; byId("toggle-secret").setAttribute("aria-label", visible ? "Show API key" : "Hide API key");
+  consoleUI().mountSendDialog({
+    onSubmit: async (form) => {
+      const created = await submitTestSend(form);
+      state.emails = [];
+      state.selectedEmailId = created.id;
+      showToast("Email accepted · " + created.id);
+      await selectView("emails");
+    },
   });
-  document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
   byId("refresh-view").addEventListener("click", async () => { state.resources.delete(state.view); if (state.view === "emails" || state.view === "overview") state.emails = []; await checkHealth(); await selectView(state.view); });
   byId("account-menu").addEventListener("click", () => { const popover = byId("account-popover"); popover.hidden = !popover.hidden; byId("account-menu").setAttribute("aria-expanded", popover.hidden ? "false" : "true"); });
   byId("sign-out").addEventListener("click", async () => {
@@ -1658,15 +1569,7 @@ export const OPERATOR_CONSOLE_JS = String.raw`
     }
     disconnect();
   });
-  byId("open-send").addEventListener("click", () => { byId("send-error").hidden = true; byId("send-dialog").showModal(); });
-  byId("close-send").addEventListener("click", () => byId("send-dialog").close());
-  byId("cancel-send").addEventListener("click", () => byId("send-dialog").close());
-  byId("send-form").addEventListener("submit", async (event) => {
-    event.preventDefault(); const form = event.currentTarget; const button = byId("submit-send"); const error = byId("send-error"); error.hidden = true; button.disabled = true; button.textContent = "Sending…";
-    try { const created = await submitTestSend(form); byId("send-dialog").close(); form.reset(); state.emails = []; state.selectedEmailId = created.id; showToast("Email accepted · " + created.id); await selectView("emails"); }
-    catch (reason) { error.textContent = reason instanceof Error ? reason.message : "Send failed."; error.hidden = false; }
-    finally { button.disabled = false; button.textContent = "Send email"; }
-  });
+  byId("open-send").addEventListener("click", () => consoleUI().openSendDialog());
   byId("close-resource-dialog").addEventListener("click", closeResourceDialog);
   byId("cancel-resource-dialog").addEventListener("click", closeResourceDialog);
   byId("resource-dialog").addEventListener("close", () => { state.resourceSubmit = null; byId("resource-dialog-body").replaceChildren(); });
@@ -1708,3 +1611,6 @@ export const OPERATOR_CONSOLE_JS = String.raw`
   boot().catch(() => disconnect(false));
 })();
 `;
+
+export const OPERATOR_CONSOLE_JS =
+  OPERATOR_CONSOLE_COMPONENTS_JS + "\n" + OPERATOR_CONSOLE_LEGACY_JS;

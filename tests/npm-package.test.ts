@@ -60,9 +60,9 @@ describe("npm CLI distribution", () => {
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(workflow).toContain(".entryCount <= 639");
-    expect(workflow).toContain(".size < 900000");
-    expect(workflow).toContain(".unpackedSize < 4600000");
+    expect(workflow).toContain(".entryCount <= 655");
+    expect(workflow).toContain(".size < 940000");
+    expect(workflow).toContain(".unpackedSize < 4800000");
     expect(workflow).toContain(
       'index("dist/cli-resend-migration.js") != null',
     );
@@ -72,6 +72,24 @@ describe("npm CLI distribution", () => {
     expect(workflow).toContain('index("dist/cli-aws-bootstrap.js") != null');
     expect(workflow).toContain('index("dist/operator-console.js") != null');
     expect(workflow).toContain('index("src/operator-console.ts") != null');
+    expect(workflow).toContain(
+      'index("dist/operator-console-client.generated.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("src/operator-console-client.generated.ts") != null',
+    );
+    expect(workflow).toContain(
+      'index("dist/operator-console-client.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("src/operator-console-client.tsx") != null',
+    );
+    expect(workflow).toContain(
+      'index("dist/operator-console-model.js") != null',
+    );
+    expect(workflow).toContain(
+      'index("src/operator-console-model.ts") != null',
+    );
     expect(workflow).toContain(
       'index("dist/operator-console-view.js") != null',
     );

@@ -49,11 +49,11 @@ for (const [functionName, fileName] of bundles) {
   process.stdout.write(`${functionName}: handler loaded\n`);
 }
 
-const consoleResponse = await loadedBundles.get("ApiFunction").handler(
-  {
+const createApiGatewayEvent = (rawPath) =>
+  ({
     version: "2.0",
     routeKey: "GET /{proxy+}",
-    rawPath: "/console",
+    rawPath,
     rawQueryString: "",
     headers: {
       host: "console.example.com",
@@ -78,9 +78,15 @@ const consoleResponse = await loadedBundles.get("ApiFunction").handler(
       timeEpoch: 1_767_225_600_000,
     },
     isBase64Encoded: false,
-  },
-  { awsRequestId: "lambda-bundle-verifier" },
-);
+  });
+
+const apiHandler = loadedBundles.get("ApiFunction").handler;
+const invokeApi = (rawPath) =>
+  apiHandler(createApiGatewayEvent(rawPath), {
+    awsRequestId: "lambda-bundle-verifier",
+  });
+
+const consoleResponse = await invokeApi("/console");
 
 if (
   consoleResponse.statusCode !== 200 ||
@@ -90,3 +96,30 @@ if (
   throw new Error("The SAM-built operator console did not render correctly.");
 }
 process.stdout.write("ApiFunction: operator console rendered\n");
+
+const consoleScriptResponse = await invokeApi("/console/app.js");
+if (
+  consoleScriptResponse.statusCode !== 200 ||
+  !consoleScriptResponse.headers?.["content-type"]?.includes(
+    "text/javascript",
+  ) ||
+  !consoleScriptResponse.body?.includes("HayaSendConsoleUI") ||
+  consoleScriptResponse.body.includes("react-dom")
+) {
+  throw new Error("The SAM-built Hono JSX console client is invalid.");
+}
+process.stdout.write("ApiFunction: Hono JSX console client loaded\n");
+
+const previewResponse = await invokeApi("/console/preview");
+if (
+  previewResponse.statusCode !== 200 ||
+  !previewResponse.headers?.["content-security-policy"]?.includes(
+    "script-src 'nonce-hayasend-preview-v1'",
+  ) ||
+  !previewResponse.body?.includes(
+    "hayasend.operator-console.preview-ready.v1",
+  )
+) {
+  throw new Error("The SAM-built sandboxed email preview is invalid.");
+}
+process.stdout.write("ApiFunction: sandboxed email preview loaded\n");

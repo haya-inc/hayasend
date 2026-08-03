@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +9,11 @@ import {
   OPERATOR_CONSOLE_PREVIEW_JS,
 } from "../src/operator-console.js";
 import { renderOperatorConsole } from "../src/operator-console-view.js";
+
+const operatorConsoleClientSource = readFileSync(
+  new URL("../src/operator-console-client.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("authenticated operator console", () => {
   it("ships a restrained, accessible operations workspace without remote runtime assets", () => {
@@ -91,6 +98,19 @@ describe("authenticated operator console", () => {
     expect(html).toContain('id="confirm-dialog"');
   });
 
+  it("uses Hono JSX DOM rather than React for declarative console interactions", () => {
+    expect(operatorConsoleClientSource).toContain(
+      'from "hono/jsx/dom"',
+    );
+    expect(operatorConsoleClientSource).toContain("function Navigation(");
+    expect(operatorConsoleClientSource).toContain("function EmailBrowser(");
+    expect(operatorConsoleClientSource).toContain("function EmailDetail(");
+    expect(operatorConsoleClientSource).not.toMatch(
+      /from ["'](?:react|react-dom)/,
+    );
+    expect(OPERATOR_CONSOLE_JS).toContain("HayaSendConsoleUI");
+  });
+
   it("hardens previews and handles generated secrets as one-time values", () => {
     expect(OPERATOR_CONSOLE_JS).toContain("safePreviewDocument");
     expect(OPERATOR_CONSOLE_JS).toContain(
@@ -99,17 +119,34 @@ describe("authenticated operator console", () => {
     expect(OPERATOR_CONSOLE_JS).toContain("default-src 'none'");
     expect(OPERATOR_CONSOLE_JS).toContain("connect-src 'none'");
     expect(OPERATOR_CONSOLE_JS).toContain("form-action 'none'");
-    expect(OPERATOR_CONSOLE_JS).toContain(
-      'frame.setAttribute("sandbox", "allow-scripts")',
+    expect(operatorConsoleClientSource).toContain(
+      'sandbox="allow-scripts"',
     );
-    expect(OPERATOR_CONSOLE_JS).toContain('frame.src = "/console/preview"');
-    expect(OPERATOR_CONSOLE_JS).toContain("frame.contentWindow?.postMessage");
+    expect(operatorConsoleClientSource).toContain(
+      'src={`/console/preview#${previewHash.toString()}`}',
+    );
+    expect(operatorConsoleClientSource).toContain('event.origin !== "null"');
+    expect(operatorConsoleClientSource).toContain(
+      "event.data.channel !== activePreview.channel",
+    );
+    expect(operatorConsoleClientSource).toContain(
+      "(source as Window).postMessage",
+    );
     expect(OPERATOR_CONSOLE_JS).not.toContain("frame.srcdoc =");
     expect(OPERATOR_CONSOLE_PREVIEW_HTML).toContain(
-      'src="/console/preview.js"',
+      'nonce="hayasend-preview-v1"',
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_HTML).toContain(
+      OPERATOR_CONSOLE_PREVIEW_JS,
     );
     expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
       "event.source !== window.parent",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "event.origin !== parentOrigin",
+    );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "data.channel !== channel",
     );
     expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
       'script, iframe, object, embed, form, base, link, meta[http-equiv]',
@@ -117,7 +154,11 @@ describe("authenticated operator console", () => {
     expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
       "style.dataset.emailPreviewStyle",
     );
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).toContain(
+      "hayasend.operator-console.preview-ready.v1",
+    );
     expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("fetch(");
+    expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("</script");
     expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("sessionStorage");
     expect(OPERATOR_CONSOLE_PREVIEW_JS).not.toContain("localStorage");
     expect(OPERATOR_CONSOLE_JS).toContain("showOneTimeSecret");

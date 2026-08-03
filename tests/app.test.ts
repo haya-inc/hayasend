@@ -214,10 +214,11 @@ describe("HTTP API", () => {
     expect(await emailPreview.text()).toContain("HayaSend email preview");
 
     const emailPreviewScript = await app.request("/console/preview.js");
-    expect(emailPreviewScript.status).toBe(200);
-    expect(emailPreviewScript.headers.get("content-type")).toContain(
-      "text/javascript",
+    expect(emailPreviewScript.status).toBe(401);
+    const authenticatedEmailPreviewScript = await request(
+      "/console/preview.js",
     );
+    expect(authenticatedEmailPreviewScript.status).toBe(404);
 
     const anonymousSession = await app.request("/auth/session");
     expect(anonymousSession.status).toBe(401);

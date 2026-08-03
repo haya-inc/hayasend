@@ -744,9 +744,9 @@ jobs:
           jq '{entryCount, size, unpackedSize, filename}' \
             "$RUNNER_TEMP/npm-pack-metadata.json"
           jq --exit-status '
-            .entryCount <= 639 and
-            .size < 900000 and
-            .unpackedSize < 4600000 and
+            .entryCount <= 655 and
+            .size < 940000 and
+            .unpackedSize < 4800000 and
             ([.files[].path] | index("dist/cli.js") != null) and
             ([.files[].path] |
               index("dist/cli-resend-migration.js") != null) and
@@ -756,6 +756,18 @@ jobs:
               index("dist/operator-console.js") != null) and
             ([.files[].path] |
               index("src/operator-console.ts") != null) and
+            ([.files[].path] |
+              index("dist/operator-console-client.generated.js") != null) and
+            ([.files[].path] |
+              index("src/operator-console-client.generated.ts") != null) and
+            ([.files[].path] |
+              index("dist/operator-console-client.js") != null) and
+            ([.files[].path] |
+              index("src/operator-console-client.tsx") != null) and
+            ([.files[].path] |
+              index("dist/operator-console-model.js") != null) and
+            ([.files[].path] |
+              index("src/operator-console-model.ts") != null) and
             ([.files[].path] |
               index("dist/operator-console-view.js") != null) and
             ([.files[].path] |
