@@ -79,12 +79,12 @@ function fixture(options: AppOptions = {}) {
     queue,
     {
       provider: "local-console",
-      adapter_version: "0.3.10",
+      adapter_version: "0.3.11",
       capability_version: "1.0.0",
       checked_at: null,
       document: {
         provider: "local-console",
-        adapter_version: "0.3.10",
+        adapter_version: "0.3.11",
       },
     },
   );

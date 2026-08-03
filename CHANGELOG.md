@@ -6,6 +6,17 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.11 - 2026-08-03
+
+- Move the operator console's interactive surfaces to typed Hono JSX DOM
+  components while retaining Better Auth and avoiding a React or Next.js
+  runtime dependency.
+- Restore styled HTML inspection inside the sandboxed preview document and bind
+  its cross-document messages to the exact parent origin and a per-message
+  channel.
+- Fail CI when the generated console client is stale, and verify the console,
+  client bundle, and preview route from the real SAM and container artifacts.
+
 ## 0.3.10 - 2026-08-03
 
 - Keep the SAM/esbuild Lambda bundle on Hono's explicit JSX factory so the

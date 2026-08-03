@@ -1,1 +1,1 @@
-export const HAYASEND_VERSION = "0.3.10";
+export const HAYASEND_VERSION = "0.3.11";
