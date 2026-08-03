@@ -10,6 +10,7 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY tsconfig.json tsconfig.build.json ./
+COPY scripts/build-operator-console.mjs ./scripts/build-operator-console.mjs
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
