@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "runtime": "aws-native",
-  "adapter_version": "0.3.10",
+  "adapter_version": "0.3.11",
   "checked_at": "2026-07-28",
   "service_maturity": "beta",
   "runtime_class": "native-cloud",
