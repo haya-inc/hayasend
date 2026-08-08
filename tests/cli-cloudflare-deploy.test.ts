@@ -683,7 +683,18 @@ describe("plan-first Cloudflare lifecycle", () => {
           log: () => undefined,
         },
       ),
-    ).rejects.toThrow("HTTP 403");
+    ).rejects.toThrow('token needs account-level "Email Routing Addresses"');
+
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "proof@example.net" },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () => new Response("", { status: 500 }),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("failed with HTTP 500");
   });
 
   it("deletes Queue event subscriptions before consumers and resources", async () => {

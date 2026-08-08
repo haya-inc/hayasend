@@ -1219,7 +1219,9 @@ export async function doctorCloudflareDeliveryRecipient(
   );
   if (!response.ok) {
     throw new Error(
-      `Cloudflare Email Routing destination inspection failed with HTTP ${response.status}.`,
+      response.status === 401 || response.status === 403
+        ? `Cloudflare Email Routing destination inspection was refused with HTTP ${response.status}. The API token needs account-level "Email Routing Addresses" read access; without it the recipient cannot be cleared and the proof must not run.`
+        : `Cloudflare Email Routing destination inspection failed with HTTP ${response.status}.`,
     );
   }
   const parsed = z
