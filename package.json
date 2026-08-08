@@ -116,7 +116,7 @@
     "@noble/hashes": "2.2.0",
     "@sendgrid/eventwebhook": "8.0.0",
     "@vercel/blob": "2.6.1",
-    "@vercel/functions": "3.7.6",
+    "@vercel/functions": "3.7.7",
     "@vercel/queue": "0.4.0",
     "better-auth": "1.6.26",
     "esbuild": "0.28.1",
