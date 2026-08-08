@@ -121,7 +121,7 @@
     "better-auth": "1.6.26",
     "esbuild": "0.28.1",
     "google-auth-library": "11.0.0",
-    "hono": "4.12.34",
+    "hono": "4.13.0",
     "html-to-text": "10.0.0",
     "pg": "8.22.0",
     "postal-mime": "2.7.5",
