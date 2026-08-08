@@ -28,6 +28,7 @@ import {
   doctorCloudflareDeliveryRecipient,
   doctorCloudflareEmailEvents,
   doctorCloudflareSendingDomain,
+  ensureCloudflareEmailSubscription,
   rollbackCloudflare,
 } from "./cli-cloudflare-deploy.js";
 import { domainCommand } from "./cli-domains.js";
@@ -1983,6 +1984,31 @@ async function doctorCloudflareDeliveryRecipientCommand(
   );
 }
 
+async function subscribeCloudflareCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  validateOptions(args, {
+    values: ["account", "name", "email-domain"],
+  });
+  const account = flag(args, "account");
+  const name = flag(args, "name");
+  const emailDomain = flag(args, "email-domain");
+  if (!account || !name || !emailDomain) {
+    throw new Error(
+      "subscribe cloudflare requires --account, --name, and --email-domain.",
+    );
+  }
+  await ensureCloudflareEmailSubscription(
+    { account, name, emailDomain },
+    {
+      env: dependencies.env,
+      fetch: dependencies.fetch,
+      log: dependencies.io.log,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -2075,6 +2101,11 @@ Commands:
   doctor cloudflare-sending-domain --account ACCOUNT_ID --email-domain DOMAIN
       Fail unless the Email Sending domain is onboarded, enabled, DNS-synced,
       and not admin-locked before any delivery proof runs.
+
+  subscribe cloudflare --account ACCOUNT_ID --name NAME --email-domain DOMAIN
+      Create the per-domain Email Sending event subscription for the
+      deployment's Queue, or report the matching one that already exists.
+      Refuses to modify a subscription it did not create.
 
   doctor cloudflare-delivery-recipient --account ACCOUNT_ID --recipient EMAIL
       Fail when the recipient is an Email Routing destination on the account,
@@ -2235,6 +2266,12 @@ export async function runCli(
       break;
     case "cleanup":
       await cleanupCommand(args.slice(1), dependencies);
+      break;
+    case "subscribe":
+      if (args[1] !== "cloudflare") {
+        throw new Error("subscribe supports the cloudflare provider only.");
+      }
+      await subscribeCloudflareCommand(args.slice(1), dependencies);
       break;
     case "migration":
       await resendMigrationCommand(args.slice(1), {

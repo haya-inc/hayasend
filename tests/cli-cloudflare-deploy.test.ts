@@ -15,6 +15,7 @@ import {
   doctorCloudflareDeliveryRecipient,
   doctorCloudflareEmailEvents,
   doctorCloudflareSendingDomain,
+  ensureCloudflareEmailSubscription,
   rollbackCloudflare,
 } from "../src/cli-cloudflare-deploy.js";
 
@@ -695,6 +696,109 @@ describe("plan-first Cloudflare lifecycle", () => {
         },
       ),
     ).rejects.toThrow("failed with HTTP 500");
+  });
+
+  it("creates the Email Sending subscription without the dashboard", async () => {
+    const ZONE = "z".repeat(32);
+    const QUEUE = "q".repeat(32);
+    const ok = (result: unknown) =>
+      new Response(JSON.stringify({ success: true, errors: [], result }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const subscription = {
+      id: "subscription-1234",
+      name: "hayasend-proof-email-sending",
+      enabled: true,
+      source: { type: "email.sending", domain: EMAIL_DOMAIN },
+      destination: { type: "queues.queue", queue_id: QUEUE },
+      events: [...CLOUDFLARE_EMAIL_SENDING_EVENTS],
+    };
+    const route =
+      (subscriptions: unknown[], onPost?: (body: string) => void) =>
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/zones?"))
+          return ok([{ id: ZONE, name: EMAIL_DOMAIN }]);
+        if (url.endsWith("/queues"))
+          return ok([{ queue_id: QUEUE, queue_name: "hayasend-proof-email-events" }]);
+        if (url.includes("/event_subscriptions/subscriptions")) {
+          if (init?.method === "POST") {
+            onPost?.(String(init.body));
+            return ok({ id: "subscription-created" });
+          }
+          return ok(subscriptions);
+        }
+        throw new Error(`unexpected call ${url}`);
+      };
+
+    let posted = "";
+    const logs: string[] = [];
+    await ensureCloudflareEmailSubscription(
+      { account: ACCOUNT, name: "proof", emailDomain: EMAIL_DOMAIN },
+      {
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        fetch: route([], (body) => {
+          posted = body;
+        }) as unknown as typeof fetch,
+        log: (message) => logs.push(message),
+      },
+    );
+    expect(JSON.parse(posted)).toMatchObject({
+      enabled: true,
+      events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+      source: { type: "email.sending", zone_id: ZONE, domain: EMAIL_DOMAIN },
+      destination: { type: "queues.queue", queue_id: QUEUE },
+    });
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_email_subscription_result",
+      subscription_id: "subscription-created",
+      status: "created",
+    });
+
+    // An existing matching subscription is reused, not duplicated.
+    let reposted = false;
+    logs.length = 0;
+    await ensureCloudflareEmailSubscription(
+      { account: ACCOUNT, name: "proof", emailDomain: EMAIL_DOMAIN },
+      {
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        fetch: route([subscription], () => {
+          reposted = true;
+        }) as unknown as typeof fetch,
+        log: (message) => logs.push(message),
+      },
+    );
+    expect(reposted).toBe(false);
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      subscription_id: "subscription-1234",
+      status: "already_present",
+    });
+
+    // A foreign subscription on the same queue is never modified.
+    await expect(
+      ensureCloudflareEmailSubscription(
+        { account: ACCOUNT, name: "proof", emailDomain: EMAIL_DOMAIN },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: route([
+            { ...subscription, source: { type: "r2" } },
+          ]) as unknown as typeof fetch,
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("refusing to modify");
+
+    await expect(
+      ensureCloudflareEmailSubscription(
+        { account: ACCOUNT, name: "proof", emailDomain: EMAIL_DOMAIN },
+        {
+          env: {},
+          fetch: route([]) as unknown as typeof fetch,
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("CLOUDFLARE_API_TOKEN is required");
   });
 
   it("deletes Queue event subscriptions before consumers and resources", async () => {

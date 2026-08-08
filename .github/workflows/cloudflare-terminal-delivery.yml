@@ -154,6 +154,16 @@ jobs:
             --confirm-account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
             --apply \
             | tee "$RUNNER_TEMP/cloudflare-terminal-deploy.txt"
+          npm run --silent cli -- subscribe cloudflare \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-subscribe.json"
+          npm run --silent cli -- doctor cloudflare-events \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --name "$DEPLOYMENT_NAME" \
+            --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-subscription.json"
           endpoint="https://hayasend-$DEPLOYMENT_NAME.$CLOUDFLARE_TEST_WORKERS_SUBDOMAIN.workers.dev"
           npm run --silent cli -- doctor cloudflare \
             --endpoint "$endpoint" \

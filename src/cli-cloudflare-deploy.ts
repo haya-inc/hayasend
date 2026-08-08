@@ -1273,6 +1273,172 @@ export async function doctorCloudflareDeliveryRecipient(
   }
 }
 
+const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
+
+async function cloudflareApi(
+  dependencies: Pick<CloudflareDependencies, "env"> & { fetch: typeof fetch },
+  path: string,
+  init: { method?: string; body?: string } = {},
+): Promise<unknown> {
+  const token = dependencies.env.CLOUDFLARE_API_TOKEN;
+  if (!token) {
+    throw new Error(
+      "CLOUDFLARE_API_TOKEN is required to manage Email Sending event subscriptions.",
+    );
+  }
+  const response = await dependencies.fetch(`${CLOUDFLARE_API_BASE}${path}`, {
+    ...(init.method ? { method: init.method } : {}),
+    ...(init.body ? { body: init.body } : {}),
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(init.body ? { "content-type": "application/json" } : {}),
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const parsed = z
+    .object({
+      success: z.boolean().optional(),
+      errors: z.array(z.object({ message: z.string() }).passthrough()).nullish(),
+      result: z.unknown(),
+    })
+    .safeParse(await response.json().catch(() => ({})));
+  if (!parsed.success) {
+    throw new Error(
+      `Cloudflare API ${path} returned an unreadable body (HTTP ${response.status}).`,
+    );
+  }
+  if (!response.ok || parsed.data.success === false) {
+    const detail =
+      parsed.data.errors?.map((error) => error.message).join("; ") ||
+      `HTTP ${response.status}`;
+    throw new Error(`Cloudflare API ${path} failed: ${detail}`);
+  }
+  return parsed.data.result;
+}
+
+export async function ensureCloudflareEmailSubscription(
+  input: {
+    account: string;
+    name: string;
+    emailDomain: string;
+  },
+  dependencies: Pick<CloudflareDependencies, "env" | "log"> & {
+    fetch: typeof fetch;
+  },
+): Promise<void> {
+  const account = validateAccount(input.account);
+  const emailDomain = validateEmailDomain(input.emailDomain);
+  const names = cloudflareResourceNames(input.name);
+
+  const zones = z
+    .array(z.object({ id: z.string().min(1), name: z.string().min(1) }))
+    .parse(
+      await cloudflareApi(
+        dependencies,
+        `/zones?name=${encodeURIComponent(emailDomain)}&account.id=${account}`,
+      ),
+    );
+  if (zones.length !== 1 || !zones[0]) {
+    throw new Error(
+      `Cloudflare returned ${zones.length} zones for ${emailDomain} on this account; exactly one is required.`,
+    );
+  }
+  const zone = zones[0];
+
+  const queues = z
+    .array(
+      z
+        .object({ queue_id: z.string().min(1), queue_name: z.string().min(1) })
+        .passthrough(),
+    )
+    .parse(await cloudflareApi(dependencies, `/accounts/${account}/queues`));
+  const queue = queues.find(
+    (candidate) => candidate.queue_name === names.email_events_queue,
+  );
+  if (!queue) {
+    throw new Error(
+      `Queue ${names.email_events_queue} does not exist; deploy the namespace before subscribing.`,
+    );
+  }
+
+  const existing = z
+    .array(eventSubscriptionSchema)
+    .parse(
+      await cloudflareApi(
+        dependencies,
+        `/accounts/${account}/event_subscriptions/subscriptions`,
+      ),
+    )
+    .filter(
+      (subscription) => subscription.destination.queue_id === queue.queue_id,
+    );
+  const matching = existing.filter(
+    (subscription) =>
+      subscription.enabled &&
+      subscription.source.type === "email.sending" &&
+      subscription.source.domain?.toLowerCase() === emailDomain &&
+      CLOUDFLARE_EMAIL_SENDING_EVENTS.every((event) =>
+        subscription.events.includes(event),
+      ),
+  );
+  if (existing.length > 1 || (existing.length === 1 && matching.length !== 1)) {
+    throw new Error(
+      `Queue ${names.email_events_queue} already carries an unexpected event subscription; refusing to modify it.`,
+    );
+  }
+
+  let subscriptionId = matching[0]?.id;
+  let created = false;
+  if (!subscriptionId) {
+    const result = z
+      .object({ id: z.string().min(1) })
+      .passthrough()
+      .parse(
+        await cloudflareApi(
+          dependencies,
+          `/accounts/${account}/event_subscriptions/subscriptions`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: `hayasend-${input.name}-email-sending`,
+              enabled: true,
+              events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+              source: {
+                type: "email.sending",
+                zone_id: zone.id,
+                domain: emailDomain,
+              },
+              destination: {
+                type: "queues.queue",
+                queue_id: queue.queue_id,
+              },
+            }),
+          },
+        ),
+      );
+    subscriptionId = result.id;
+    created = true;
+  }
+
+  dependencies.log(
+    JSON.stringify(
+      {
+        object: "cloudflare_email_subscription_result",
+        account,
+        zone_id: zone.id,
+        domain: emailDomain,
+        queue: names.email_events_queue,
+        queue_id: queue.queue_id,
+        subscription_id: subscriptionId,
+        events: CLOUDFLARE_EMAIL_SENDING_EVENTS,
+        status: created ? "created" : "already_present",
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 export async function doctorCloudflareEmailEvents(
   input: {
     account: string;
