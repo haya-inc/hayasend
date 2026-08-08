@@ -12,6 +12,7 @@ import {
   cloudflareResourceNames,
   deployCloudflare,
   doctorCloudflare,
+  doctorCloudflareDeliveryRecipient,
   doctorCloudflareEmailEvents,
   doctorCloudflareSendingDomain,
   rollbackCloudflare,
@@ -568,6 +569,114 @@ describe("plan-first Cloudflare lifecycle", () => {
     await expect(
       doctorCloudflareSendingDomain(
         { account: ACCOUNT, emailDomain: EMAIL_DOMAIN },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () => new Response("", { status: 403 }),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("HTTP 403");
+  });
+
+  it("fails closed when the proof recipient is an Email Routing destination", async () => {
+    const logs: string[] = [];
+    const addressResponse = (
+      result: Array<Record<string, unknown>>,
+      totalCount = result.length,
+    ) =>
+      new Response(
+        JSON.stringify({ result, result_info: { total_count: totalCount } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    await doctorCloudflareDeliveryRecipient(
+      { account: ACCOUNT, recipient: "proof@example.net" },
+      {
+        env: { CLOUDFLARE_API_TOKEN: "private-token" },
+        fetch: async () =>
+          addressResponse([
+            { email: "operator@example.com", verified: "2026-07-27T19:06:39Z" },
+          ]),
+        log: (message) => logs.push(message),
+      },
+    );
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({
+      object: "cloudflare_delivery_recipient_doctor",
+      recipient: "proof@example.net",
+      routing_destination: null,
+      healthy: true,
+    });
+
+    // A verified destination, and the same address in a different case, both fail.
+    for (const recipient of ["operator@example.com", "Operator@Example.com"]) {
+      await expect(
+        doctorCloudflareDeliveryRecipient(
+          { account: ACCOUNT, recipient },
+          {
+            env: { CLOUDFLARE_API_TOKEN: "private-token" },
+            fetch: async () =>
+              addressResponse([
+                {
+                  email: "operator@example.com",
+                  verified: "2026-07-27T19:06:39Z",
+                },
+              ]),
+            log: () => undefined,
+          },
+        ),
+      ).rejects.toThrow("attributes delivery to Email Routing");
+    }
+
+    // An unverified destination is still a latent trap and must fail closed.
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "pending@example.com" },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () =>
+            addressResponse([{ email: "pending@example.com", verified: null }]),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("attributes delivery to Email Routing");
+
+    // A truncated destination list cannot clear the recipient.
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "proof@example.net" },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () => addressResponse([], 250),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("more Email Routing destinations than a single page");
+
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "not-an-email" },
+        {
+          env: { CLOUDFLARE_API_TOKEN: "private-token" },
+          fetch: async () => addressResponse([]),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("must be a valid email address");
+
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "proof@example.net" },
+        {
+          env: {},
+          fetch: async () => addressResponse([]),
+          log: () => undefined,
+        },
+      ),
+    ).rejects.toThrow("CLOUDFLARE_API_TOKEN is required");
+
+    await expect(
+      doctorCloudflareDeliveryRecipient(
+        { account: ACCOUNT, recipient: "proof@example.net" },
         {
           env: { CLOUDFLARE_API_TOKEN: "private-token" },
           fetch: async () => new Response("", { status: 403 }),

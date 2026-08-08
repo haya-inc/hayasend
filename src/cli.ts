@@ -25,6 +25,7 @@ import {
   cleanupCloudflare,
   deployCloudflare,
   doctorCloudflare,
+  doctorCloudflareDeliveryRecipient,
   doctorCloudflareEmailEvents,
   doctorCloudflareSendingDomain,
   rollbackCloudflare,
@@ -1958,6 +1959,30 @@ async function doctorCloudflareSendingDomainCommand(
   );
 }
 
+async function doctorCloudflareDeliveryRecipientCommand(
+  args: string[],
+  dependencies: CliDependencies,
+) {
+  validateOptions(args, {
+    values: ["account", "recipient"],
+  });
+  const account = flag(args, "account");
+  const recipient = flag(args, "recipient");
+  if (!account || !recipient) {
+    throw new Error(
+      "doctor cloudflare-delivery-recipient requires --account and --recipient.",
+    );
+  }
+  await doctorCloudflareDeliveryRecipient(
+    { account, recipient },
+    {
+      env: dependencies.env,
+      fetch: dependencies.fetch,
+      log: dependencies.io.log,
+    },
+  );
+}
+
 function help(dependencies: CliDependencies) {
   dependencies.io.log(`HayaSend CLI
 
@@ -2050,6 +2075,11 @@ Commands:
   doctor cloudflare-sending-domain --account ACCOUNT_ID --email-domain DOMAIN
       Fail unless the Email Sending domain is onboarded, enabled, DNS-synced,
       and not admin-locked before any delivery proof runs.
+
+  doctor cloudflare-delivery-recipient --account ACCOUNT_ID --recipient EMAIL
+      Fail when the recipient is an Email Routing destination on the account,
+      because Cloudflare then attributes delivery to Routing and emits no
+      Email Sending usage, Activity Log entry, or lifecycle event.
 
   doctor [--endpoint URL]
       Check HayaSend identity, health, authentication, and preview availability.
@@ -2222,6 +2252,11 @@ export async function runCli(
         await doctorCloudflareEventsCommand(args.slice(1), dependencies);
       } else if (args[1] === "cloudflare-sending-domain") {
         await doctorCloudflareSendingDomainCommand(args.slice(1), dependencies);
+      } else if (args[1] === "cloudflare-delivery-recipient") {
+        await doctorCloudflareDeliveryRecipientCommand(
+          args.slice(1),
+          dependencies,
+        );
       } else {
         validateOptions(args, { values: ["endpoint"] });
         await doctor(args, dependencies);

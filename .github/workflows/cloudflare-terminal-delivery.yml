@@ -134,6 +134,10 @@ jobs:
             --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
             --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
             | tee "$RUNNER_TEMP/cloudflare-terminal-sending-domain.json"
+          npm run --silent cli -- doctor cloudflare-delivery-recipient \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --recipient "$CLOUDFLARE_TEST_TO" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-recipient.json"
           npm run --silent cli -- deploy cloudflare \
             --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
             --name "$DEPLOYMENT_NAME" \
@@ -194,6 +198,10 @@ jobs:
             --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
             --email-domain "$CLOUDFLARE_TEST_EMAIL_DOMAIN" \
             | tee "$RUNNER_TEMP/cloudflare-terminal-sending-domain.json"
+          npm run --silent cli -- doctor cloudflare-delivery-recipient \
+            --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
+            --recipient "$CLOUDFLARE_TEST_TO" \
+            | tee "$RUNNER_TEMP/cloudflare-terminal-recipient.json"
           npm run --silent cli -- doctor cloudflare-events \
             --account "$CLOUDFLARE_TEST_ACCOUNT_ID" \
             --name "$DEPLOYMENT_NAME" \

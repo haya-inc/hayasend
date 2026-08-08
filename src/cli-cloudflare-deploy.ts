@@ -1183,6 +1183,94 @@ export async function doctorCloudflareSendingDomain(
   }
 }
 
+const routingDestinationSchema = z.object({
+  email: z.string(),
+  verified: z.string().nullish(),
+});
+
+export async function doctorCloudflareDeliveryRecipient(
+  input: {
+    account: string;
+    recipient: string;
+  },
+  dependencies: Pick<CloudflareDependencies, "env" | "log"> & {
+    fetch: typeof fetch;
+  },
+): Promise<void> {
+  const account = validateAccount(input.account);
+  const recipient = input.recipient.trim();
+  if (!allowedRecipientSchema.safeParse(recipient).success) {
+    throw new Error(
+      "Cloudflare delivery recipient must be a valid email address.",
+    );
+  }
+  const token = dependencies.env.CLOUDFLARE_API_TOKEN;
+  if (!token) {
+    throw new Error(
+      "CLOUDFLARE_API_TOKEN is required to inspect Email Routing destinations.",
+    );
+  }
+  const response = await dependencies.fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/email/routing/addresses?per_page=100`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Cloudflare Email Routing destination inspection failed with HTTP ${response.status}.`,
+    );
+  }
+  const parsed = z
+    .object({
+      result: z.array(routingDestinationSchema).nullish(),
+      result_info: z.object({ total_count: z.number() }).nullish(),
+    })
+    .safeParse(await response.json());
+  if (!parsed.success) {
+    throw new Error(
+      "Cloudflare returned an invalid Email Routing destination list.",
+    );
+  }
+  const destinations = parsed.data.result ?? [];
+  const total = parsed.data.result_info?.total_count ?? destinations.length;
+  const truncated = total > destinations.length;
+  const normalized = recipient.toLowerCase();
+  const match = destinations.find(
+    (candidate) => candidate.email.trim().toLowerCase() === normalized,
+  );
+  const healthy = match === undefined && !truncated;
+  dependencies.log(
+    JSON.stringify(
+      {
+        object: "cloudflare_delivery_recipient_doctor",
+        account,
+        recipient,
+        destinations_checked: destinations.length,
+        destinations_total: total,
+        truncated,
+        routing_destination: match
+          ? { email: match.email, verified: match.verified ?? null }
+          : null,
+        healthy,
+      },
+      null,
+      2,
+    ),
+  );
+  if (truncated) {
+    throw new Error(
+      "Cloudflare returned more Email Routing destinations than a single page, so the recipient could not be cleared.",
+    );
+  }
+  if (!healthy) {
+    throw new Error(
+      "Cloudflare attributes delivery to Email Routing when the recipient is a destination address on the same account, so the send produces no Email Sending usage, no Activity Log entry, and no message.* event. Use a recipient that is not an Email Routing destination on this account.",
+    );
+  }
+}
+
 export async function doctorCloudflareEmailEvents(
   input: {
     account: string;

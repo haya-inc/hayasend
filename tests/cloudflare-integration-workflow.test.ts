@@ -93,6 +93,9 @@ describe("Cloudflare hosted lifecycle workflow", () => {
     expect(workflow).toContain(
       "npm run --silent cli -- doctor cloudflare-sending-domain",
     );
+    expect(workflow).toContain(
+      "npm run --silent cli -- doctor cloudflare-delivery-recipient",
+    );
     expect(workflow).toContain("node scripts/cloudflare-terminal-delivery.mjs");
     expect(workflow).toContain('provider_type !== "delivered"');
     expect(workflow).toContain(
