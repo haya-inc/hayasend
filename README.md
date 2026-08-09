@@ -730,10 +730,11 @@ delivery dates. Security reports must use the private process in
 
 ## Project and commercial support
 
-HayaSend is Apache-2.0 open source. Haya, Inc. intends to fund development
-through optional deployment assistance, migration work, security and
-deliverability reviews, operational support, and future managed services.
-Self-hosting and community use do not require a commercial agreement.
+HayaSend is Apache-2.0 open source. [Haya, Inc.](https://haya-inc.co.jp/)
+intends to fund development through optional deployment assistance, migration
+work, security and deliverability reviews, operational support, and future
+managed services. Self-hosting and community use do not require a commercial
+agreement.
 
 See [SUPPORT.md](SUPPORT.md) and
 [the commercial boundary](docs/commercial.md). Commercial inquiries can use
