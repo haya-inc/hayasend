@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "provider": "aws-ses",
   "adapter_version": "0.3.11",
-  "checked_at": "2026-07-27",
-  "service_maturity": "beta",
+  "checked_at": "2026-08-29",
+  "service_maturity": "production",
   "required_plan": "An AWS account with Amazon SES production access in the deployment Region is required for unverified recipients.",
   "limits": {
     "max_serialized_request_bytes": 9437184,

@@ -1,6 +1,9 @@
 # Migrating from Resend
 
-HayaSend is not yet production-ready, but the intended migration path is:
+The AWS-native + Amazon SES deployment is production-ready within its
+published capability limits. Production readiness does not make a workload
+compatible automatically; use this migration path to qualify and roll back
+each independently routable stream:
 
 1. Deploy HayaSend into a non-production AWS account.
 2. Verify a dedicated test subdomain.

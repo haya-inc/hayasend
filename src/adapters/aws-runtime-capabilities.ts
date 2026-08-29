@@ -11,8 +11,8 @@ export const AWS_RUNTIME_CAPABILITIES =
     schema_version: "1.0.0",
     runtime: "aws-native",
     adapter_version: HAYASEND_VERSION,
-    checked_at: "2026-07-28",
-    service_maturity: "beta",
+    checked_at: "2026-08-29",
+    service_maturity: "production",
     runtime_class: "native-cloud",
     required_plan:
       "A customer-owned AWS account with CloudFormation, Lambda, API Gateway, DynamoDB, S3, SQS, EventBridge Scheduler, Secrets Manager, SNS, and CloudWatch access.",

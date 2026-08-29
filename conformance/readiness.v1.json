@@ -3,23 +3,19 @@
   "deployments": [
     {
       "deployment": "aws-ses",
-      "checked_at": "2026-07-28",
+      "checked_at": "2026-08-29",
       "runtime": "aws-native",
       "transport": "aws-ses",
-      "maturity": "beta",
-      "production_ready": false,
+      "maturity": "production",
+      "production_ready": true,
       "evidence": {
-        "conformance": "pending",
+        "conformance": "passed",
         "lifecycle": "passed",
-        "terminal_delivery": "pending",
-        "controlled_receipt": "pending",
+        "terminal_delivery": "passed",
+        "controlled_receipt": "passed",
         "cleanup": "passed"
       },
-      "blockers": [
-        "conformance",
-        "terminal_delivery",
-        "controlled_receipt"
-      ]
+      "blockers": []
     },
     {
       "deployment": "azure-container-apps-acs",

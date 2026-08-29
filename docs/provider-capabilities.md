@@ -77,11 +77,19 @@ credentials, signed URLs, or raw provider errors.
 
 ## AWS SES evidence
 
-The AWS document was checked on 2026-07-26 against the official
+The AWS document was checked on 2026-08-29 against the official
 [SES service quotas](https://docs.aws.amazon.com/ses/latest/dg/quotas.html),
 [SES v2 event destination API](https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_EventDestination.html),
 and
 [SNS event contents](https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-contents.html).
+
+The AWS-native + SES combination is production-ready within this document's
+limits. Issue #126 records exact-main conformance, terminal delivery,
+controlled mailbox receipt, cleanup, and zero-residue evidence. Issue #174
+records protected lifecycle, gradual upgrade, alarm-driven rollback, and
+backup/restore evidence. Production readiness does not remove the requirement
+for a workload-specific canary and provider rollback before critical traffic
+moves.
 
 SES v2 currently allows 40 MB after base64 encoding and 50 combined To, Cc,
 and Bcc recipients. HayaSend advertises its lower effective limits: a 9 MiB

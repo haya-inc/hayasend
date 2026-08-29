@@ -7,9 +7,10 @@ are implemented. Guarded hosted workflows for Cloud Run, Render, Railway,
 Fly.io, Azure Container Apps, and Vercel are locally validated but have not
 yet been run; isolated test-account evidence remains.
 
-> **Project status: early beta.** The AWS deployment is available for
-> non-critical evaluation. The API and data model can still change before v1;
-> do not use HayaSend for critical production traffic yet. Cloudflare support
+> **Project status: AWS/SES production-qualified.** The AWS-native + Amazon SES
+> deployment is production-ready within its published capability limits. The
+> API and data model can still change before v1; qualify each critical stream
+> with a controlled canary and rehearsed provider rollback. Cloudflare support
 > is not production-ready.
 
 HayaSend provides the developer experience of a modern email API while the
@@ -718,10 +719,12 @@ Please report vulnerabilities according to [SECURITY.md](SECURITY.md).
 
 The completed
 [v0.1 beta milestone](https://github.com/haya-inc/hayasend/milestone/1)
-records the evidence for the first non-critical evaluation release. The open
+records the evidence for the first non-critical evaluation release. The
+AWS-native + Amazon SES path is now production-qualified within its published
+capability limits. The open
 [production-qualification milestone](https://github.com/haya-inc/hayasend/milestone/2)
-tracks terminal provider delivery, controlled dogfood, commercial-support,
-and domain-operations gates that must pass before supported production use.
+continues to track transport-specific evidence and commercial or domain
+operations work that does not expand the AWS/SES readiness claim.
 Accepted follow-on work carries the
 [`roadmap` label](https://github.com/haya-inc/hayasend/issues?q=state%3Aopen%20label%3Aroadmap),
 and bounded starter tasks carry the

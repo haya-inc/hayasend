@@ -12,7 +12,7 @@ export const AWS_SES_DEPLOYMENT_CAPABILITIES =
       schema_version: "1.0.0",
       deployment: "aws-ses",
       adapter_version: HAYASEND_VERSION,
-      checked_at: "2026-07-28",
+      checked_at: "2026-08-29",
       runtime: {
         profile: AWS_RUNTIME_CAPABILITIES.runtime,
         adapter_version: AWS_RUNTIME_CAPABILITIES.adapter_version,
@@ -26,40 +26,40 @@ export const AWS_SES_DEPLOYMENT_CAPABILITIES =
       maturity: {
         runtime: AWS_RUNTIME_CAPABILITIES.service_maturity,
         transport: AWS_SES_CAPABILITIES.service_maturity,
-        combination: "beta",
+        combination: "production",
       },
-      production_ready: false,
+      production_ready: true,
       effective_limits: AWS_SES_CAPABILITIES.limits,
       evidence: {
         conformance: {
-          status: "pending",
+          status: "passed",
           url: "https://github.com/haya-inc/hayasend/issues/126",
           notes:
-            "Exact-main hosted conformance and provider terminal proof are tracked in issue #126.",
+            "Issue #126 records exact-main hosted conformance and official-SDK terminal delivery evidence.",
         },
         lifecycle: {
           status: "passed",
-          url: "https://github.com/haya-inc/hayasend/issues/22",
+          url: "https://github.com/haya-inc/hayasend/issues/174",
           notes:
-            "The v0.1 release gate proved protected deployment, rollback behavior, and release verification.",
+            "Protected deployment, gradual upgrade, alarm-driven rollback, backup/restore, and zero-residue cleanup passed in the dedicated account.",
         },
         terminal_delivery: {
-          status: "pending",
+          status: "passed",
           url: "https://github.com/haya-inc/hayasend/issues/126",
           notes:
-            "SES acceptance, SNS terminal correlation, and recipient convergence have not yet passed on exact main.",
+            "Issue #126 proves SES acceptance, provider ID and SNS event correlation, and exact-recipient delivered convergence.",
         },
         controlled_receipt: {
-          status: "pending",
+          status: "passed",
           url: "https://github.com/haya-inc/hayasend/issues/126",
           notes:
-            "Controlled mailbox receipt remains part of the terminal-delivery proof.",
+            "Issue #126 records controlled mailbox receipt for the exact unique test message outside spam and trash.",
         },
         cleanup: {
           status: "passed",
-          url: "https://github.com/haya-inc/hayasend/issues/22",
+          url: "https://github.com/haya-inc/hayasend/issues/126",
           notes:
-            "The reusable dedicated test-account integration verified stack cleanup with retain_stack=false.",
+            "The exact-main terminal proof and independent audit verified zero run-scoped AWS residue.",
         },
       },
       privacy: {
@@ -69,7 +69,9 @@ export const AWS_SES_DEPLOYMENT_CAPABILITIES =
         raw_provider_errors_retained: false,
       },
       limitations: [
-        "Production readiness is false while issue #126 remains incomplete.",
+        "Production readiness applies only to the AWS-native and Amazon SES deployment described by this document.",
+        "The product owner waived the incomplete 14-day and 1,000-message dogfood criterion on 2026-08-29 after 486 of 486 controlled deliveries with zero unexplained loss and zero duplicate terminal events; issue #105 preserves that decision and evidence.",
+        "Each workload migration still requires a stream-specific canary and a rehearsed provider rollback before critical traffic moves.",
         "Amazon SES has no verified provider-side send idempotency key.",
         "AWS account quotas, sending access, and Region configuration remain customer responsibilities.",
       ],

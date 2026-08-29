@@ -38,7 +38,8 @@ describe("project site", () => {
       "https://github.com/haya-inc/hayasend/blob/main/docs/support-service-levels.md",
     );
     expect(html).toContain('href="https://www.haya.company/legal"');
-    expect(html).toContain("HayaSend remains early");
+    expect(html).toContain("AWS-native + Amazon");
+    expect(html).toContain("SES path is production-qualified");
   });
 
   it("provides a local-only AWS setup and operations console", async () => {

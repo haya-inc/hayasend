@@ -45,7 +45,7 @@ describe("provider capability contract", () => {
       providerCapabilityDocumentSchema.parse(AWS_SES_CAPABILITIES),
     ).toMatchObject({
       provider: "aws-ses",
-      service_maturity: "beta",
+      service_maturity: "production",
       limits: {
         max_serialized_request_bytes: 9 * 1024 * 1024,
         max_mime_message_bytes: 39 * 1024 * 1024,
