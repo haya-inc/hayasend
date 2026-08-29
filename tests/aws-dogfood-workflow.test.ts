@@ -13,6 +13,10 @@ describe("AWS SES dogfood workflow", () => {
     expect(workflow).toContain("steps.guard.outputs.enabled == 'true'");
     expect(workflow).toContain("AWS_DOGFOOD_START_DATE");
     expect(workflow).toContain("EVENT_SCHEDULE: ${{ github.event.schedule }}");
+    for (const hour of [0, 6, 12, 18]) {
+      expect(workflow).toContain(`cron: '17 ${hour} * * *'`);
+    }
+    expect(workflow).not.toContain("cron: '17 0 * * 1'");
     expect(workflow).toContain("requireDogfoodRetryWindow");
     expect(workflow).toContain('test "$GITHUB_REF" = "refs/heads/main"');
     expect(workflow).toContain('test "$AWS_TEST_ACCOUNT_ID" = "330599756148"');

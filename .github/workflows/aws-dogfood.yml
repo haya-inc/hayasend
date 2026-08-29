@@ -1,11 +1,13 @@
 name: AWS SES dogfood
 
 on:
+  # BLD-7 time-bounded evidence window: four deterministic slots per UTC day.
+  # Disable the campaign with AWS_DOGFOOD_ENABLED after the 14-day run.
   schedule:
-    - cron: '17 0 * * 1'
-    - cron: '17 6 * * 1'
-    - cron: '17 12 * * 1'
-    - cron: '17 18 * * 1'
+    - cron: '17 0 * * *'
+    - cron: '17 6 * * *'
+    - cron: '17 12 * * *'
+    - cron: '17 18 * * *'
   workflow_dispatch:
     inputs:
       confirm_account:
