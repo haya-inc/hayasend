@@ -445,7 +445,10 @@ and an operator policy limited to that bucket, the HayaSend stack prefix, and
 passing the exact service role. Applying the bootstrap requires the exact
 account confirmation and may optionally apply an organizational permissions
 boundary. Review and attach its operator policy before routine deployments;
-the CLI does not attach it automatically.
+the CLI does not attach it automatically. Routine deploy and upgrade plans
+auto-discover the dedicated artifact bucket when the service role matches the
+default bootstrap stack, and fail before SAM when a role has no reviewed
+bucket.
 
 The deployment plan validates the tools and template, performs a clean temporary SAM
 build, reports SES production access and sending quota, and renders every

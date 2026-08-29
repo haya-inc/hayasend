@@ -296,6 +296,7 @@ function awsRunner(
 
 const awsEnvironment = {
   HAYASEND_AWS_ACCOUNT_ID: "123456789012",
+  HAYASEND_AWS_ARTIFACT_BUCKET: "hayasend-artifacts-123456789012",
   AWS_REGION: "ap-northeast-1",
 };
 

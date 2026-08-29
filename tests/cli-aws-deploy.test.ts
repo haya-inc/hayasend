@@ -553,6 +553,8 @@ describe("plan-first AWS deployment CLI", () => {
         "123456789012",
         "--region",
         "ap-northeast-1",
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
       ],
       {
         cwd: process.cwd(),
@@ -750,6 +752,195 @@ describe("plan-first AWS deployment CLI", () => {
         },
       ),
     ).rejects.toThrow("exact expected AWS account and partition");
+  });
+
+  it("discovers the dedicated artifact bucket for the bootstrap service role", async () => {
+    const capture = capturingIo();
+    const roleArn = "arn:aws:iam::123456789012:role/HayaSendCloudFormation";
+    const runner = baseRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        const stackName = args[args.indexOf("--stack-name") + 1];
+        if (stackName === "HayaSendDeploymentBootstrap") {
+          return json({
+            Stacks: [
+              {
+                StackStatus: "CREATE_COMPLETE",
+                Outputs: [
+                  {
+                    OutputKey: "CloudFormationRoleArn",
+                    OutputValue: roleArn,
+                  },
+                  {
+                    OutputKey: "ArtifactBucketName",
+                    OutputValue: "hayasend-artifacts-123456789012",
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        return json({
+          Stacks: [
+            {
+              StackStatus: "UPDATE_COMPLETE",
+              RoleARN: roleArn,
+              Parameters: [],
+              Outputs: [],
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    await runCli(
+      [
+        "upgrade",
+        "aws",
+        "--account",
+        "123456789012",
+        "--region",
+        "ap-northeast-1",
+      ],
+      {
+        cwd: process.cwd(),
+        env: {},
+        io: capture.io,
+        runCommand: runner,
+      },
+    );
+
+    const plan = JSON.parse(capture.logs[0] ?? "{}");
+    expect(plan.artifacts).toEqual({
+      bucket: "hayasend-artifacts-123456789012",
+      mode: "dedicated_bootstrap_bucket",
+    });
+    expect(plan.apply_command).toEqual(
+      expect.arrayContaining([
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
+      ]),
+    );
+  });
+
+  it("fails before SAM when the bootstrap role and artifact bucket mismatch", async () => {
+    const roleArn = "arn:aws:iam::123456789012:role/HayaSendCloudFormation";
+    const runner = baseRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        const stackName = args[args.indexOf("--stack-name") + 1];
+        if (stackName === "HayaSendDeploymentBootstrap") {
+          return json({
+            Stacks: [
+              {
+                StackStatus: "CREATE_COMPLETE",
+                Outputs: [
+                  {
+                    OutputKey: "CloudFormationRoleArn",
+                    OutputValue: roleArn,
+                  },
+                  {
+                    OutputKey: "ArtifactBucketName",
+                    OutputValue: "hayasend-artifacts-123456789012",
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        return json({
+          Stacks: [
+            {
+              StackStatus: "UPDATE_COMPLETE",
+              RoleARN: roleArn,
+              Parameters: [],
+              Outputs: [],
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    await expect(
+      runCli(
+        [
+          "upgrade",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+          "--artifact-bucket",
+          "wrong-artifacts-123456789012",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          io: capturingIo().io,
+          runCommand: runner,
+        },
+      ),
+    ).rejects.toThrow("does not match the ArtifactBucketName output");
+    expect(runner.mock.calls.some(([command]) => command === "sam")).toBe(
+      false,
+    );
+  });
+
+  it("fails before SAM when a service role has no discoverable bucket", async () => {
+    const roleArn = "arn:aws:iam::123456789012:role/HayaSendCloudFormation";
+    const runner = baseRunner((command, args) => {
+      if (
+        command === "aws" &&
+        args[0] === "cloudformation" &&
+        args[1] === "describe-stacks"
+      ) {
+        const stackName = args[args.indexOf("--stack-name") + 1];
+        if (stackName === "HayaSendDeploymentBootstrap") {
+          return missingStack();
+        }
+        return json({
+          Stacks: [
+            {
+              StackStatus: "UPDATE_COMPLETE",
+              RoleARN: roleArn,
+              Parameters: [],
+              Outputs: [],
+            },
+          ],
+        });
+      }
+      return undefined;
+    });
+
+    await expect(
+      runCli(
+        [
+          "upgrade",
+          "aws",
+          "--account",
+          "123456789012",
+          "--region",
+          "ap-northeast-1",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          io: capturingIo().io,
+          runCommand: runner,
+        },
+      ),
+    ).rejects.toThrow("requires --artifact-bucket");
+    expect(runner.mock.calls.some(([command]) => command === "sam")).toBe(
+      false,
+    );
   });
 
   it("creates, inspects, and executes one exact additive change set", async () => {
@@ -1176,6 +1367,8 @@ describe("plan-first AWS deployment CLI", () => {
         "123456789012",
         "--region",
         "ap-northeast-1",
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
       ],
       {
         cwd: process.cwd(),
@@ -1246,6 +1439,8 @@ describe("plan-first AWS deployment CLI", () => {
         "123456789012",
         "--region",
         "ap-northeast-1",
+        "--artifact-bucket",
+        "hayasend-artifacts-123456789012",
         "--apply",
       ],
       {
