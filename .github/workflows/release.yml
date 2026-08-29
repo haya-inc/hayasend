@@ -305,9 +305,11 @@ jobs:
               --jq '.body' > generated-release-notes.md
             {
               cat <<'EOF'
-          > **Early beta:** HayaSend is intended for non-critical evaluation.
-          > APIs and data models can change before v1. Cloudflare support is
-          > not production-ready.
+          > **AWS/SES production-qualified:** The AWS-native + Amazon SES
+          > deployment is production-ready within its published capability
+          > limits. Critical workloads still require a stream-specific canary
+          > and rehearsed provider rollback. Cloudflare and other transports
+          > are not production-ready.
 
           EOF
               cat generated-release-notes.md
@@ -320,6 +322,6 @@ jobs:
           fi
           gh release view "$RELEASE_TAG" --json body --jq '.body' |
             grep --fixed-strings --quiet \
-              "**Early beta:** HayaSend is intended for non-critical evaluation."
+              "**AWS/SES production-qualified:** The AWS-native + Amazon SES"
           gh release upload "$RELEASE_TAG" release/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false

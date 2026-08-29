@@ -44,7 +44,7 @@ function fixture() {
     {
       provider: {
         name: "azure-communication-services",
-        adapter_version: "0.3.11",
+        adapter_version: "0.3.12",
         capability_version: "1.0.0",
       },
     },
