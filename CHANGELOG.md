@@ -6,6 +6,24 @@ minor releases before v1.0.
 
 ## Unreleased
 
+## 0.3.12 - 2026-08-29
+
+- Qualify the AWS-native + Amazon SES deployment for production within its
+  published capability limits, with all conformance, lifecycle, terminal
+  delivery, controlled receipt, and cleanup evidence gates passed.
+- Auto-discover the dedicated SAM artifact bucket through the reviewed
+  bootstrap stack and fail closed before deployment when the bucket is
+  missing, ambiguous, or inconsistent with the application stack role.
+- Publish the AWS/SES production boundary across the machine-readable
+  readiness matrix, project site, migration guide, and commercial-support
+  documentation while keeping critical workload cutovers gated by a
+  stream-specific canary and rehearsed provider rollback.
+- Stop recurring AWS dogfood traffic after the product-owner waiver while
+  retaining an explicit, account-confirmed manual evidence path behind the
+  disabled environment kill switch.
+- Create and validate the Cloudflare Email Sending event subscription from the
+  reviewed deployment path while keeping Cloudflare non-production.
+
 ## 0.3.11 - 2026-08-03
 
 - Move the operator console's interactive surfaces to typed Hono JSX DOM
