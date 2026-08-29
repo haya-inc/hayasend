@@ -87,7 +87,11 @@ const OUTPUT_KEYS = [
   "BackupVaultArn",
   "BackupPlanId",
   "RestoreTestingPlanArn",
+  "CloudFormationRoleArn",
+  "ArtifactBucketName",
 ] as const;
+
+const DEFAULT_BOOTSTRAP_STACK = "HayaSendDeploymentBootstrap";
 
 const RETAINED_RESOURCE_LOGICAL_IDS = new Set([
   "DataTable",
@@ -613,9 +617,7 @@ function normalizeOptions(
     options.artifactBucket ?? env.HAYASEND_AWS_ARTIFACT_BUCKET;
   if (
     artifactBucket !== undefined &&
-    (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(artifactBucket) ||
-      artifactBucket.includes("..") ||
-      /^\d{1,3}(?:\.\d{1,3}){3}$/.test(artifactBucket))
+    !validArtifactBucketName(artifactBucket)
   ) {
     throw new Error(
       "--artifact-bucket or HAYASEND_AWS_ARTIFACT_BUCKET must be a valid S3 bucket name.",
@@ -863,6 +865,14 @@ function normalizeOptions(
   };
 }
 
+function validArtifactBucketName(value: string) {
+  return (
+    /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value) &&
+    !value.includes("..") &&
+    !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)
+  );
+}
+
 function awsArgs(
   options: NormalizedTarget,
   serviceArgs: string[],
@@ -1073,6 +1083,53 @@ async function describeStack(
     outputs: readOutputs(stack.Outputs),
     tags: readTags(stack.Tags),
   };
+}
+
+async function resolveArtifactBucket(
+  dependencies: AwsDeployDependencies,
+  options: NormalizedOptions,
+  cloudformationRoleArn: string | undefined,
+) {
+  if (!cloudformationRoleArn) {
+    return options.artifactBucket;
+  }
+
+  const bootstrap = await describeStack(dependencies, {
+    account: options.account,
+    region: options.region,
+    stack: DEFAULT_BOOTSTRAP_STACK,
+    ...(options.profile ? { profile: options.profile } : {}),
+  });
+  if (!bootstrap.exists) {
+    if (options.artifactBucket) {
+      return options.artifactBucket;
+    }
+    throw new Error(
+      `A CloudFormation service role requires --artifact-bucket or HAYASEND_AWS_ARTIFACT_BUCKET when bootstrap stack ${DEFAULT_BOOTSTRAP_STACK} cannot be found.`,
+    );
+  }
+
+  const bootstrapRoleArn = bootstrap.outputs.CloudFormationRoleArn;
+  const bootstrapBucket = bootstrap.outputs.ArtifactBucketName;
+  if (bootstrapRoleArn !== cloudformationRoleArn) {
+    if (options.artifactBucket) {
+      return options.artifactBucket;
+    }
+    throw new Error(
+      `The CloudFormation service role does not match ${DEFAULT_BOOTSTRAP_STACK}; supply its reviewed --artifact-bucket explicitly.`,
+    );
+  }
+  if (!bootstrapBucket || !validArtifactBucketName(bootstrapBucket)) {
+    throw new Error(
+      `${DEFAULT_BOOTSTRAP_STACK} did not return a valid ArtifactBucketName output.`,
+    );
+  }
+  if (options.artifactBucket && options.artifactBucket !== bootstrapBucket) {
+    throw new Error(
+      `--artifact-bucket does not match the ArtifactBucketName output from ${DEFAULT_BOOTSTRAP_STACK}.`,
+    );
+  }
+  return options.artifactBucket ?? bootstrapBucket;
 }
 
 function retainedLogicalIds(resources: StackResource[]) {
@@ -2896,7 +2953,7 @@ export async function deployAws(
   rawOptions: AwsDeployOptions,
   dependencies: AwsDeployDependencies,
 ) {
-  const options = normalizeOptions(rawOptions, dependencies.env);
+  let options = normalizeOptions(rawOptions, dependencies.env);
   const templatePath = PACKAGED_TEMPLATE_PATH;
   const applicationDirectory = dirname(templatePath);
   const template = await readFile(templatePath, "utf8").catch(() => {
@@ -2938,6 +2995,15 @@ export async function deployAws(
           : ""),
     );
   }
+  const artifactBucket = await resolveArtifactBucket(
+    dependencies,
+    options,
+    cloudformationRoleArn,
+  );
+  options = {
+    ...options,
+    ...(artifactBucket ? { artifactBucket } : {}),
+  };
   const samVersionResult = await requireCommand(
     dependencies,
     "sam",

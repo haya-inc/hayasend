@@ -742,8 +742,13 @@ suffixes. An existing bootstrap secret ARN must belong to the expected account
 and Region. `Project=HayaSend` and `ManagedBy=HayaSendCLI` tags are reserved.
 The CloudFormation role must belong to the exact account and AWS partition.
 When omitted on an existing stack, the CLI reads and preserves that stack's
-recorded `RoleARN` for SAM updates and deletion. Supplying a dedicated
-artifact bucket disables SAM's automatic artifact-bucket resolution.
+recorded `RoleARN` for SAM updates and deletion. When that role matches the
+default `HayaSendDeploymentBootstrap` stack, deploy and upgrade automatically
+read its `ArtifactBucketName` output and preserve the bucket in the printed
+apply command. An explicitly supplied bucket must match that output. If the
+role cannot be matched to the bootstrap stack, the plan fails before SAM
+unless `--artifact-bucket` is supplied explicitly. A dedicated artifact bucket
+disables SAM's automatic artifact-bucket resolution.
 The production default reserves 10 worker executions. New or quota-constrained
 accounts can set the override to `0`; queue scaling still caps worker
 concurrency at 10.
