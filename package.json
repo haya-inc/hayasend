@@ -122,7 +122,7 @@
     "esbuild": "0.28.1",
     "google-auth-library": "11.0.0",
     "hono": "4.12.34",
-    "html-to-text": "10.0.0",
+    "html-to-text": "10.0.1",
     "pg": "8.22.0",
     "postal-mime": "2.7.5",
     "railway": "3.7.0",
