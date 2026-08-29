@@ -6,12 +6,12 @@ services separately from access to the source code.
 
 ## Current availability
 
-HayaSend is currently early beta. Commercial discovery, architecture reviews,
-migrations, and non-critical evaluation support are available now.
-Production support and contractual incident-response service levels do not
-start until the production-qualification evidence tracked in
-[GitHub milestone 2](https://github.com/haya-inc/hayasend/milestone/2) is
-complete and the agreement names a supported HayaSend release and provider.
+The AWS-native + Amazon SES path is production-qualified within its published
+capability limits. Commercial discovery, architecture reviews, migrations,
+and production support are available when an executed agreement names a
+supported HayaSend release, AWS Region, workload boundary, and response level.
+Workload cutovers remain stream-specific and require a controlled canary plus
+a rehearsed provider rollback.
 
 Cloudflare Email Sending remains Beta and is not a production-supported
 transport.

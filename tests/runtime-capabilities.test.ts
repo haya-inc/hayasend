@@ -24,12 +24,9 @@ import {
 
 describe("runtime and deployment capability contracts", () => {
   it("publishes durable-store authority and private runtime defaults", () => {
-    for (const runtime of [
-      AWS_RUNTIME_CAPABILITIES,
-      CLOUDFLARE_RUNTIME_CAPABILITIES,
-    ]) {
+    for (const runtime of [AWS_RUNTIME_CAPABILITIES]) {
       expect(runtimeCapabilityDocumentSchema.parse(runtime)).toMatchObject({
-        service_maturity: "beta",
+        service_maturity: "production",
         authority: {
           durable_store: "metadata-ledger-outbox",
           atomic_message_outbox_commit: true,
@@ -45,6 +42,7 @@ describe("runtime and deployment capability contracts", () => {
         },
       });
     }
+    expect(CLOUDFLARE_RUNTIME_CAPABILITIES.service_maturity).toBe("beta");
   });
 
   it("keeps the portable runtime experimental while Cloud Run evidence is pending", () => {
@@ -104,14 +102,17 @@ describe("runtime and deployment capability contracts", () => {
       runtime: { profile: "aws-native" },
       transport: { provider: "aws-ses" },
       maturity: {
-        runtime: "beta",
-        transport: "beta",
-        combination: "beta",
+        runtime: "production",
+        transport: "production",
+        combination: "production",
       },
-      production_ready: false,
+      production_ready: true,
       evidence: {
-        terminal_delivery: { status: "pending" },
-        controlled_receipt: { status: "pending" },
+        conformance: { status: "passed" },
+        lifecycle: { status: "passed" },
+        terminal_delivery: { status: "passed" },
+        controlled_receipt: { status: "passed" },
+        cleanup: { status: "passed" },
       },
     });
     expect(CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES).toMatchObject({
@@ -183,12 +184,8 @@ describe("runtime and deployment capability contracts", () => {
       deployments: [
         {
           deployment: "aws-ses",
-          production_ready: false,
-          blockers: [
-            "conformance",
-            "terminal_delivery",
-            "controlled_receipt",
-          ],
+          production_ready: true,
+          blockers: [],
         },
         {
           deployment: "cloudflare-email",
@@ -205,7 +202,7 @@ describe("runtime and deployment capability contracts", () => {
 
   it("rejects readiness blockers that drift from their evidence gates", () => {
     const matrix = buildReadinessMatrix([
-      AWS_SES_DEPLOYMENT_CAPABILITIES,
+      CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
     ]);
     expect(() =>
       readinessMatrixSchema.parse({
@@ -238,14 +235,14 @@ describe("runtime and deployment capability contracts", () => {
     expect(() =>
       validateDeploymentCapabilityDocument(
         {
-          ...AWS_SES_DEPLOYMENT_CAPABILITIES,
+          ...CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
           maturity: {
-            ...AWS_SES_DEPLOYMENT_CAPABILITIES.maturity,
+            ...CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES.maturity,
             combination: "production",
           },
         },
-        AWS_RUNTIME_CAPABILITIES,
-        AWS_SES_CAPABILITIES,
+        CLOUDFLARE_RUNTIME_CAPABILITIES,
+        CLOUDFLARE_EMAIL_CAPABILITIES,
       ),
     ).toThrow("cannot exceed its weakest component");
 
@@ -269,35 +266,28 @@ describe("runtime and deployment capability contracts", () => {
     expect(() =>
       validateDeploymentCapabilityDocument(
         {
-          ...AWS_SES_DEPLOYMENT_CAPABILITIES,
+          ...CLOUDFLARE_EMAIL_DEPLOYMENT_CAPABILITIES,
           production_ready: true,
         },
-        AWS_RUNTIME_CAPABILITIES,
-        AWS_SES_CAPABILITIES,
+        CLOUDFLARE_RUNTIME_CAPABILITIES,
+        CLOUDFLARE_EMAIL_CAPABILITIES,
       ),
     ).toThrow("production combination maturity");
 
-    const productionRuntime = {
-      ...AWS_RUNTIME_CAPABILITIES,
-      service_maturity: "production" as const,
-    };
-    const productionTransport = {
-      ...AWS_SES_CAPABILITIES,
-      service_maturity: "production" as const,
-    };
     expect(() =>
       validateDeploymentCapabilityDocument(
         {
           ...AWS_SES_DEPLOYMENT_CAPABILITIES,
-          production_ready: true,
-          maturity: {
-            runtime: "production",
-            transport: "production",
-            combination: "production",
+          evidence: {
+            ...AWS_SES_DEPLOYMENT_CAPABILITIES.evidence,
+            conformance: {
+              ...AWS_SES_DEPLOYMENT_CAPABILITIES.evidence.conformance,
+              status: "pending",
+            },
           },
         },
-        productionRuntime,
-        productionTransport,
+        AWS_RUNTIME_CAPABILITIES,
+        AWS_SES_CAPABILITIES,
       ),
     ).toThrow("requires passed conformance evidence");
   });

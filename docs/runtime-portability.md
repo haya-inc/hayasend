@@ -224,7 +224,7 @@ HayaSend does not plan to build or operate a custom MTA.
 
 | Target | Runtime | Transport | Initial claim |
 | --- | --- | --- | --- |
-| AWS | `aws-native` | Amazon SES | Beta; production candidate after exact proof |
+| AWS | `aws-native` | Amazon SES | Production-qualified within published capability limits |
 | Cloudflare | `cloudflare-native` | Cloudflare Email Sending | Beta / non-production |
 | Azure | `portable-postgres`, then optional native optimizations | ACS Email/Event Grid | Experimental adapter and foundation; hosted proof pending |
 | GCP / Cloud Run | `portable-postgres` | SendGrid | Implemented experimental combination; hosted proof pending |

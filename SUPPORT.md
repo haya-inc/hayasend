@@ -39,10 +39,10 @@ the initial inquiry. Haya will establish an agreed secure exchange if
 diagnostic material is needed. The contact form is covered by
 [Haya's privacy policy](https://www.haya.company/legal).
 
-HayaSend remains early beta. Commercial evaluation and fixed-scope services
-are available now, but supported-production service levels do not start until
-the production-qualification evidence is complete and an executed agreement
-names the supported release and provider. See
+The AWS-native + Amazon SES path is production-qualified within its published
+capability limits. Commercial evaluation, fixed-scope services, and contracted
+production support are available when an executed agreement names the
+supported release, AWS Region, workload boundary, and response level. See
 [commercial support and service levels](docs/support-service-levels.md).
 
 ## Support boundary

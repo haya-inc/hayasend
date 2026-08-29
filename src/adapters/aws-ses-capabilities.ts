@@ -10,8 +10,8 @@ export const AWS_SES_CAPABILITIES = providerCapabilityDocumentSchema.parse({
   schema_version: "1.0.0",
   provider: "aws-ses",
   adapter_version: HAYASEND_VERSION,
-  checked_at: "2026-07-27",
-  service_maturity: "beta",
+  checked_at: "2026-08-29",
+  service_maturity: "production",
   required_plan:
     "An AWS account with Amazon SES production access in the deployment Region is required for unverified recipients.",
   limits: {

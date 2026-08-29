@@ -14,10 +14,10 @@ and Release install it with the pinned official setup action. Deno is
 intentionally not an npm dependency, so the product's Alpine/musl container
 install remains portable and does not include the example-only toolchain.
 
-HayaSend remains early beta. Keep authentication, recovery, and
-security-notification traffic on the existing provider until AWS SES production
-access, terminal delivery, a controlled hook canary, mailbox receipt, and
-rollback rehearsal have passed.
+The AWS-native + Amazon SES path is production-qualified. Keep authentication,
+recovery, and security-notification traffic on the existing provider until a
+controlled hook canary, mailbox receipt, and provider rollback rehearsal have
+passed for this workload.
 
 ## Security and delivery behavior
 

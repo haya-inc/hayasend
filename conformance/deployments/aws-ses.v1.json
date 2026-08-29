@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "deployment": "aws-ses",
   "adapter_version": "0.3.11",
-  "checked_at": "2026-07-28",
+  "checked_at": "2026-08-29",
   "runtime": {
     "profile": "aws-native",
     "adapter_version": "0.3.11",
@@ -14,11 +14,11 @@
     "capability_document": "conformance/providers/aws-ses.v1.json"
   },
   "maturity": {
-    "runtime": "beta",
-    "transport": "beta",
-    "combination": "beta"
+    "runtime": "production",
+    "transport": "production",
+    "combination": "production"
   },
-  "production_ready": false,
+  "production_ready": true,
   "effective_limits": {
     "max_serialized_request_bytes": 9437184,
     "max_mime_message_bytes": 40894464,
@@ -30,29 +30,29 @@
   },
   "evidence": {
     "conformance": {
-      "status": "pending",
+      "status": "passed",
       "url": "https://github.com/haya-inc/hayasend/issues/126",
-      "notes": "Exact-main hosted conformance and provider terminal proof are tracked in issue #126."
+      "notes": "Issue #126 records exact-main hosted conformance and official-SDK terminal delivery evidence."
     },
     "lifecycle": {
       "status": "passed",
-      "url": "https://github.com/haya-inc/hayasend/issues/22",
-      "notes": "The v0.1 release gate proved protected deployment, rollback behavior, and release verification."
+      "url": "https://github.com/haya-inc/hayasend/issues/174",
+      "notes": "Protected deployment, gradual upgrade, alarm-driven rollback, backup/restore, and zero-residue cleanup passed in the dedicated account."
     },
     "terminal_delivery": {
-      "status": "pending",
+      "status": "passed",
       "url": "https://github.com/haya-inc/hayasend/issues/126",
-      "notes": "SES acceptance, SNS terminal correlation, and recipient convergence have not yet passed on exact main."
+      "notes": "Issue #126 proves SES acceptance, provider ID and SNS event correlation, and exact-recipient delivered convergence."
     },
     "controlled_receipt": {
-      "status": "pending",
+      "status": "passed",
       "url": "https://github.com/haya-inc/hayasend/issues/126",
-      "notes": "Controlled mailbox receipt remains part of the terminal-delivery proof."
+      "notes": "Issue #126 records controlled mailbox receipt for the exact unique test message outside spam and trash."
     },
     "cleanup": {
       "status": "passed",
-      "url": "https://github.com/haya-inc/hayasend/issues/22",
-      "notes": "The reusable dedicated test-account integration verified stack cleanup with retain_stack=false."
+      "url": "https://github.com/haya-inc/hayasend/issues/126",
+      "notes": "The exact-main terminal proof and independent audit verified zero run-scoped AWS residue."
     }
   },
   "privacy": {
@@ -62,7 +62,9 @@
     "raw_provider_errors_retained": false
   },
   "limitations": [
-    "Production readiness is false while issue #126 remains incomplete.",
+    "Production readiness applies only to the AWS-native and Amazon SES deployment described by this document.",
+    "The product owner waived the incomplete 14-day and 1,000-message dogfood criterion on 2026-08-29 after 486 of 486 controlled deliveries with zero unexplained loss and zero duplicate terminal events; issue #105 preserves that decision and evidence.",
+    "Each workload migration still requires a stream-specific canary and a rehearsed provider rollback before critical traffic moves.",
     "Amazon SES has no verified provider-side send idempotency key.",
     "AWS account quotas, sending access, and Region configuration remain customer responsibilities."
   ]
