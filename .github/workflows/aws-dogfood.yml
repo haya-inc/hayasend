@@ -1,13 +1,8 @@
 name: AWS SES dogfood
 
 on:
-  # BLD-7 time-bounded evidence window: four deterministic slots per UTC day.
-  # Disable the campaign with AWS_DOGFOOD_ENABLED after the 14-day run.
-  schedule:
-    - cron: '17 0 * * *'
-    - cron: '17 6 * * *'
-    - cron: '17 12 * * *'
-    - cron: '17 18 * * *'
+  # BLD-7 human decision: recurring dogfood is disabled. Keep only explicit,
+  # account-confirmed manual evidence runs behind the environment kill switch.
   workflow_dispatch:
     inputs:
       confirm_account:
@@ -57,7 +52,6 @@ jobs:
       CONFIRM_ACCOUNT: ${{ inputs.confirm_account }}
       REQUESTED_DATE: ${{ inputs.dogfood_date }}
       REQUESTED_SLOT: ${{ inputs.slot }}
-      EVENT_SCHEDULE: ${{ github.event.schedule }}
       STACK_NAME: hayasend
 
     steps:
@@ -91,23 +85,11 @@ jobs:
             echo "::error::AWS_TEST_ROLE_ARN must name a role in the approved test account."
             exit 1
           fi
-          case "${EVENT_SCHEDULE:-}" in
-            "17 0 * * *") slot=0 ;;
-            "17 6 * * *") slot=1 ;;
-            "17 12 * * *") slot=2 ;;
-            "17 18 * * *") slot=3 ;;
-            "")
-              if [[ -z "${REQUESTED_SLOT:-}" || "$REQUESTED_SLOT" = "auto" ]]; then
-                slot=$((10#$(date -u +%H) / 6))
-              else
-                slot="$REQUESTED_SLOT"
-              fi
-              ;;
-            *)
-              echo "::error::The scheduled expression is not a reviewed dogfood slot."
-              exit 1
-              ;;
-          esac
+          if [[ -z "${REQUESTED_SLOT:-}" || "$REQUESTED_SLOT" = "auto" ]]; then
+            slot=$((10#$(date -u +%H) / 6))
+          else
+            slot="$REQUESTED_SLOT"
+          fi
           run_date="${REQUESTED_DATE:-$(date -u +%F)}"
           if [[ ! "$run_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             echo "::error::dogfood_date must use YYYY-MM-DD."
