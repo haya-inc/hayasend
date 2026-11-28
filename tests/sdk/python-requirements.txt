@@ -1,8 +1,9 @@
 # CI lock for CPython 3.14 on Ubuntu x86_64. Install with
 # --only-binary=:all: --require-hashes so the compatibility gate never executes
 # an unreviewed source distribution.
-certifi==2026.7.22 \
-    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
+certifi==2026.10.18 \
+    --hash=sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62 \
+    --hash=sha256:b9995d97b64d0431a5af837d8ca8cd6238104d1f319f04bd93ea43124d6c861e
 charset-normalizer==3.4.9 \
     --hash=sha256:c25fe15c70c59eb7c5ce8c06a1f3fa1da0ecc5ea1e7a5922c40fd2fa9b0d5046
 idna==3.18 \

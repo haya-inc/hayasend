@@ -108,7 +108,7 @@
     "@aws-sdk/s3-request-presigner": "3.1103.0",
     "@azure/arm-communication": "5.0.0",
     "@azure/communication-email": "1.1.0",
-    "@azure/identity": "4.13.1",
+    "@azure/identity": "4.14.1",
     "@azure/storage-blob": "12.33.0",
     "@google-cloud/storage": "7.21.0",
     "@hono/node-server": "2.0.12",
@@ -118,7 +118,7 @@
     "@vercel/blob": "2.6.1",
     "@vercel/functions": "3.7.6",
     "@vercel/queue": "0.4.0",
-    "better-auth": "1.6.26",
+    "better-auth": "1.7.7",
     "esbuild": "0.28.1",
     "google-auth-library": "11.0.0",
     "hono": "4.12.34",
@@ -126,7 +126,7 @@
     "pg": "8.22.0",
     "postal-mime": "2.7.5",
     "railway": "3.7.0",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.20.1",
