@@ -1,63 +1,66 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hayasend.dev/schemas/deployment-capabilities.v1.schema.json",
-  "type": "object",
-  "properties": {
-    "schema_version": {
-      "$ref": "#/$defs/__schema0"
-    },
-    "deployment": {
-      "$ref": "#/$defs/__schema1"
-    },
-    "adapter_version": {
-      "$ref": "#/$defs/__schema2"
-    },
-    "checked_at": {
-      "$ref": "#/$defs/__schema3"
-    },
-    "runtime": {
-      "$ref": "#/$defs/__schema4"
-    },
-    "transport": {
-      "$ref": "#/$defs/__schema5"
-    },
-    "maturity": {
-      "$ref": "#/$defs/__schema6"
-    },
-    "production_ready": {
-      "$ref": "#/$defs/__schema8"
-    },
-    "effective_limits": {
-      "$ref": "#/$defs/__schema9"
-    },
-    "evidence": {
-      "$ref": "#/$defs/__schema10"
-    },
-    "privacy": {
-      "$ref": "#/$defs/__schema12"
-    },
-    "limitations": {
-      "$ref": "#/$defs/__schema13"
-    }
-  },
-  "required": [
-    "schema_version",
-    "deployment",
-    "adapter_version",
-    "checked_at",
-    "runtime",
-    "transport",
-    "maturity",
-    "production_ready",
-    "effective_limits",
-    "evidence",
-    "privacy",
-    "limitations"
-  ],
-  "additionalProperties": false,
-  "title": "HayaSend deployment capability document",
-  "description": "Binds one runtime substrate to one mail transport and prevents readiness from exceeding the weakest component or evidence gate.",
+  "$ref": "#/$defs/https:~1~1hayasend.dev~1schemas~1deployment-capabilities.v1.schema.json",
   "$defs": {
+    "https://hayasend.dev/schemas/deployment-capabilities.v1.schema.json": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/__schema0"
+        },
+        "deployment": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "adapter_version": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "checked_at": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "runtime": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "transport": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "maturity": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "production_ready": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "effective_limits": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "evidence": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "privacy": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "limitations": {
+          "$ref": "#/$defs/__schema13"
+        }
+      },
+      "required": [
+        "schema_version",
+        "deployment",
+        "adapter_version",
+        "checked_at",
+        "runtime",
+        "transport",
+        "maturity",
+        "production_ready",
+        "effective_limits",
+        "evidence",
+        "privacy",
+        "limitations"
+      ],
+      "additionalProperties": false,
+      "title": "HayaSend deployment capability document",
+      "description": "Binds one runtime substrate to one mail transport and prevents readiness from exceeding the weakest component or evidence gate."
+    },
     "__schema0": {
       "type": "string",
       "const": "1.0.0"
@@ -238,7 +241,7 @@
         },
         "url": {
           "type": "string",
-          "format": "uri",
+          "format": "starts_with",
           "pattern": "^https:\\/\\/.*"
         },
         "notes": {
