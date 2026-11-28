@@ -1,26 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hayasend.dev/schemas/delivery-record.v1.schema.json",
-  "anyOf": [
-    {
-      "$ref": "#/$defs/__schema0"
-    },
-    {
-      "$ref": "#/$defs/__schema12"
-    },
-    {
-      "$ref": "#/$defs/__schema21"
-    },
-    {
-      "$ref": "#/$defs/__schema32"
-    },
-    {
-      "$ref": "#/$defs/__schema44"
-    }
-  ],
-  "title": "HayaSend provider-neutral delivery record",
-  "description": "Versioned message, recipient, attempt, provider-event, and outbox records.",
+  "$ref": "#/$defs/https:~1~1hayasend.dev~1schemas~1delivery-record.v1.schema.json",
   "$defs": {
+    "https://hayasend.dev/schemas/delivery-record.v1.schema.json": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema0"
+        },
+        {
+          "$ref": "#/$defs/__schema12"
+        },
+        {
+          "$ref": "#/$defs/__schema21"
+        },
+        {
+          "$ref": "#/$defs/__schema32"
+        },
+        {
+          "$ref": "#/$defs/__schema44"
+        }
+      ],
+      "title": "HayaSend provider-neutral delivery record",
+      "description": "Versioned message, recipient, attempt, provider-event, and outbox records."
+    },
     "__schema0": {
       "type": "object",
       "properties": {
@@ -140,7 +143,7 @@
     "__schema10": {
       "type": "string",
       "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
     },
     "__schema11": {
       "$ref": "#/$defs/__schema10"
@@ -221,7 +224,7 @@
       "type": "string",
       "maxLength": 320,
       "format": "email",
-      "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+      "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
     },
     "__schema18": {
       "type": "string",
